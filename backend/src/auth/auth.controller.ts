@@ -14,7 +14,7 @@ export class UsersController {
     const result = await this.auth.loginClient(email, String(body.password || ''));
     if (!result.found || !result.authenticated) throw new UnauthorizedException('Invalid email or password.');
     if (result.status !== 'approved') return { found: true, status: result.status };
-    return { found: true, user: result.user, sessionToken: this.security.issueSession(email, result.sessionVersion) };
+    return { found: true, status: result.status, user: result.user, sessionToken: this.security.issueSession(email, result.sessionVersion) };
   }
   @Post('register')
   async register(@Body() body: any) {
