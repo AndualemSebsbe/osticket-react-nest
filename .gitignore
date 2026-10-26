@@ -1,0 +1,15 @@
+node_modules
+dist
+_ref
+*.local
+.DS_Store
+
+node_modules/
+dist/
+build/
+
+server/data/*.json
+server/data/*.tmp
+
+# Prisma generated client
+node_modules/.prisma

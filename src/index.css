@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #d9e6ff;
+  --color-brand-500: #2563eb;
+  --color-brand-600: #1d4ed8;
+  --color-brand-700: #1e40af;
+  --color-ink-950: #0b1220;
+  --color-ink-800: #1e293b;
+  --color-ink-600: #475569;
+  --color-ink-400: #94a3b8;
+  --color-paper: #f6f7fb;
+  --color-surface: #ffffff;
+  --color-line: #e2e8f0;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+.dark {
+  --color-brand-50: #172554;
+  --color-brand-100: #1e3a8a;
+  --color-ink-950: #020617;
+  --color-ink-800: #e2e8f0;
+  --color-ink-600: #94a3b8;
+  --color-ink-400: #64748b;
+  --color-paper: #0b1220;
+  --color-surface: #111827;
+  --color-line: #1f2937;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  overflow-x: clip;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--color-paper);
+  color: var(--color-ink-800);
+  -webkit-font-smoothing: antialiased;
+}
+
+body.nav-open {
+  overflow: hidden;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+td,
+th {
+  overflow-wrap: anywhere;
+}
+
+input,
+textarea,
+select {
+  color: #334155;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #334155;
+  opacity: 1;
+}
+
+.dark body {
+  color: var(--color-ink-800);
+}
+
+.dark label {
+  @apply text-slate-400;
+}
+
+.dark h1 {
+  @apply text-slate-200;
+}
+
+.dark p {
+  @apply text-slate-400;
+}
+
+.dark input,
+.dark textarea,
+.dark select {
+  color: var(--color-ink-800);
+}
+
+.dark option {
+  @apply text-slate-400;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: var(--color-ink-600);
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

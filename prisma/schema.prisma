@@ -1,0 +1,891 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["osticket"]
+}
+
+model ApiKey {
+  id                 BigInt   @id @default(autoincrement())
+  isactive           Int      @default(1) @db.SmallInt
+  ipaddr             String   @default("") @db.VarChar(64)
+  apikey             String   @default("") @db.VarChar(255)
+  can_create_tickets Int      @default(1) @db.SmallInt
+  can_exec_cron      Int      @default(1) @db.SmallInt
+  notes              String?
+  updated            DateTime @default(now()) @db.Timestamp(6)
+  created            DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_api_key")
+  @@schema("osticket")
+}
+
+model Attachment {
+  id        BigInt  @id @default(autoincrement())
+  object_id BigInt
+  type      String  @default("H") @db.Char(1)
+  file_id   BigInt
+  name      String? @db.VarChar(255)
+  inline    Int     @default(0) @db.SmallInt
+  lang      String? @db.VarChar(16)
+
+  @@unique([object_id, type, file_id])
+  @@map("ost_attachment")
+  @@schema("osticket")
+}
+
+model Audit {
+  id          BigInt   @id @default(autoincrement())
+  object_type String   @default("") @db.Char(1)
+  object_id   BigInt
+  event_id    BigInt?
+  staff_id    BigInt   @default(0)
+  user_id     BigInt   @default(0)
+  data        String?
+  ip          String?  @db.VarChar(64)
+  timestamp   DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_audit")
+  @@schema("osticket")
+}
+
+model CannedResponse {
+  canned_id BigInt   @id @default(autoincrement())
+  dept_id   BigInt   @default(0)
+  isenabled Int      @default(1) @db.SmallInt
+  title     String   @default("") @db.VarChar(255)
+  response  String   @default("")
+  lang      String   @default("en_US") @db.VarChar(16)
+  notes     String?
+  created   DateTime @default(now()) @db.Timestamp(6)
+  updated   DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_canned_response")
+  @@schema("osticket")
+}
+
+model Config {
+  id        BigInt   @id @default(autoincrement())
+  namespace String   @db.VarChar(64)
+  key       String   @db.VarChar(64)
+  value     String
+  updated   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([namespace, key])
+  @@map("ost_config")
+  @@schema("osticket")
+}
+
+model Content {
+  id       BigInt   @id @default(autoincrement())
+  isactive Int      @default(0) @db.SmallInt
+  type     String   @default("other") @db.VarChar(32)
+  name     String   @default("") @db.VarChar(255)
+  body     String   @default("")
+  notes    String?
+  created  DateTime @default(now()) @db.Timestamp(6)
+  updated  DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_content")
+  @@schema("osticket")
+}
+
+model Department {
+  id                    BigInt   @id @default(autoincrement())
+  pid                   BigInt?
+  name                  String   @db.VarChar(128)
+  signature             String   @default("")
+  ispublic              Int      @default(1) @db.SmallInt
+  updated               DateTime @default(now()) @db.Timestamp(6)
+  created               DateTime @default(now()) @db.Timestamp(6)
+  tpl_id                Int      @default(0)
+  sla_id                Int      @default(0)
+  schedule_id           Int      @default(0)
+  email_id              Int      @default(0)
+  autoresp_email_id     Int      @default(0)
+  manager_id            Int      @default(0)
+  flags                 Int      @default(0)
+  group_membership      Int      @default(0) @db.SmallInt
+  ticket_auto_response  Int      @default(1) @db.SmallInt
+  message_auto_response Int      @default(0) @db.SmallInt
+  path                  String   @default("/") @db.VarChar(128)
+
+  @@map("ost_department")
+  @@schema("osticket")
+}
+
+model Email {
+  email_id    Int      @id @default(autoincrement())
+  noautoresp  Int      @default(0) @db.SmallInt
+  priority_id Int      @default(2)
+  dept_id     Int      @default(0)
+  topic_id    Int      @default(0)
+  email       String   @unique(map: "ost_email_email_unique") @default("") @db.VarChar(255)
+  name        String   @default("") @db.VarChar(255)
+  notes       String?
+  created     DateTime @default(now()) @db.Timestamp(6)
+  updated     DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([dept_id])
+  @@index([priority_id])
+  @@map("ost_email")
+  @@schema("osticket")
+}
+
+model EmailAccount {
+  id             BigInt    @id @default(autoincrement())
+  email_id       BigInt
+  type           String    @default("smtp") @db.VarChar(16)
+  auth_bk        String    @default("") @db.VarChar(128)
+  auth_id        String?   @db.VarChar(16)
+  active         Int       @default(0) @db.SmallInt
+  host           String    @default("") @db.VarChar(128)
+  port           Int       @default(587)
+  folder         String?   @db.VarChar(255)
+  protocol       String    @default("SMTP") @db.VarChar(16)
+  encryption     String    @default("AUTO") @db.VarChar(16)
+  fetchfreq      Int       @default(5) @db.SmallInt
+  fetchmax       Int?      @default(30) @db.SmallInt
+  postfetch      String    @default("nothing") @db.VarChar(16)
+  archivefolder  String?   @db.VarChar(255)
+  allow_spoofing Int?      @default(0) @db.SmallInt
+  num_errors     Int       @default(0)
+  last_error_msg String?   @db.VarChar(255)
+  last_error     DateTime? @db.Timestamp(6)
+  last_activity  DateTime? @db.Timestamp(6)
+  created        DateTime  @default(now()) @db.Timestamp(6)
+  updated        DateTime  @default(now()) @db.Timestamp(6)
+
+  @@unique([email_id, type])
+  @@map("ost_email_account")
+  @@schema("osticket")
+}
+
+model EmailTemplateGroup {
+  tpl_id   BigInt   @id @default(autoincrement())
+  isactive Int      @default(0) @db.SmallInt
+  name     String   @default("") @db.VarChar(32)
+  lang     String   @default("en_US") @db.VarChar(16)
+  notes    String?
+  created  DateTime @default(now()) @db.Timestamp(6)
+  updated  DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_email_template_group")
+  @@schema("osticket")
+}
+
+model Faq {
+  faq_id      BigInt   @id @default(autoincrement())
+  category_id BigInt   @default(0)
+  ispublished Int      @default(0) @db.SmallInt
+  question    String   @default("") @db.VarChar(255)
+  answer      String   @default("")
+  keywords    String?  @db.VarChar(255)
+  notes       String?
+  created     DateTime @default(now()) @db.Timestamp(6)
+  updated     DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_faq")
+  @@schema("osticket")
+}
+
+model FaqCategory {
+  category_id  BigInt   @id @default(autoincrement())
+  category_pid BigInt?
+  ispublic     Int      @default(0) @db.SmallInt
+  name         String?  @db.VarChar(125)
+  description  String   @default("")
+  notes        String   @default("") @db.VarChar(255)
+  created      DateTime @default(now()) @db.Timestamp(6)
+  updated      DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_faq_category")
+  @@schema("osticket")
+}
+
+model FaqTopic {
+  faq_id   BigInt
+  topic_id BigInt
+
+  @@id([faq_id, topic_id])
+  @@map("ost_faq_topic")
+  @@schema("osticket")
+}
+
+model File {
+  id        BigInt   @id @default(autoincrement())
+  ft        String   @default("T") @db.Char(1)
+  bk        String   @default("D") @db.Char(1)
+  type      String?  @db.VarChar(255)
+  size      BigInt   @default(0)
+  key       String   @unique @db.VarChar(86)
+  signature String?  @db.VarChar(86)
+  name      String   @db.VarChar(255)
+  attrs     String?  @db.VarChar(255)
+  created   DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_file")
+  @@schema("osticket")
+}
+
+model FileChunk {
+  file_id  BigInt
+  chunk_id Int
+  filedata Bytes
+
+  @@id([file_id, chunk_id])
+  @@map("ost_file_chunk")
+  @@schema("osticket")
+}
+
+model Filter {
+  id              BigInt   @id @default(autoincrement())
+  execorder       BigInt   @default(99)
+  isactive        Int      @default(1) @db.SmallInt
+  flags           BigInt?  @default(0)
+  status          BigInt   @default(0)
+  match_all_rules Int      @default(0) @db.SmallInt
+  stop_onmatch    Int      @default(0) @db.SmallInt
+  target          String   @default("Any") @db.VarChar(16)
+  email_id        BigInt   @default(0)
+  name            String   @default("") @db.VarChar(32)
+  notes           String?
+  created         DateTime @default(now()) @db.Timestamp(6)
+  updated         DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_filter")
+  @@schema("osticket")
+}
+
+model FilterRule {
+  id        BigInt   @id @default(autoincrement())
+  filter_id BigInt   @default(0)
+  what      String   @default("") @db.VarChar(32)
+  how       String   @default("equal") @db.VarChar(16)
+  val       String   @default("") @db.VarChar(255)
+  isactive  Int      @default(1) @db.SmallInt
+  notes     String   @default("") @db.VarChar(255)
+  created   DateTime @default(now()) @db.Timestamp(6)
+  updated   DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_filter_rule")
+  @@schema("osticket")
+}
+
+model Form {
+  id           BigInt   @id @default(autoincrement())
+  pid          BigInt?
+  type         String   @default("G") @db.VarChar(8)
+  flags        BigInt   @default(1)
+  title        String   @default("") @db.VarChar(255)
+  instructions String?  @db.VarChar(512)
+  name         String   @default("") @db.VarChar(64)
+  notes        String?
+  created      DateTime @default(now()) @db.Timestamp(6)
+  updated      DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_form")
+  @@schema("osticket")
+}
+
+model FormField {
+  id            BigInt   @id @default(autoincrement())
+  form_id       BigInt
+  flags         BigInt?  @default(1)
+  type          String   @default("text") @db.VarChar(255)
+  label         String   @default("") @db.VarChar(255)
+  name          String   @default("") @db.VarChar(64)
+  configuration String?
+  sort          BigInt   @default(0)
+  hint          String?  @db.VarChar(512)
+  created       DateTime @default(now()) @db.Timestamp(6)
+  updated       DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_form_field")
+  @@schema("osticket")
+}
+
+model HelpTopic {
+  topic_id      BigInt   @id @default(autoincrement())
+  topic_pid     BigInt   @default(0)
+  ispublic      Int      @default(1) @db.SmallInt
+  noautoresp    Int      @default(0) @db.SmallInt
+  flags         Int?     @default(0)
+  status_id     BigInt   @default(0)
+  priority_id   BigInt   @default(0)
+  dept_id       BigInt   @default(0)
+  staff_id      BigInt   @default(0)
+  team_id       BigInt   @default(0)
+  sla_id        BigInt   @default(0)
+  page_id       BigInt   @default(0)
+  sequence_id   BigInt   @default(0)
+  sort          BigInt   @default(0)
+  topic         String   @default("") @db.VarChar(128)
+  number_format String?  @db.VarChar(32)
+  notes         String?
+  created       DateTime @default(now()) @db.Timestamp(6)
+  updated       DateTime @default(now()) @db.Timestamp(6)
+
+  @@unique([topic, topic_pid])
+  @@map("ost_help_topic")
+  @@schema("osticket")
+}
+
+model List {
+  id            BigInt   @id @default(autoincrement())
+  name          String   @default("") @db.VarChar(255)
+  name_plural   String?  @db.VarChar(255)
+  sort_mode     String   @default("Alpha") @db.VarChar(16)
+  masks         BigInt   @default(0)
+  type          String?  @db.VarChar(16)
+  configuration String   @default("")
+  notes         String?
+  created       DateTime @default(now()) @db.Timestamp(6)
+  updated       DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_list")
+  @@schema("osticket")
+}
+
+model ListItems {
+  id         BigInt  @id @default(autoincrement())
+  list_id    BigInt?
+  status     BigInt  @default(1)
+  value      String  @default("") @db.VarChar(255)
+  extra      String? @db.VarChar(255)
+  sort       Int     @default(1)
+  properties String?
+
+  @@map("ost_list_items")
+  @@schema("osticket")
+}
+
+model Organization {
+  id      BigInt   @id @default(autoincrement())
+  name    String   @unique @db.VarChar(128)
+  created DateTime @default(now()) @db.Timestamp(6)
+  updated DateTime @default(now()) @db.Timestamp(6)
+  manager String   @default("") @db.VarChar(16)
+  status  BigInt   @default(0)
+  domain  String   @default("") @db.VarChar(256)
+  extra   String?
+
+  @@map("ost_organization")
+  @@schema("osticket")
+}
+
+model OrganizationCdata {
+  org_id  BigInt  @id
+  name    String?
+  domain  String?
+  phone   String?
+  notes   String?
+  address String?
+  website String?
+
+  @@map("ost_organization__cdata")
+  @@schema("osticket")
+}
+
+model Plugin {
+  id           BigInt   @id @default(autoincrement())
+  name         String   @default("") @db.VarChar(255)
+  install_path String   @default("") @db.VarChar(60)
+  isphar       Int      @default(0) @db.SmallInt
+  isactive     Int      @default(0) @db.SmallInt
+  version      String?  @db.VarChar(64)
+  notes        String?
+  installed    DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_plugin")
+  @@schema("osticket")
+}
+
+model Queue {
+  id         BigInt   @id @default(autoincrement())
+  parent_id  BigInt   @default(0)
+  columns_id BigInt?
+  sort_id    BigInt?
+  flags      BigInt   @default(0)
+  staff_id   BigInt   @default(0)
+  sort       BigInt   @default(0)
+  title      String?  @db.VarChar(60)
+  config     String?
+  filter     String?  @db.VarChar(64)
+  root       String?  @db.VarChar(32)
+  path       String   @default("/") @db.VarChar(80)
+  created    DateTime @default(now()) @db.Timestamp(6)
+  updated    DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_queue")
+  @@schema("osticket")
+}
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  flags       Int      @default(1)
+  name        String?  @unique(map: "ost_role_name_unique") @db.VarChar(64)
+  permissions String?
+  notes       String?
+  created     DateTime @db.Timestamp(6)
+  updated     DateTime @db.Timestamp(6)
+
+  @@map("ost_role")
+  @@schema("osticket")
+}
+
+model Schedule {
+  id          BigInt   @id @default(autoincrement())
+  flags       BigInt   @default(0)
+  name        String   @default("") @db.VarChar(255)
+  timezone    String?  @db.VarChar(64)
+  description String   @default("") @db.VarChar(255)
+  created     DateTime @default(now()) @db.Timestamp(6)
+  updated     DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_schedule")
+  @@schema("osticket")
+}
+
+model Sla {
+  id           Int      @id @default(autoincrement())
+  schedule_id  Int      @default(0)
+  flags        Int      @default(3)
+  grace_period Int      @default(0)
+  name         String   @unique(map: "ost_sla_name_unique") @default("") @db.VarChar(64)
+  notes        String?
+  created      DateTime @default(now()) @db.Timestamp(6)
+  updated      DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_sla")
+  @@schema("osticket")
+}
+
+model Staff {
+  staff_id               Int                           @id @default(autoincrement())
+  dept_id                Int                           @default(0)
+  role_id                Int                           @default(0)
+  username               String                        @unique(map: "ost_staff_username_unique") @default("") @db.VarChar(32)
+  firstname              String?                       @db.VarChar(32)
+  lastname               String?                       @db.VarChar(32)
+  passwd                 String?                       @db.VarChar(128)
+  backend                String?                       @db.VarChar(32)
+  email                  String?                       @db.VarChar(255)
+  phone                  String                        @default("") @db.VarChar(24)
+  phone_ext              String?                       @db.VarChar(6)
+  mobile                 String                        @default("") @db.VarChar(24)
+  signature              String                        @default("")
+  lang                   String?                       @db.VarChar(16)
+  timezone               String?                       @db.VarChar(64)
+  locale                 String?                       @db.VarChar(16)
+  notes                  String?
+  isactive               Int                           @default(1) @db.SmallInt
+  isadmin                Int                           @default(0) @db.SmallInt
+  isvisible              Int                           @default(1) @db.SmallInt
+  onvacation             Int                           @default(0) @db.SmallInt
+  assigned_only          Int                           @default(0) @db.SmallInt
+  show_assigned_tickets  Int                           @default(0) @db.SmallInt
+  change_passwd          Int                           @default(0) @db.SmallInt
+  max_page_size          Int                           @default(0)
+  auto_refresh_rate      Int                           @default(0)
+  default_signature_type StaffDefaultSignatureTypeEnum @default(NONE)
+  default_paper_size     StaffDefaultPaperSizeEnum     @default(LETTER)
+  extra                  String?
+  permissions            String?
+  created                DateTime                      @default(now()) @db.Timestamp(6)
+  lastlogin              DateTime?                     @db.Timestamp(6)
+  passwdreset            DateTime?                     @db.Timestamp(6)
+  updated                DateTime                      @default(now()) @db.Timestamp(6)
+
+  @@index([dept_id])
+  @@index([isactive])
+  @@index([isadmin])
+  @@index([onvacation])
+  @@map("ost_staff")
+  @@schema("osticket")
+}
+
+model StaffDeptAccess {
+  staff_id Int @default(0)
+  dept_id  Int @default(0)
+  role_id  Int @default(0)
+  flags    Int @default(1)
+
+  @@id([staff_id, dept_id])
+  @@index([dept_id])
+  @@map("ost_staff_dept_access")
+  @@schema("osticket")
+}
+
+model Syslog {
+  log_id     BigInt            @id @default(autoincrement())
+  log_type   SyslogLogTypeEnum
+  title      String            @db.VarChar(255)
+  log        String
+  logger     String            @default("") @db.VarChar(64)
+  ip_address String            @default("") @db.VarChar(64)
+  created    DateTime          @default(now()) @db.Timestamp(6)
+  updated    DateTime          @default(now()) @db.Timestamp(6)
+
+  @@map("ost_syslog")
+  @@schema("osticket")
+}
+
+model Task {
+  id          BigInt    @id @default(autoincrement())
+  object_id   BigInt    @default(0)
+  object_type String    @default("T") @db.Char(1)
+  number      String?   @db.VarChar(20)
+  dept_id     BigInt    @default(0)
+  staff_id    BigInt    @default(0)
+  team_id     BigInt    @default(0)
+  lock_id     BigInt    @default(0)
+  flags       BigInt    @default(0)
+  duedate     DateTime? @db.Timestamp(6)
+  closed      DateTime? @db.Timestamp(6)
+  created     DateTime  @default(now()) @db.Timestamp(6)
+  updated     DateTime  @default(now()) @db.Timestamp(6)
+
+  @@map("ost_task")
+  @@schema("osticket")
+}
+
+model TaskCdata {
+  task_id BigInt  @id
+  title   String?
+
+  @@map("ost_task__cdata")
+  @@schema("osticket")
+}
+
+model Team {
+  team_id BigInt   @id @default(autoincrement())
+  lead_id BigInt   @default(0)
+  flags   BigInt   @default(1)
+  name    String   @default("") @db.VarChar(125)
+  notes   String?
+  created DateTime @default(now()) @db.Timestamp(6)
+  updated DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_team")
+  @@schema("osticket")
+}
+
+model TeamMember {
+  team_id  BigInt @default(0)
+  staff_id BigInt
+  flags    BigInt @default(0)
+
+  @@id([team_id, staff_id])
+  @@map("ost_team_member")
+  @@schema("osticket")
+}
+
+model Thread {
+  id           BigInt    @id @default(autoincrement())
+  object_id    BigInt
+  object_type  String    @db.Char(1)
+  extra        String?
+  lastresponse DateTime? @db.Timestamp(6)
+  lastmessage  DateTime? @db.Timestamp(6)
+  created      DateTime  @default(now()) @db.Timestamp(6)
+
+  @@unique([object_id, object_type])
+  @@map("ost_thread")
+  @@schema("osticket")
+}
+
+model ThreadCollaborator {
+  id        Int      @id @default(autoincrement())
+  flags     Int      @default(1)
+  thread_id Int      @default(0)
+  user_id   Int      @default(0)
+  role      String   @default("M") @db.Char(1)
+  created   DateTime @default(now()) @db.Timestamp(6)
+  updated   DateTime @default(now()) @db.Timestamp(6)
+
+  @@unique([thread_id, user_id], map: "ost_thread_collaborator_unique")
+  @@index([user_id])
+  @@map("ost_thread_collaborator")
+  @@schema("osticket")
+}
+
+model ThreadEntry {
+  id          BigInt   @id @default(autoincrement())
+  pid         BigInt   @default(0)
+  thread_id   BigInt
+  staff_id    BigInt   @default(0)
+  user_id     BigInt   @default(0)
+  type        String   @default("") @db.Char(1)
+  flags       BigInt   @default(0)
+  poster      String   @default("") @db.VarChar(128)
+  editor      BigInt?
+  editor_type String?  @db.Char(1)
+  source      String   @default("") @db.VarChar(32)
+  title       String?  @db.VarChar(255)
+  body        String
+  format      String   @default("text") @db.VarChar(16)
+  ip_address  String   @default("") @db.VarChar(64)
+  extra       String?
+  recipients  String?
+  created     DateTime @default(now()) @db.Timestamp(6)
+  updated     DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([thread_id, created], map: "ost_thread_entry_thread_idx")
+  @@map("ost_thread_entry")
+  @@schema("osticket")
+}
+
+model Ticket {
+  ticket_id     BigInt           @id @default(autoincrement())
+  ticket_pid    BigInt?
+  number        String?          @unique @db.VarChar(20)
+  user_id       BigInt           @default(0)
+  user_email_id BigInt           @default(0)
+  status_id     BigInt           @default(0)
+  dept_id       BigInt           @default(0)
+  sla_id        BigInt           @default(0)
+  topic_id      BigInt           @default(0)
+  staff_id      BigInt           @default(0)
+  team_id       BigInt           @default(0)
+  email_id      BigInt           @default(0)
+  lock_id       BigInt           @default(0)
+  flags         BigInt           @default(0)
+  sort          BigInt           @default(0)
+  ip_address    String           @default("") @db.VarChar(64)
+  source        TicketSourceEnum @default(OTHER)
+  source_extra  String?          @db.VarChar(40)
+  isoverdue     Int              @default(0) @db.SmallInt
+  isanswered    Int              @default(0) @db.SmallInt
+  duedate       DateTime?        @db.Timestamp(6)
+  est_duedate   DateTime?        @db.Timestamp(6)
+  reopened      DateTime?        @db.Timestamp(6)
+  closed        DateTime?        @db.Timestamp(6)
+  lastupdate    DateTime?        @db.Timestamp(6)
+  created       DateTime         @default(now()) @db.Timestamp(6)
+  updated       DateTime         @default(now()) @db.Timestamp(6)
+
+  @@index([updated(sort: Desc)])
+  @@map("ost_ticket")
+  @@schema("osticket")
+}
+
+model TicketPriority {
+  priority_id      Int    @id @db.SmallInt
+  priority         String @unique @db.VarChar(60)
+  priority_desc    String @default("") @db.VarChar(30)
+  priority_color   String @default("") @db.VarChar(7)
+  priority_urgency Int    @default(0) @db.SmallInt
+  ispublic         Int    @default(1) @db.SmallInt
+
+  @@map("ost_ticket_priority")
+  @@schema("osticket")
+}
+
+model TicketStatus {
+  id         BigInt   @id @default(autoincrement())
+  name       String   @unique @db.VarChar(60)
+  state      String?  @db.VarChar(16)
+  mode       Int      @default(0)
+  flags      Int      @default(0)
+  sort       BigInt   @default(0)
+  properties String   @default("")
+  created    DateTime @default(now()) @db.Timestamp(6)
+  updated    DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_ticket_status")
+  @@schema("osticket")
+}
+
+model TicketCdata {
+  ticket_id   BigInt  @id
+  subject     String?
+  priority    String?
+  employee_id String  @default("") @db.VarChar(64)
+  branch_id   BigInt  @default(0)
+
+  @@map("ost_ticket__cdata")
+  @@schema("osticket")
+}
+
+model User {
+  id               BigInt   @id @default(autoincrement())
+  org_id           BigInt   @default(0)
+  default_email_id BigInt   @default(0)
+  status           Int      @default(0)
+  name             String   @db.VarChar(128)
+  created          DateTime @default(now()) @db.Timestamp(6)
+  updated          DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_user")
+  @@schema("osticket")
+}
+
+model UserAccount {
+  id         BigInt    @id @default(autoincrement())
+  user_id    BigInt    @unique
+  status     BigInt    @default(0)
+  timezone   String?   @db.VarChar(64)
+  lang       String?   @db.VarChar(16)
+  username   String?   @db.VarChar(64)
+  passwd     String?   @db.VarChar(128)
+  backend    String?   @db.VarChar(32)
+  extra      String?
+  registered DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@map("ost_user_account")
+  @@schema("osticket")
+}
+
+model UserEmail {
+  id      BigInt @id @default(autoincrement())
+  user_id BigInt
+  flags   Int    @default(0)
+  address String @unique @db.VarChar(255)
+
+  @@map("ost_user_email")
+  @@schema("osticket")
+}
+
+model UserCdata {
+  user_id BigInt  @id
+  email   String?
+  name    String?
+  phone   String?
+  notes   String?
+
+  @@map("ost_user__cdata")
+  @@schema("osticket")
+}
+
+model Branch {
+  id      BigInt   @id @default(autoincrement())
+  name    String   @unique @db.VarChar(128)
+  active  Int      @default(1) @db.SmallInt
+  created DateTime @default(now()) @db.Timestamp(6)
+  updated DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_branch")
+  @@schema("osticket")
+}
+
+enum EmailAccountTypeEnum {
+  MAILBOX @map("mailbox")
+  SMTP    @map("smtp")
+
+  @@map("email_account_type_enum")
+  @@schema("osticket")
+}
+
+enum EmailAccountProtocolEnum {
+  IMAP  @map("IMAP")
+  POP   @map("POP")
+  SMTP  @map("SMTP")
+  OTHER @map("OTHER")
+
+  @@map("email_account_protocol_enum")
+  @@schema("osticket")
+}
+
+enum EmailAccountEncryptionEnum {
+  NONE @map("NONE")
+  AUTO @map("AUTO")
+  SSL  @map("SSL")
+
+  @@map("email_account_encryption_enum")
+  @@schema("osticket")
+}
+
+enum EmailAccountPostfetchEnum {
+  ARCHIVE @map("archive")
+  DELETE  @map("delete")
+  NOTHING @map("nothing")
+
+  @@map("email_account_postfetch_enum")
+  @@schema("osticket")
+}
+
+enum FilterTargetEnum {
+  ANY   @map("Any")
+  WEB   @map("Web")
+  EMAIL @map("Email")
+  API   @map("API")
+
+  @@map("filter_target_enum")
+  @@schema("osticket")
+}
+
+enum FilterRuleHowEnum {
+  EQUAL      @map("equal")
+  NOT_EQUAL  @map("not_equal")
+  CONTAINS   @map("contains")
+  DN_CONTAIN @map("dn_contain")
+  STARTS     @map("starts")
+  ENDS       @map("ends")
+  MATCH      @map("match")
+  NOT_MATCH  @map("not_match")
+
+  @@map("filter_rule_how_enum")
+  @@schema("osticket")
+}
+
+enum ListSortModeEnum {
+  ALPHA       @map("Alpha")
+  VALUE_ALPHA @map("-Alpha")
+  SORTCOL     @map("SortCol")
+
+  @@map("list_sort_mode_enum")
+  @@schema("osticket")
+}
+
+enum StaffDefaultSignatureTypeEnum {
+  NONE @map("none")
+  MINE @map("mine")
+  DEPT @map("dept")
+
+  @@map("staff_default_signature_type_enum")
+  @@schema("osticket")
+}
+
+enum StaffDefaultPaperSizeEnum {
+  LETTER @map("Letter")
+  LEGAL  @map("Legal")
+  LEDGER @map("Ledger")
+  A4     @map("A4")
+  A3     @map("A3")
+
+  @@map("staff_default_paper_size_enum")
+  @@schema("osticket")
+}
+
+enum SyslogLogTypeEnum {
+  DEBUG   @map("Debug")
+  WARNING @map("Warning")
+  ERROR   @map("Error")
+
+  @@map("syslog_log_type_enum")
+  @@schema("osticket")
+}
+
+enum TicketSourceEnum {
+  WEB   @map("Web")
+  EMAIL @map("Email")
+  PHONE @map("Phone")
+  API   @map("API")
+  OTHER @map("Other")
+
+  @@map("ticket_source_enum")
+  @@schema("osticket")
+}
+
+enum TranslationTypeEnum {
+  PHRASE   @map("phrase")
+  ARTICLE  @map("article")
+  OVERRIDE @map("override")
+
+  @@map("translation_type_enum")
+  @@schema("osticket")
+}
