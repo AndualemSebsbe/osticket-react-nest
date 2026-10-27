@@ -20,7 +20,7 @@ export class UsersController {
   async register(@Body() body: any) {
     const name = this.security.clean(body.name, 128), email = this.security.email(body.email), password = String(body.password || '');
     if (!name || !this.security.validEmail(email) || password.length < 8) throw new BadRequestException('Name, valid email, and password of at least 8 characters are required.');
-    await this.auth.register({ name, email, password, phone: this.security.clean(body.phone, 64) });
+    await this.auth.register({ name, email, password, phone: this.security.clean(body.phone, 64), employeeId: this.security.clean(body.employeeId, 64), branchId: this.security.clean(body.branchId, 32) });
     return { submitted: true, verificationStatus: 'pending' };
   }
   @Get('session')

@@ -1,10 +1,10 @@
-import { Inject, ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Inject, BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiSecurityService, AccountRole, Session } from '../common/api-security.service';
 
 type Extra = Record<string, any>;
-type ApiUser = { id: string; name: string; email: string; phone: string; org: string; title: string; deptId: string; roleId: string };
+type ApiUser = { id: string; name: string; email: string; phone: string; employeeId?: string; branchId?: string; org: string; title: string; deptId: string; roleId: string };
 type Account = { status: string; role: AccountRole; sessionVersion: number; user: ApiUser };
 
 function parseExtra(value: string | null | undefined): Extra { try { return JSON.parse(value || '{}'); } catch { return {}; } }
@@ -63,7 +63,7 @@ export class AuthService {
       this.prisma.config.findUnique({ where: { namespace_key: { namespace: 'react_user_verification', key: email.toLowerCase() } } }),
     ]);
     const status = clientStatus(role, account.status, verification?.value || extra.verificationStatus || 'pending');
-    return { status, role, sessionVersion: Number(extra.authVersion || 0), user: { id: String(user.id), name: user.name, email: address.address, phone: contact?.phone || '', org: orgData?.name || org?.name || '', title: extra.title || '', deptId: String(extra.deptId || ''), roleId: String(extra.roleId || '') } };
+    return { status, role, sessionVersion: Number(extra.authVersion || 0), user: { id: String(user.id), name: user.name, email: address.address, phone: contact?.phone || '', employeeId: String(extra.employeeId || ''), branchId: String(extra.branchId || ''), org: orgData?.name || org?.name || '', title: extra.title || '', deptId: String(extra.deptId || ''), roleId: String(extra.roleId || '') } };
   }
 
   async findStaff(identifier: string): Promise<(Account & { active: boolean; passwordHash: string | null; staffId: number }) | null> {
@@ -123,11 +123,15 @@ export class AuthService {
     });
   }
 
-  async register(input: { name: string; email: string; password: string; phone?: string }) {
+  async register(input: { name: string; email: string; password: string; phone?: string; employeeId?: string; branchId?: string }) {
+    const branchId = String(input.branchId || '').trim();
+    if (branchId && !/^\d+$/.test(branchId)) throw new BadRequestException('Select a valid branch.');
+    const branch = branchId ? await this.prisma.branch.findFirst({ where: { id: BigInt(branchId), active: 1 } }) : null;
+    if (branchId && !branch) throw new BadRequestException('Selected branch is unavailable.');
     const id = await this.ensureUser(input);
     const existing = await this.prisma.userAccount.findUnique({ where: { user_id: id } });
     if (existing) throw new ConflictException('An account already exists for this email address.');
-    const extra = JSON.stringify({ verificationStatus: 'pending', role: 'client' });
+    const extra = JSON.stringify({ verificationStatus: 'pending', role: 'client', employeeId: input.employeeId || '', branchId: branch ? String(branch.id) : '' });
     await this.prisma.$transaction([
       this.prisma.userAccount.create({ data: { user_id: id, status: 0n, username: input.email.toLowerCase(), passwd: encodePassword(input.password), backend: 'react', extra, registered: new Date() } }),
       this.prisma.config.upsert({ where: { namespace_key: { namespace: 'react_user_verification', key: input.email.toLowerCase() } }, create: { namespace: 'react_user_verification', key: input.email.toLowerCase(), value: 'pending' }, update: { value: 'pending', updated: new Date() } }),

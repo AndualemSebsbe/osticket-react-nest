@@ -8,7 +8,7 @@ interface AuthValue {
   ready: boolean
   login: (email: string, password: string) => Promise<{ user?: User; error?: string }>
   loginClient: (email: string, password: string) => Promise<{ user?: User; error?: string }>
-  register: (input: { name: string; email: string; password: string; phone?: string }) => Promise<User>
+  register: (input: { name: string; email: string; password: string; phone?: string; employeeId?: string; branchId?: string }) => Promise<User>
   logout: () => void
 }
 

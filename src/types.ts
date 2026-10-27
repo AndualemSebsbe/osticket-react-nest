@@ -12,6 +12,8 @@ export interface User {
   email: string
   password: string
   phone?: string
+  employeeId?: string
+  branchId?: string
   org?: string
   orgId?: string
   role: UserRole

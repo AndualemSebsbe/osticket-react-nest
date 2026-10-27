@@ -1,12 +1,24 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { listApiBranches } from '../lib/api'
 
 import { inputClass } from "../components/ui"
 export function RegisterPage() {
   const { register } = useAuth()
   const [error, setError] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([])
+
+  useEffect(() => {
+    let active = true
+    void listApiBranches().then(({ branches: items }) => {
+      if (active) setBranches(items)
+    }).catch((err: unknown) => {
+      if (active) setError(err instanceof Error ? err.message : 'Could not load branches.')
+    })
+    return () => { active = false }
+  }, [])
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -22,6 +34,8 @@ export function RegisterPage() {
         email: String(form.get('email')),
         password,
         phone: String(form.get('phone') || ''),
+        employeeId: String(form.get('employeeId') || ''),
+        branchId: String(form.get('branchId') || ''),
       })
       setSubmitted(true)
     } catch (err) {
@@ -39,7 +53,7 @@ export function RegisterPage() {
           <Link to="/login" className="inline-flex font-semibold text-brand-700">Go to sign in</Link>
         </div>
       ) : (
-      <form onSubmit={onSubmit} className="mt-6 space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <form onSubmit={onSubmit} className="mt-6 space-y-4 rounded-2xl border-4 border-slate-300 dark:border-slate-600 p-5 shadow-sm">
         {error ? <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
         <label className="block text-sm font-medium">
           Full name
@@ -52,6 +66,17 @@ export function RegisterPage() {
         <label className="block text-sm font-medium">
           Phone
           <input name="phone" className={inputClass + " mt-1"} />
+        </label>
+        <label className="block text-sm font-medium">
+          Employee ID
+          <input name="employeeId" maxLength={64} className={inputClass + " mt-1"} />
+        </label>
+        <label className="block text-sm font-medium">
+          Branch
+          <select name="branchId" defaultValue="" className={inputClass + " mt-1"}>
+            <option value="">— Select a branch —</option>
+            {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+          </select>
         </label>
         <label className="block text-sm font-medium">
           Password

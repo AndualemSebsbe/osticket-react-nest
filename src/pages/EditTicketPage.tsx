@@ -3,7 +3,6 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { EmptyState } from '../components/TicketThread'
 import { useAuth } from '../context/AuthContext'
 import { useDb } from '../hooks/useDb'
-import { listApiBranches, updateApiClientTicketBranch } from '../lib/api'
 import { canAccessTicket, editClientTicket, getTicket } from '../lib/store'
 
 import { inputClass } from "../components/ui"
@@ -12,15 +11,9 @@ export function EditTicketPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const db = useDb()
-  const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  useEffect(() => {
-    let active = true
-    void listApiBranches().then(({ branches: items }) => { if (active) setBranches(items) })
-      .catch((err: unknown) => { if (active) setError(err instanceof Error ? err.message : 'Could not load branches.') })
-    return () => { active = false }
-  }, [])
+
   const ticket = id ? getTicket(id) : undefined
 
   if (!user || user.role !== 'client') {
@@ -39,13 +32,9 @@ export function EditTicketPage() {
     setSaving(true)
     setError('')
     try {
-      const branchId = String(form.get('branchId') || '')
-      const updated = await updateApiClientTicketBranch(ticket!.number, branchId)
       editClientTicket(ticket!.id, user!.id, {
         subject: String(form.get('subject')),
         topicId: String(form.get('topicId')),
-        branchId: updated.ticket.branchId || '',
-        branchName: updated.ticket.branchName || '',
       })
       navigate(`/tickets/${ticket!.id}`)
     } catch (err) {
@@ -72,14 +61,6 @@ export function EditTicketPage() {
                 {t.name}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="block text-sm font-medium">
-          Branch
-          <select name="branchId" defaultValue={ticket.branchId || ''} className={inputClass + ' mt-1'}>
-            <option value="">— No branch —</option>
-            {ticket.branchId && !branches.some((branch) => branch.id === ticket.branchId) ? <option value={ticket.branchId}>{ticket.branchName || `Branch ${ticket.branchId}`} (inactive)</option> : null}
-            {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
           </select>
         </label>
         {error ? <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}

@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { listApiBranches, listApiPublicHelpTopics } from "../lib/api";
+import { listApiPublicHelpTopics } from "../lib/api";
 import { createTicket, upsertRecord } from "../lib/store";
 import type { HelpTopic, Priority } from "../types";
 
@@ -10,7 +10,6 @@ export function OpenTicketPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [topics, setTopics] = useState<HelpTopic[]>([]);
-  const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([]);
   const [topicId, setTopicId] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -30,14 +29,6 @@ export function OpenTicketPage() {
     return () => { active = false; };
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    void listApiBranches()
-      .then(({ branches: persisted }) => { if (active) setBranches(persisted); })
-      .catch((err: unknown) => { if (active) setError(err instanceof Error ? err.message : "Could not load branches."); });
-    return () => { active = false; };
-  }, []);
-
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
@@ -48,9 +39,8 @@ export function OpenTicketPage() {
         name: String(form.get("name") || user?.name || ""),
         email: String(form.get("email") || user?.email || ""),
         phone: String(form.get("phone") || user?.phone || ""),
-        employeeId: String(form.get("employeeId") || ""),
-        branchId: String(form.get("branchId") || ""),
-        branchName: branches.find((branch) => branch.id === String(form.get("branchId") || ""))?.name || "",
+        employeeId: user?.employeeId || "",
+        branchId: user?.branchId || "",
         topicId: String(form.get("topicId")),
         subject: String(form.get("subject")),
         body: String(form.get("body")),
@@ -116,19 +106,6 @@ export function OpenTicketPage() {
             Opening as <strong>{user.name}</strong> ({user.email})
           </p>
         )}
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block text-sm font-medium dark:text-slate-400">
-            Employee ID
-            <input name="employeeId" maxLength={64} className={inputClass + " mt-1"} />
-          </label>
-          <label className="block text-sm font-medium dark:text-slate-400">
-            Branch
-            <select name="branchId" defaultValue="" className={inputClass + " mt-1"}>
-              <option value="">— Select a branch —</option>
-              {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
-            </select>
-          </label>
-        </div>
         <label className="block dark:text-slate-400 text-sm font-medium">
           Help topic *
           <select

@@ -231,7 +231,7 @@ export function currentUser(): User | null {
   }
 }
 
-export async function register(input: { name: string; email: string; password: string; phone?: string }) {
+export async function register(input: { name: string; email: string; password: string; phone?: string; employeeId?: string; branchId?: string }) {
   const db = load()
   if (db.settings.registrationMode === 'disabled') {
     throw new Error('New registrations are disabled.')
@@ -245,6 +245,8 @@ export async function register(input: { name: string; email: string; password: s
     email: input.email,
     password: '',
     phone: input.phone,
+    employeeId: input.employeeId?.trim() || undefined,
+    branchId: input.branchId || undefined,
     role: 'client',
     active: true,
     verificationStatus: 'pending',
@@ -296,9 +298,9 @@ export function establishApiClientSession(account: ApiClientUser, accessToken: s
   const db = load()
   let user = db.users.find((item) => item.email.toLowerCase() === account.email.toLowerCase())
   if (user) {
-    Object.assign(user, { name: account.name, email: account.email, phone: account.phone || user.phone, org: account.org || '', role: 'client' as const, active: true, verificationStatus: 'approved' as const, password: '' })
+    Object.assign(user, { name: account.name, email: account.email, phone: account.phone || user.phone, employeeId: account.employeeId || '', branchId: account.branchId || '', org: account.org || '', role: 'client' as const, active: true, verificationStatus: 'approved' as const, password: '' })
   } else {
-    user = { id: `react-${account.id}`, name: account.name, email: account.email, phone: account.phone, org: account.org, password: '', role: 'client', active: true, verificationStatus: 'approved' }
+    user = { id: `react-${account.id}`, name: account.name, email: account.email, phone: account.phone, employeeId: account.employeeId, branchId: account.branchId, org: account.org, password: '', role: 'client', active: true, verificationStatus: 'approved' }
     db.users.push(user)
   }
   save(db)

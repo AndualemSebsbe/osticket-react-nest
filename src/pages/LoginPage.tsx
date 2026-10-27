@@ -31,7 +31,7 @@ export function LoginPage() {
           I am an agent — <Link to="/scp/login" className="font-medium text-brand-600">sign in here</Link>
         </p>
       </div>
-      <form onSubmit={onSubmit} className="space-y-4 rounded-2xl border-4 p-5 shadow-sm">
+      <form onSubmit={onSubmit} className="space-y-4 rounded-2xl border-4 border-slate-300 dark:border-slate-600 p-5 shadow-sm">
         {error ? <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
         <label className="block text-sm font-medium dark:text-slate-400">
           Email or username
