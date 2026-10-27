@@ -168,7 +168,7 @@ export function AdminUserVerificationPage() {
   const { user: actor } = useAuth()
   const [filter, setFilter] = useState<'pending' | 'all'>('pending')
   const [error, setError] = useState('')
-  const [clients, setClients] = useState<Array<{ id: string; name: string; email: string; phone?: string; verificationStatus: 'pending' | 'approved' | 'rejected'; registeredAt: string | null }>>([])
+  const [clients, setClients] = useState<Array<{ id: string; name: string; email: string; phone?: string; employeeId?: string; branchId?: string; branchName?: string; verificationStatus: 'pending' | 'approved' | 'rejected'; registeredAt: string | null }>>([])
   const [loading, setLoading] = useState(true)
 
   async function refresh() {
@@ -231,6 +231,8 @@ export function AdminUserVerificationPage() {
                       <h2 className="font-semibold">{person.name}</h2>
                       <p className="break-all text-sm text-ink-600">{person.email}</p>
                       {person.phone ? <p className="mt-1 text-xs text-ink-500">{person.phone}</p> : null}
+                      {person.employeeId ? <p className="mt-1 text-xs text-ink-500">Employee ID: {person.employeeId}</p> : null}
+                      {person.branchName ? <p className="mt-1 text-xs text-ink-500">Branch: {person.branchName}</p> : null}
                     </div>
                     <span className={`w-fit rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${status === 'approved' ? 'bg-emerald-100 text-emerald-800' : status === 'rejected' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-900'}`}>
                       {status}

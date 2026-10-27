@@ -44,7 +44,9 @@ export class AdminService {
             this.prisma.config.findUnique({ where: { namespace_key: { namespace: 'react_user_verification', key: email.toLowerCase() } } }),
           ]);
           const extra = extraOf(account?.extra);
-          return { id: String(u.id), name: u.name, email, phone: cd?.phone || '', org: orgCd?.name || org?.name || '', orgId: String(u.org_id || ''), role: 'client', verificationStatus: verification?.value || extra.verificationStatus || 'pending', registeredAt: account?.registered?.toISOString() || null };
+          const branchId = String(extra.branchId || '');
+          const branch = /^\d+$/.test(branchId) ? await this.prisma.branch.findUnique({ where: { id: BigInt(branchId) } }) : null;
+          return { id: String(u.id), name: u.name, email, phone: cd?.phone || '', employeeId: String(extra.employeeId || ''), branchId, branchName: branch?.name || '', org: orgCd?.name || org?.name || '', orgId: String(u.org_id || ''), role: 'client', verificationStatus: verification?.value || extra.verificationStatus || 'pending', registeredAt: account?.registered?.toISOString() || null };
         }));
         return kind === 'directory-users' ? mapped.filter(u => !u.verificationStatus || u.verificationStatus === 'approved') : mapped;
       }
