@@ -298,9 +298,9 @@ export function establishApiClientSession(account: ApiClientUser, accessToken: s
   const db = load()
   let user = db.users.find((item) => item.email.toLowerCase() === account.email.toLowerCase())
   if (user) {
-    Object.assign(user, { name: account.name, email: account.email, phone: account.phone || user.phone, employeeId: account.employeeId || '', branchId: account.branchId || '', org: account.org || '', role: 'client' as const, active: true, verificationStatus: 'approved' as const, password: '' })
+    Object.assign(user, { name: account.name, email: account.email, phone: account.phone || user.phone, employeeId: account.employeeId || '', branchId: account.branchId || '', branchName: account.branchName || '', org: account.org || '', role: 'client' as const, active: true, verificationStatus: 'approved' as const, password: '' })
   } else {
-    user = { id: `react-${account.id}`, name: account.name, email: account.email, phone: account.phone, employeeId: account.employeeId, branchId: account.branchId, org: account.org, password: '', role: 'client', active: true, verificationStatus: 'approved' }
+    user = { id: `react-${account.id}`, name: account.name, email: account.email, phone: account.phone, employeeId: account.employeeId, branchId: account.branchId, branchName: account.branchName, org: account.org, password: '', role: 'client', active: true, verificationStatus: 'approved' }
     db.users.push(user)
   }
   save(db)

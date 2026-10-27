@@ -156,7 +156,7 @@ export function getMailLog() { return request<{ messages: Array<Record<string, u
 export function registerApiUser(input: { name: string; email: string; password: string; phone?: string; employeeId?: string; branchId?: string }) {
   return request<{ submitted: boolean; verificationStatus: 'pending' }>('/users/register', { method: 'POST', body: JSON.stringify(input) })
 }
-export interface ApiClientUser { id: string; name: string; email: string; phone?: string; employeeId?: string; branchId?: string; org?: string; title?: string; deptId?: string; roleId?: string }
+export interface ApiClientUser { id: string; name: string; email: string; phone?: string; employeeId?: string; branchId?: string; branchName?: string; org?: string; title?: string; deptId?: string; roleId?: string }
 export function apiClientLogin(email: string, password: string) {
   return request<{ found: boolean; status?: 'pending' | 'approved' | 'rejected' | 'disabled'; user?: ApiClientUser; sessionToken?: string }>('/users/login', { method: 'POST', body: JSON.stringify({ email, password }) })
 }

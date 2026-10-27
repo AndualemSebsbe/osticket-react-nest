@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ApiSecurityService, AccountRole, Session } from '../common/api-security.service';
 
 type Extra = Record<string, any>;
-type ApiUser = { id: string; name: string; email: string; phone: string; employeeId?: string; branchId?: string; org: string; title: string; deptId: string; roleId: string };
+type ApiUser = { id: string; name: string; email: string; phone: string; employeeId?: string; branchId?: string; branchName?: string; org: string; title: string; deptId: string; roleId: string };
 type Account = { status: string; role: AccountRole; sessionVersion: number; user: ApiUser };
 
 function parseExtra(value: string | null | undefined): Extra { try { return JSON.parse(value || '{}'); } catch { return {}; } }
@@ -57,13 +57,14 @@ export class AuthService {
     ]);
     if (!user || !account || account.backend !== 'react') return null;
     const extra = parseExtra(account.extra), role: AccountRole = 'client';
-    const [org, orgData, verification] = await Promise.all([
+    const [org, orgData, verification, branch] = await Promise.all([
       user.org_id ? this.prisma.organization.findUnique({ where: { id: user.org_id } }) : null,
       user.org_id ? this.prisma.organizationCdata.findUnique({ where: { org_id: user.org_id } }) : null,
       this.prisma.config.findUnique({ where: { namespace_key: { namespace: 'react_user_verification', key: email.toLowerCase() } } }),
+      extra.branchId ? this.prisma.branch.findUnique({ where: { id: BigInt(extra.branchId) } }) : null,
     ]);
     const status = clientStatus(role, account.status, verification?.value || extra.verificationStatus || 'pending');
-    return { status, role, sessionVersion: Number(extra.authVersion || 0), user: { id: String(user.id), name: user.name, email: address.address, phone: contact?.phone || '', employeeId: String(extra.employeeId || ''), branchId: String(extra.branchId || ''), org: orgData?.name || org?.name || '', title: extra.title || '', deptId: String(extra.deptId || ''), roleId: String(extra.roleId || '') } };
+    return { status, role, sessionVersion: Number(extra.authVersion || 0), user: { id: String(user.id), name: user.name, email: address.address, phone: contact?.phone || '', employeeId: String(extra.employeeId || ''), branchId: String(extra.branchId || ''), branchName: branch?.name || '', org: orgData?.name || org?.name || '', title: extra.title || '', deptId: String(extra.deptId || ''), roleId: String(extra.roleId || '') } };
   }
 
   async findStaff(identifier: string): Promise<(Account & { active: boolean; passwordHash: string | null; staffId: number }) | null> {

@@ -1,6 +1,6 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { updateApiAccountPassword, updateApiProfile } from '../lib/api'
+import { listApiBranches, updateApiAccountPassword, updateApiProfile } from '../lib/api'
 import { clientSessionToken, updateProfile } from '../lib/store'
 import { EmptyState } from '../components/TicketThread'
 
@@ -9,6 +9,18 @@ export function ProfilePage() {
   const { user } = useAuth()
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [branchName, setBranchName] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    void listApiBranches().then(({ branches }) => {
+      if (!active || !user?.branchId || user.branchName) return
+      setBranchName(branches.find((branch) => branch.id === user.branchId)?.name || 'Branch unavailable')
+    }).catch(() => {
+      if (active && user?.branchId && !user.branchName) setBranchName('Could not load branch name')
+    })
+    return () => { active = false }
+  }, [user?.branchId, user?.branchName])
 
   if (!user || user.role !== 'client') {
     return <EmptyState title="Sign in first" body="Profiles are available for registered clients." to="/login" cta="Sign in" />
@@ -50,7 +62,7 @@ export function ProfilePage() {
     <div className="mx-auto max-w-lg">
       <h1 className="text-2xl font-semibold">Profile</h1>
       {error ? <p role="alert" className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
-      <form onSubmit={onSubmit} className="mt-6 space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
+      <form onSubmit={onSubmit} className="mt-6 space-y-4 rounded-2xl border-4 border-slate-200 dark:border-slate-600 p-5">
         <label className="block text-sm font-medium">
           Name
           <input name="name" defaultValue={user.name} className={inputClass + " mt-1"} />
@@ -58,6 +70,14 @@ export function ProfilePage() {
         <label className="block text-sm font-medium">
           Email
           <input disabled value={user.email} className={inputClass + " mt-1"} />
+        </label>
+        <label className="block text-sm font-medium">
+          Employee ID
+          <input disabled value={user.employeeId || 'Not set'} className={inputClass + " mt-1"} />
+        </label>
+        <label className="block text-sm font-medium">
+          Branch
+          <input disabled value={user.branchName || (user.branchId ? branchName || 'Loading branch name…' : 'Not set')} className={inputClass + " mt-1"} />
         </label>
         <label className="block text-sm font-medium">
           Phone

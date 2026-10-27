@@ -14,6 +14,7 @@ export interface User {
   phone?: string
   employeeId?: string
   branchId?: string
+  branchName?: string
   org?: string
   orgId?: string
   role: UserRole
