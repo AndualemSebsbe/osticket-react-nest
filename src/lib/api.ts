@@ -2,7 +2,7 @@ import type { Ticket, User, Database } from '../types'
 
 export interface ApiHealth { ok: boolean; mailConfigured: boolean; storage: string }
 export interface ApiPersistedTicket { id: string; number: string; subject: string; status: Ticket['status']; priority: Ticket['priority']; source: string; topic: string; department: string; requesterName: string; requesterEmail: string; employeeId?: string; branchId?: string; branchName?: string; assignee?: string; assigneeEmail?: string; collaborators?: Array<{ userId: string; name: string; email: string; active: boolean }>; fromEmail?: string; overdue: boolean; createdAt: string; updatedAt: string }
-export interface ApiPersistedMessage { id: string; ticketNumber: string; author: string; authorEmail: string; kind: 'client' | 'agent' | 'collaborator' | 'system'; internal: boolean; body: string; attachments: string[]; recipients?: string[]; createdAt: string }
+export interface ApiPersistedMessage { id: string; ticketNumber: string; author: string; authorEmail: string; kind: 'client' | 'agent' | 'collaborator' | 'system'; internal: boolean; body: string; attachments: string[]; attachmentFiles?: Array<{ id: string; name: string }>; recipients?: string[]; createdAt: string }
 
 export class ApiRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -242,4 +242,24 @@ export async function apiLookupTicket(number: string, accessToken: string) {
 }
 export async function apiLookupTicketByEmail(number: string, email: string) {
   return request<{ ticket: ApiPersistedTicket; messages: ApiPersistedMessage[] }>('/tickets/' + encodeURIComponent(number) + '?email=' + encodeURIComponent(email))
+}
+
+export async function downloadApiTicketAttachment(number: string, attachmentId: string, fileName: string, email?: string) {
+  const headers = new Headers(currentSessionHeaders())
+  const accessToken = localStorage.getItem('osticket-api-access-' + number)
+  if (accessToken) headers.set('x-ticket-access', accessToken)
+  if (email) headers.set('x-ticket-email', email)
+  const response = await fetch('/api/v1/tickets/' + encodeURIComponent(number) + '/attachments/' + encodeURIComponent(attachmentId), { headers })
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}))
+    throw new ApiRequestError(data.error || 'Could not download attachment.', response.status)
+  }
+  const url = URL.createObjectURL(await response.blob())
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }

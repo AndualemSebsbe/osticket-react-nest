@@ -230,7 +230,7 @@ export function StaffTicketPage() {
       ) : null}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="space-y-4">
-          <TicketThread messages={thread} includeInternal />
+           <TicketThread messages={thread} includeInternal ticketNumber={current.number} />
           <form onSubmit={onReply} className="rounded-2xl border border-line bg-surface p-4">
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-400">Canned replies</p>
             <div className="mb-3 flex flex-wrap gap-2">

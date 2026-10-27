@@ -93,6 +93,7 @@ export interface Message {
   body: string
   internal?: boolean
   attachments?: string[]
+  attachmentFiles?: Array<{ id: string; name: string }>
   recipients?: string[]
   recipients?: string[]
   createdAt: string

@@ -92,34 +92,34 @@ export function TicketViewPage() {
         {orgPeer ? <p className="mt-2 text-sm text-ink-600">Organization ticket — visible because you share an org with {owner?.name}.</p> : null}
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <section className="rounded-2xl border-2 border-slate-200 dark:border-slate-600 p-4">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-400">Ticket</h2>
           <dl className="mt-3 grid grid-cols-1 gap-y-2 text-sm sm:grid-cols-[7rem_1fr]">
-            <dt className="text-ink-600">Department</dt>
-            <dd>{dept?.name}</dd>
+            <dt className="text-ink-600 ">Department</dt>
+            <dd className="capitalize dark:text-white">{dept?.name}</dd>
             <dt className="text-ink-600">Help topic</dt>
-            <dd>{topic?.name}</dd>
+            <dd className="capitalize dark:text-white">{topic?.name}</dd>
             <dt className="text-ink-600">Branch</dt>
-            <dd>{ticket.branchName || '—'}</dd>
+            <dd className="capitalize dark:text-white">{ticket.branchName || '—'}</dd>
             <dt className="text-ink-600">Created</dt>
-            <dd>{formatDate(ticket.createdAt)}</dd>
+            <dd className="capitalize dark:text-white">{formatDate(ticket.createdAt)}</dd>
             <dt className="text-ink-600">Source</dt>
-            <dd className="capitalize">{ticket.source}</dd>
+            <dd className="capitalize dark:text-white">{ticket.source}</dd>
           </dl>
         </section>
-        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <section className="rounded-2xl border-2 border-slate-200 dark:border-slate-600 p-4">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-400">User</h2>
           <dl className="mt-3 grid grid-cols-1 gap-y-2 text-sm sm:grid-cols-[7rem_1fr]">
             <dt className="text-ink-600">Name</dt>
-            <dd>{owner?.name}</dd>
+            <dd className="capitalize dark:text-white">{owner?.name}</dd>
             <dt className="text-ink-600">Email</dt>
-            <dd className="break-all">{owner?.email}</dd>
+            <dd className="break-all dark:text-white">{owner?.email}</dd>
             <dt className="text-ink-600">Phone</dt>
-            <dd>{owner?.phone || '—'}</dd>
+            <dd className="capitalize dark:text-white">{owner?.phone || '—'}</dd>
           </dl>
         </section>
       </div>
-      <TicketThread messages={thread} />
+      <TicketThread messages={thread} ticketNumber={ticket.number} attachmentEmail={isGuest ? guestEmail : undefined} />
       {canReply ? (
         <form onSubmit={onReply} className="rounded-2xl border border-line bg-surface p-4">
           <label className="block text-sm font-medium">

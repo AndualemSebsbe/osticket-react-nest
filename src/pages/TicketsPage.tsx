@@ -95,12 +95,12 @@ export function TicketsPage() {
           />
         </div>
       ) : (
-        <ul className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <ul className="mt-6 overflow-hidden rounded-2xl border-4 border-slate-200 dark:border-slate-600">
           {tickets.map((t) => (
-            <li key={t.id} className="border-b border-slate-100 last:border-0">
+            <li key={t.id} className="border-b border-slate-100 dark:border-slate-700 last:border-0">
               <Link
                 to={`/tickets/${t.id}`}
-                className="flex flex-col gap-2 px-4 py-4 hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-2 px-4 py-4 hover:bg-slate-50 dark:hover:bg-slate-300 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div>
                   <p className="font-medium">

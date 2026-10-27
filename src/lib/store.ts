@@ -609,7 +609,7 @@ function replaceTicketSnapshot(tickets: ApiPersistedTicket[], messages: ApiPersi
       author = { id: row.authorEmail ? `api-user-${row.authorEmail.toLowerCase()}` : `api-staff-${row.author.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, name: row.author, email: row.authorEmail || '', password: '', role: row.kind === 'agent' ? 'agent' : 'client', active: true }
       if (!db.users.some((person) => person.id === author!.id)) db.users.push(author)
     }
-    return [{ id: row.id, ticketId, authorId: author?.id || 'system', authorName: row.author, kind: row.kind, internal: row.internal, body: row.body, attachments: row.attachments, recipients: row.recipients || [], createdAt: row.createdAt }]
+    return [{ id: row.id, ticketId, authorId: author?.id || 'system', authorName: row.author, kind: row.kind, internal: row.internal, body: row.body, attachments: row.attachments, attachmentFiles: row.attachmentFiles, recipients: row.recipients || [], createdAt: row.createdAt }]
   })
   if (replaceAll) {
     db.tickets = mappedTickets

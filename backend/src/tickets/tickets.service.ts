@@ -44,7 +44,7 @@ export class TicketsService {
       branchName: branch?.name || '', assignee: staff ? [staff.firstname, staff.lastname].filter(Boolean).join(' ') : '',
       assigneeEmail: staff?.email || '', assigneeStaffId: String(row.staff_id || ''),
       overdue: Boolean(row.isoverdue), createdAt: row.created.toISOString(), updatedAt: row.updated.toISOString(),
-      collaborators: collaboratorViews, accessHash, fromEmail: threadExtra.fromEmail || '', collaboratorNotice: threadExtra.collaboratorNotice || 'all', messages: entries.map(e => ({ id: String(e.id), author: e.poster, authorEmail: '', kind: e.type === 'R' ? 'agent' : e.type === 'N' ? 'note' : 'client', internal: e.type === 'N', body: e.body, attachments: files.filter(f=>f.entryId===String(e.id)).map(f=>f.name), recipients: parse(e.recipients).list || [], createdAt: e.created.toISOString() })),
+       collaborators: collaboratorViews, accessHash, fromEmail: threadExtra.fromEmail || '', collaboratorNotice: threadExtra.collaboratorNotice || 'all', messages: entries.map(e => { const attached = files.filter(f=>f.entryId===String(e.id)); return { id: String(e.id), author: e.poster, authorEmail: '', kind: e.type === 'R' ? 'agent' : e.type === 'N' ? 'note' : 'client', internal: e.type === 'N', body: e.body, attachments: attached.map(f=>f.name), attachmentFiles: attached.map(f=>({ id: f.id, name: f.name })), recipients: parse(e.recipients).list || [], createdAt: e.created.toISOString() } }),
     };
   }
 
@@ -61,8 +61,8 @@ export class TicketsService {
     return Promise.all(rows.map(async t => { const v=await this.view(t); const {accessHash,requesterEmail,...safe}=v; return safe; }));
   }
 
-  async getAttachment(number:string, attachmentId:string) {
-    const {row}=await this.get(number); const thread=await this.threadFor(row.ticket_id); const entries=await this.prisma.threadEntry.findMany({where:{thread_id:thread.id},select:{id:true}}); const attachment=await this.prisma.attachment.findFirst({where:{id:bi(attachmentId),object_id:{in:entries.map(e=>e.id)},type:'H'}}); if(!attachment) throw new NotFoundException('Attachment not found.'); const file=await this.prisma.file.findUnique({where:{id:attachment.file_id}}); if(!file) throw new NotFoundException('Attachment not found.'); const chunks=await this.prisma.fileChunk.findMany({where:{file_id:file.id},orderBy:{chunk_id:'asc'}}); return {name:attachment.name||file.name,type:file.type||'application/octet-stream',data:Buffer.concat(chunks.map(chunk=>Buffer.from(chunk.filedata)))};
+  async getAttachment(number:string, attachmentId:string, includeInternal = false) {
+    const {row}=await this.get(number); const thread=await this.threadFor(row.ticket_id); const entries=await this.prisma.threadEntry.findMany({where:{thread_id:thread.id,...(includeInternal?{}:{type:{not:'N'}})},select:{id:true}}); const scope={object_id:{in:entries.map(e=>e.id)},type:'H' as const}; const attachment=attachmentId.startsWith('name:')?await this.prisma.attachment.findFirst({where:{...scope,name:attachmentId.slice(5)}}):await this.prisma.attachment.findFirst({where:{...scope,id:bi(attachmentId)}}); if(!attachment) throw new NotFoundException('Attachment not found.'); const file=await this.prisma.file.findUnique({where:{id:attachment.file_id}}); if(!file) throw new NotFoundException('Attachment not found.'); const chunks=await this.prisma.fileChunk.findMany({where:{file_id:file.id},orderBy:{chunk_id:'asc'}}); return {name:attachment.name||file.name,type:file.type||'application/octet-stream',data:Buffer.concat(chunks.map(chunk=>Buffer.from(chunk.filedata)))};
   }
 
   async get(number: string) {
@@ -93,6 +93,7 @@ export class TicketsService {
     if(data.branchId && !branch) throw new BadRequestException('Selected branch is unavailable.');
     const assigneeEmail=this.security.email(data.assigneeEmail); const assignee=assigneeEmail?await this.prisma.staff.findFirst({where:{email:{equals:assigneeEmail,mode:'insensitive'},isactive:1}}):null;
     if(assigneeEmail&&!assignee) throw new BadRequestException('Choose an active agent or administrator.');
+    const accessToken = randomBytes(32).toString('base64url');
     const ticket = await this.prisma.$transaction(async tx => {
       const t = await tx.ticket.create({ data: { number, user_id: userId, user_email_id: address.id, status_id: status.id, dept_id: dept?.id || 0n, topic_id: helpTopic?.topic_id || 0n, staff_id: BigInt(assignee?.staff_id || 0), source: data.source === 'email' ? 'EMAIL' : data.source === 'phone' ? 'PHONE' : 'WEB', ip_address: ip, created: timestamp, updated: timestamp } });
       await tx.ticketCdata.create({ data: { ticket_id: t.ticket_id, subject, priority: String(data.priority || 'normal'), employee_id: String(data.employeeId || ''), branch_id: bi(data.branchId) } });
@@ -106,9 +107,6 @@ export class TicketsService {
       for(const person of collaborators){ const collaboratorEmail=this.security.email(person?.email); if(!this.security.validEmail(collaboratorEmail)||collaboratorEmail===email||person?.active===false) continue; const collaboratorId=await this.ensureUser(this.security.clean(person?.name,128)||collaboratorEmail,collaboratorEmail); await tx.threadCollaborator.create({data:{thread_id:Number(th.id),user_id:Number(collaboratorId),flags:1,created:timestamp,updated:timestamp}}); }
       return t;
     });
-    const accessToken = randomBytes(32).toString('base64url');
-    const th = await this.threadFor(ticket.ticket_id);
-    await this.prisma.thread.update({ where: { id: th.id }, data: { extra: JSON.stringify({ ...parse(th.extra), accessHash: createHash('sha256').update(accessToken).digest('hex') }) } });
     const view = await this.view(ticket);
     void this.mail.sendNotice(email, 'Ticket #' + number + ' received', 'Your ticket has been created: ' + subject + '\n\n' + message, number);
     const { accessHash, requesterEmail, ...safeTicket } = view;
