@@ -189,7 +189,7 @@ export function OpenTicketPage() {
             {saving ? "Saving…" : "Create ticket"}
           </button>
         </div>
-      </form>
+      </form> 
     </div>
   );
 }

@@ -95,7 +95,17 @@ export class AdminService {
       case 'branches': { const b = await this.prisma.branch.create({ data: { name: String(data.name || ''), active: flag(data.active), created, updated: created } }); return { id: String(b.id), name: b.name, active: Boolean(b.active) }; }
       case 'help-topics': { const t = await this.prisma.helpTopic.create({ data: { topic: String(data.name || data.topic || ''), topic_pid: key(data.topicPid || data.topic_pid), dept_id: key(data.deptId || data.dept_id), priority_id: key(data.priorityId || data.priority_id), sla_id: key(data.slaId || data.sla_id), ispublic: flag(data.active ?? data.ispublic), notes: data.hint || null, created, updated: created } }); return { id: String(t.topic_id), name: t.topic, deptId: String(t.dept_id), priority: String(data.priority || 'normal'), slaId: String(t.sla_id), hint: data.hint || '', active: Boolean(t.ispublic) }; }
       case 'faq-categories': { const c = await this.prisma.faqCategory.create({ data: { name: String(data.name || ''), description: String(data.description || ''), ispublic: flag(data.published ?? data.ispublic), created, updated: created } }); return { id: String(c.category_id), name: c.name || '', description: c.description, published: Boolean(c.ispublic) }; }
-      case 'faq-articles': { const f = await this.prisma.faq.create({ data: { question: String(data.question || ''), answer: String(data.answer || ''), category_id: key(data.categoryId || data.category_id), ispublished: flag(data.published ?? data.ispublished), keywords: data.keywords || null, created, updated: created } }); return { id: String(f.faq_id), categoryId: String(f.category_id), question: f.question, answer: f.answer, published: Boolean(f.ispublished) }; }
+      case 'faq-articles': {
+        const rawCategoryId = data.categoryId ?? data.category_id;
+        const categoryId = typeof rawCategoryId === 'string' && !/^\d+$/.test(rawCategoryId)
+          ? (await this.prisma.faqCategory.findFirst({ where: { name: rawCategoryId } }))?.category_id
+          : rawCategoryId;
+        if (categoryId === undefined || categoryId === null || categoryId === '') {
+          throw new ConflictException('Select a valid knowledgebase category.');
+        }
+        const f = await this.prisma.faq.create({ data: { question: String(data.question || ''), answer: String(data.answer || ''), category_id: key(categoryId), ispublished: flag(data.published ?? data.ispublished), keywords: data.keywords || null, created, updated: created } });
+        return { id: String(f.faq_id), categoryId: String(f.category_id), question: f.question, answer: f.answer, published: Boolean(f.ispublished) };
+      }
       case 'directory-users': {
         const email = String(data.email || '').trim().toLowerCase();
         if (!email || !String(data.name || '').trim()) throw new ConflictException('Name and email are required.');
