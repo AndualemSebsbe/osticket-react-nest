@@ -42,7 +42,9 @@ export function StaffTicketPage() {
   const agents = useAgents()
   const departments = useStaffDepartments()
   const ticketOptions = useStaffTicketOptions()
+  const ticket = id ? getTicket(id) : undefined
   const [body, setBody] = useState('')
+  const [isOverdue, setIsOverdue] = useState(Boolean(ticket?.overdue))
   const [mergeNumber, setMergeNumber] = useState('')
   const [showMerge, setShowMerge] = useState(false)
   const [showCollaborators, setShowCollaborators] = useState(false)
@@ -50,7 +52,10 @@ export function StaffTicketPage() {
   const [taskTitle, setTaskTitle] = useState('')
   const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([])
   const [branchSaving, setBranchSaving] = useState(false)
-  const ticket = id ? getTicket(id) : undefined
+
+  useEffect(() => {
+    setIsOverdue(Boolean(ticket?.overdue))
+  }, [ticket?.id, ticket?.overdue])
 
   useEffect(() => {
     if (!ticket || !user) return
@@ -139,10 +144,25 @@ export function StaffTicketPage() {
     setTaskTitle('')
   }
 
-  function onDelete() {
-    if (!window.confirm(`Delete ticket #${current.number}? This cannot be undone in this demo.`)) return
-    deleteTicket(current.id, actor)
-    navigate('/scp/tickets')
+  async function onDelete() {
+    if (!window.confirm(`Delete ticket #${current.number} from the database? This cannot be undone.`)) return
+    try {
+      await deleteTicket(current.id, actor)
+      navigate('/scp/tickets')
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not delete ticket.')
+    }
+  }
+
+  async function onToggleOverdue() {
+    const nextOverdue = !isOverdue
+    setIsOverdue(nextOverdue)
+    try {
+      await markOverdue(current.id, actor, nextOverdue)
+    } catch (error) {
+      setIsOverdue(!nextOverdue)
+      setToast(error instanceof Error ? error.message : 'Could not update overdue status.')
+    }
   }
 
   return (
@@ -157,7 +177,7 @@ export function StaffTicketPage() {
         <div className="flex flex-wrap gap-2">
           <StatusBadge status={current.status} />
           <PriorityBadge priority={current.priority} />
-          {current.overdue ? <span className="rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-800">Overdue</span> : null}
+          {isOverdue ? <span className="rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-800">Overdue</span> : null}
           {locker ? (
             <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
               Locked{locker.id === actor.id ? ' by you' : ` by ${locker.name}`}
@@ -184,13 +204,13 @@ export function StaffTicketPage() {
             Reopen
           </button>
         ) : null}
-        <button type="button" className={btnGhost} onClick={() => markOverdue(current.id, actor, !current.overdue)}>
-          {current.overdue ? 'Clear overdue' : 'Mark overdue'}
+        <button type="button" className={btnGhost} onClick={() => { void onToggleOverdue() }}>
+          {isOverdue ? 'Clear overdue' : 'Mark overdue'}
         </button>
         <button type="button" className={btnGhost} onClick={() => setShowMerge((v) => !v)}>
           Merge
         </button>
-        <button type="button" className={btnGhost} onClick={() => banEmailFromTicket(current.id, actor)}>
+        <button type="button" className={btnGhost} onClick={() => { void banEmailFromTicket(current.id, actor).catch((error: unknown) => setToast(error instanceof Error ? error.message : 'Could not ban requester email.')) }}>
           Ban email
         </button>
         <button type="button" className={`${btnGhost} text-rose-600`} onClick={onDelete}>

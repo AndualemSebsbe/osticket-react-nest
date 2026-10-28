@@ -164,14 +164,14 @@ export function OpenTicketPage() {
             className={inputClass + " mt-1"}
           />
         </label>
-        <label className="block text-sm font-medium dark:text-slate-400">
+        <label className="block text-sm font-medium text-white">
           Attach files
           <input
             type="file"
             name="attachments"
             multiple
             accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.csv,.doc,.docx,.xls,.xlsx,.zip"
-            className="mt-1 block w-full rounded-xl border dark:border-slate-600 border-slate-300 px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-500 file:px-3 file:py-1.5"
+            className="mt-1 block w-full rounded-xl border dark:border-slate-600 border-slate-300 px-3 py-2 text-sm text-white file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-1.5"
           />
           <span className="mt-1 block text-xs font-normal text-slate-500">PDF, images, documents, CSV, or ZIP; up to 5 files, 8 MB each.</span>
         </label>

@@ -12,7 +12,7 @@ import type {
   User,
 } from '../types'
 import { seed } from './seed'
-import { getApiAppState, getApiPublicAppState, listApiAccountTickets, listApiTickets, listApiAssignableStaff, mirrorReply, mirrorTicket, mirrorTicketUpdate, registerApiUser, saveApiAppState, saveApiTicketCollaborators, updateApiUserVerification, type ApiClientUser, type ApiPersistedMessage, type ApiPersistedTicket } from './api'
+import { banApiTicketEmail, deleteApiTicket, getApiAppState, getApiPublicAppState, listApiAccountTickets, listApiTickets, listApiAssignableStaff, mirrorReply, mirrorTicket, mirrorTicketUpdate, registerApiUser, saveApiAppState, saveApiTicketCollaborators, updateApiTicket, updateApiUserVerification, type ApiClientUser, type ApiPersistedMessage, type ApiPersistedTicket } from './api'
 
 const KEY = 'osticket-react-db-v4'
 const SESSION = 'osticket-react-session'
@@ -1221,16 +1221,16 @@ export function releaseTicket(ticketId: string, actor: User) {
   assignTicket(ticketId, undefined, actor)
 }
 
-export function markOverdue(ticketId: string, actor: User, overdue = true) {
+export async function markOverdue(ticketId: string, actor: User, overdue = true) {
   const db = load()
   const ticket = db.tickets.find((t) => t.id === ticketId)
   if (!ticket) return
+  await updateApiTicket(ticket.number, { overdue })
   ticket.overdue = overdue
   ticket.updatedAt = now()
   db.messages.push(ticketEvent(ticketId, `${actor.name} marked ticket ${overdue ? 'overdue' : 'not overdue'}.`))
   save(db)
   emit()
-  mirrorTicketUpdate(ticket.number, { overdue })
 }
 
 export function transferTicket(ticketId: string, deptId: string, actor: User) {
@@ -1248,10 +1248,11 @@ export function transferTicket(ticketId: string, deptId: string, actor: User) {
   mirrorTicketUpdate(ticket.number, { department: dept.name, assignee: '' })
 }
 
-export function deleteTicket(ticketId: string, actor: User) {
+export async function deleteTicket(ticketId: string, actor: User) {
   const db = load()
   const ticket = db.tickets.find((t) => t.id === ticketId)
   if (!ticket) return
+  await deleteApiTicket(ticket.number)
   db.tickets = db.tickets.filter((t) => t.id !== ticketId)
   db.messages = db.messages.filter((m) => m.ticketId !== ticketId)
   db.tasks = db.tasks.map((t) => (t.ticketId === ticketId ? { ...t, ticketId: undefined } : t))
@@ -1269,13 +1270,14 @@ export function deleteTicket(ticketId: string, actor: User) {
   emit()
 }
 
-export function banEmailFromTicket(ticketId: string, actor: User) {
+export async function banEmailFromTicket(ticketId: string, actor: User) {
   const db = load()
   const ticket = db.tickets.find((t) => t.id === ticketId)
   const owner = ticket ? db.users.find((u) => u.id === ticket.userId) : undefined
   if (!owner) return
+  const result = await banApiTicketEmail(ticket!.number)
   if (!db.banlist.some((b) => b.email.toLowerCase() === owner.email.toLowerCase())) {
-    db.banlist.push({ id: id(), email: owner.email, reason: `Banned from ticket #${ticket!.number}` })
+    db.banlist.push({ id: id(), email: result.email, reason: result.reason })
   }
   db.messages.push(ticketEvent(ticketId, `${actor.name} banned ${owner.email}.`))
   save(db)

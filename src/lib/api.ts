@@ -39,7 +39,7 @@ export function listApiAssignableStaff(token: string) {
 }
 export interface ApiDepartment { id: string; name: string; email?: string; managerId?: string; slaId?: string; active?: boolean }
 export interface ApiFaqCategory { id: string; name: string; description: string; published: boolean }
-export interface ApiFaqArticle { id: string; categoryId: string; question: string; answer: string; published: boolean }
+export interface ApiFaqArticle { id: string; categoryId: String; question: string; answer: string; published: boolean }
 export function listApiFaqArticles() {
   return request<{ articles: ApiFaqArticle[] }>('/admin/faq-articles', { headers: currentSessionHeaders() }).then(result => result.articles)
 }
@@ -136,6 +136,8 @@ export function getApiStaffTicketOptions(token: string) {
   return request<ApiStaffTicketOptions>('/staff/ticket-options', { headers: { 'x-user-session': token } })
 }
 export function updateApiTicket(number: string, patch: { status?: Ticket['status']; priority?: Ticket['priority']; assignee?: string; assigneeEmail?: string; department?: string; topic?: string; overdue?: boolean; subject?: string }) { return request('/tickets/' + encodeURIComponent(number), { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify(patch) }) }
+export function deleteApiTicket(number: string) { return request<{ deleted: boolean }>('/tickets/' + encodeURIComponent(number), { method: 'DELETE', headers: currentSessionHeaders() }) }
+export function banApiTicketEmail(number: string) { return request<{ banned: boolean; email: string; reason: string }>('/tickets/' + encodeURIComponent(number) + '/ban-email', { method: 'POST', headers: currentSessionHeaders() }) }
 export function updateApiTicketBranch(number: string, branchId: string) {
   return request<{ ticket: { branchId?: string; branchName?: string } }>('/tickets/' + encodeURIComponent(number) + '/branch', { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify({ branchId }) })
 }

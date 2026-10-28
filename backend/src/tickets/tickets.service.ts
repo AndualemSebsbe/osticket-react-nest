@@ -80,6 +80,9 @@ export class TicketsService {
     const email = this.security.email(data.email || data.requesterEmail), name = this.security.clean(data.name || data.requesterName, 128);
     const subject = this.security.clean(data.subject, 255), message = this.security.clean(data.message || data.body, 20000);
     if (!name || !this.security.validEmail(email) || !subject || !message) throw new BadRequestException('Name, valid email, subject, and message are required.');
+    const banConfig = await this.prisma.config.findUnique({ where: { namespace_key: { namespace: 'react_app_state', key: 'banlist' } } });
+    const banlist = parse(banConfig?.value);
+    if (Array.isArray(banlist) && banlist.some((item: any) => String(item.email || '').toLowerCase() === email.toLowerCase())) throw new ForbiddenException('This email address is on the ban list.');
     const userId = await this.ensureUser(name, email);
     const address = await this.prisma.userEmail.findUnique({ where: { address: email } });
     const status = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: 'open', mode: 'insensitive' } } }) || await this.prisma.ticketStatus.findFirst({ orderBy: { sort: 'asc' } });
@@ -199,6 +202,56 @@ export class TicketsService {
       if (Object.keys(cdata).length) await tx.ticketCdata.upsert({ where: { ticket_id: row.ticket_id }, create: { ticket_id: row.ticket_id, ...cdata }, update: cdata });
     });
     return { ticket: await this.view(await this.prisma.ticket.findUniqueOrThrow({ where: { ticket_id: row.ticket_id } })) };
+  }
+
+  async banEmail(number: string) {
+    const { view } = await this.get(number);
+    const email = view.requesterEmail.toLowerCase();
+    if (!email) throw new NotFoundException('Ticket requester email was not found.');
+    const key = 'banlist';
+    const current = await this.prisma.config.findUnique({ where: { namespace_key: { namespace: 'react_app_state', key } } });
+    const banlist = parse(current?.value);
+    const records: Array<{ id: string; email: string; reason: string }> = Array.isArray(banlist) ? banlist : [];
+    const existing = records.find((item) => String(item.email || '').toLowerCase() === email);
+    const entry = existing || { id: `ban-${randomUUID()}`, email, reason: `Banned from ticket #${view.number}` };
+    if (!existing) records.push(entry);
+    const value = JSON.stringify(records);
+    await this.prisma.config.upsert({
+      where: { namespace_key: { namespace: 'react_app_state', key } },
+      create: { namespace: 'react_app_state', key, value },
+      update: { value, updated: new Date() },
+    });
+    return { banned: true, email, reason: entry.reason };
+  }
+
+  async delete(number: string) {
+    const row = await this.prisma.ticket.findFirst({ where: { OR: [{ number }, ...(/^\d+$/.test(number) ? [{ ticket_id: bi(number) }] : [])] } });
+    if (!row) throw new NotFoundException('Ticket not found.');
+    await this.prisma.$transaction(async (tx) => {
+      const thread = await tx.thread.findUnique({ where: { object_id_object_type: { object_id: row.ticket_id, object_type: 'T' } } });
+      if (thread) {
+        const entries = await tx.threadEntry.findMany({ where: { thread_id: thread.id }, select: { id: true } });
+        const entryIds = entries.map((entry) => entry.id);
+        const attachments = entryIds.length ? await tx.attachment.findMany({ where: { object_id: { in: entryIds } }, select: { file_id: true } }) : [];
+        await tx.threadCollaborator.deleteMany({ where: { thread_id: Number(thread.id) } });
+        if (entryIds.length) {
+          await tx.attachment.deleteMany({ where: { object_id: { in: entryIds } } });
+          await tx.threadEntry.deleteMany({ where: { thread_id: thread.id } });
+        }
+        await tx.thread.delete({ where: { id: thread.id } });
+        for (const fileId of [...new Set(attachments.map((attachment) => attachment.file_id.toString()))].map((value) => BigInt(value))) {
+          if (!(await tx.attachment.count({ where: { file_id: fileId } }))) {
+            await tx.fileChunk.deleteMany({ where: { file_id: fileId } });
+            await tx.file.deleteMany({ where: { id: fileId } });
+          }
+        }
+      }
+      await tx.task.deleteMany({ where: { object_id: row.ticket_id, object_type: 'T' } });
+      await tx.ticket.updateMany({ where: { ticket_pid: row.ticket_id }, data: { ticket_pid: null } });
+      await tx.ticketCdata.deleteMany({ where: { ticket_id: row.ticket_id } });
+      await tx.ticket.delete({ where: { ticket_id: row.ticket_id } });
+    });
+    return { deleted: true };
   }
 
   async setCollaborators(number: string, raw: any[]) {
