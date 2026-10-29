@@ -4,11 +4,13 @@ import { btnGhost, btnPrimary, Card, DataTable, Field, inputClass, PageHeader } 
 import { useAuth } from '../../context/AuthContext'
 import { useDb } from '../../hooks/useDb'
 import { adminGroups } from '../../layouts/staffNav'
-import { createApiBranch, createApiDepartment, createApiFaqCategory, createApiHelpTopic, createApiAgent, deleteApiBranch, deleteApiDepartment, deleteApiFaqCategory, deleteApiHelpTopic, deleteApiAgent, listApiAdminBranches, listApiDepartments, listApiHelpTopics, listApiStaff, listApiUsers, listApiAgents, getApiAgentOptions, updateApiAgent, saveApiTicketVisibility, sendMailTest, updateApiBranch, updateApiDepartment, updateApiFaqCategory, updateApiHelpTopic, updateApiUserVerification, massAgentAction, type ApiBranch, type ApiDepartment, type ApiHelpTopic, type ApiStaffAccount, type ApiAgent, type ApiAgentOptions, type ApiDeptAccess, type ApiTeamMembership } from '../../lib/api'
+import { createApiBranch, createApiFaqCategory, createApiHelpTopic, createApiAgent, deleteApiBranch, deleteApiFaqCategory, deleteApiHelpTopic, deleteApiAgent, listApiAdminBranches, listApiHelpTopics, listApiUsers, listApiAgents, getApiAgentOptions, updateApiAgent, saveApiTicketVisibility, sendMailTest, updateApiBranch, updateApiFaqCategory, updateApiHelpTopic, updateApiUserVerification, massAgentAction, type ApiBranch, type ApiHelpTopic, type ApiAgent, type ApiAgentOptions, type ApiDeptAccess, type ApiTeamMembership } from '../../lib/api'
 import { formatDate } from '../../lib/format'
 import { accountSessionToken, addLog, newId, removeRecord, saveSettings, syncUserVerification } from '../../lib/store'
 import type { LogLevel, SystemSettings } from '../../types'
 import { EntityManager } from './EntityManager'
+import { AdminDepartmentsPage } from './AdminDepartmentsPage'
+export { AdminDepartmentsPage }
 
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
   const { user, ready } = useAuth()
@@ -665,93 +667,6 @@ export function AdminRolesPage() {
       ]}
       defaults={{ name: '', permissions: 'tickets' }}
     />
-  )
-}
-
-export function AdminDepartmentsPage() {
-  const db = useDb()
-  const [departments, setDepartments] = useState<Array<{ id: string; name: string; email?: string; managerId?: string; slaId?: string; active: boolean }>>([])
-  const [departmentManagers, setDepartmentManagers] = useState<ApiStaffAccount[]>([])
-  const [departmentSlas, setDepartmentSlas] = useState<Array<{ id: string; name: string }>>([])
-  const [loadingDepartments, setLoadingDepartments] = useState(true)
-  const [departmentError, setDepartmentError] = useState('')
-
-  useEffect(() => {
-    let active = true
-    const token = accountSessionToken()
-    if (!token) {
-      setDepartmentError('Administrator session expired. Sign in again.')
-      setLoadingDepartments(false)
-      return
-    }
-    void Promise.all([listApiDepartments(token), listApiStaff(token)])
-      .then(([{ departments: persisted, slas }, { staff }]) => {
-        if (!active) return
-        setDepartmentManagers(staff)
-        setDepartmentSlas(slas)
-        setDepartments(persisted.map((department) => {
-          const local = db.departments.find((item) => item.id === department.id || item.name.toLowerCase() === department.name.toLowerCase())
-          return { ...local, ...department, active: department.active ?? local?.active ?? true }
-        }))
-        setDepartmentError('')
-      })
-      .catch((error: unknown) => {
-        if (active) setDepartmentError(error instanceof Error ? error.message : 'Could not load departments from PostgreSQL.')
-      })
-      .finally(() => { if (active) setLoadingDepartments(false) })
-    return () => { active = false }
-  }, [])
-
-  return (
-    <>
-      {loadingDepartments ? <p className="mb-4 text-sm text-ink-500">Loading departments from PostgreSQL…</p> : null}
-      {departmentError ? <p role="alert" className="mb-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{departmentError}</p> : null}
-      <EntityManager
-      title="Departments"
-      subtitle="Routing, email, and managers."
-      collection="departments"
-      rows={departments}
-      columns={[
-        { key: 'name', label: 'Department' },
-        { key: 'email', label: 'Email' },
-        { key: 'managerId', label: 'Manager', render: (r) => departmentManagers.find((staff) => staff.id === r.managerId)?.name ?? '—' },
-        { key: 'active', label: 'Active', render: (r) => (r.active ? 'Yes' : 'No') },
-      ]}
-      fields={[
-        { name: 'name', label: 'Name', type: 'text', required: true },
-        { name: 'email', label: 'Email', type: 'email' },
-        { name: 'managerId', label: 'Manager', type: 'select', options: [{ value: '', label: '—' }, ...departmentManagers.map((staff) => ({ value: staff.id, label: staff.name }))] },
-        { name: 'slaId', label: 'SLA', type: 'select', options: [{ value: '', label: '—' }, ...departmentSlas.map((sla) => ({ value: sla.id, label: sla.name }))] },
-        { name: 'active', label: 'Active', type: 'checkbox' },
-      ]}
-      defaults={{ name: '', email: '', active: true }}
-      onCreate={async (record) => {
-        const token = accountSessionToken()
-        if (!token) throw new Error('Administrator session expired. Sign in again.')
-        const saved = (await createApiDepartment(record as unknown as ApiDepartment, token)).department
-        const local = db.departments.find((item) => item.name.toLowerCase() === saved.name.toLowerCase())
-        const department = { ...local, ...record, ...saved, active: saved.active ?? Boolean(record.active) }
-        setDepartments((current) => [...current.filter((item) => item.id !== department.id), department])
-        setDepartmentError('')
-        return department as unknown as Record<string, unknown>
-      }}
-      onUpdate={async (record) => {
-        const token = accountSessionToken()
-        if (!token) throw new Error('Administrator session expired. Sign in again.')
-        const saved = (await updateApiDepartment(record as unknown as ApiDepartment, token)).department
-        setDepartments((current) => current.map((item) => item.id === saved.id ? { ...item, ...saved, active: saved.active !== false } : item))
-        setDepartmentError('')
-        return saved as unknown as Record<string, unknown>
-      }}
-      onDelete={async (id) => {
-        const token = accountSessionToken()
-        if (!token) throw new Error('Administrator session expired. Sign in again.')
-        await deleteApiDepartment(id, token)
-        setDepartments((current) => current.filter((item) => item.id !== id))
-        setDepartmentError('')
-      }}
-      />
-    </>
   )
 }
 

@@ -63,7 +63,7 @@ export class AdminService {
       roles: roles.map(x => ({ id: String(x.id), name: x.name || '' })),
     };
     const rows = departments.map(d => ({ ...this.departmentView(d, lookups), primaryMembers: staffRows.filter(s => s.departmentId === String(d.id)).map(s => ({ ...s, primary: true, roleId: String(staff.find(x => String(x.staff_id) === s.id)?.role_id || 0), alerts: true })), extendedMembers: access.filter(a => a.dept_id === Number(d.id)).map(a => ({ ...staffRows.find(s => s.id === String(a.staff_id)), primary: false, roleId: String(a.role_id), alerts: Boolean(a.flags & 1) })).filter(x => x.id) }));
-    return { departments: rows, ...lookups };
+    return { ...lookups, departments: rows };
   }
 
   private async saveDepartment(data: any, id?: string) {
@@ -72,8 +72,23 @@ export class AdminService {
     const parentId = data.parentId ? key(data.parentId) : null;
     const currentId = id ? key(id) : null;
     if (parentId && (parentId === currentId || !await this.prisma.department.findUnique({ where: { id: parentId } }))) throw new ConflictException('Choose a valid parent department.');
+    if (parentId) {
+      let ancestor: any = await this.prisma.department.findUnique({ where: { id: parentId }, select: { id: true, pid: true } });
+      const seen = new Set<string>();
+      while (ancestor) {
+        const ancestorId = String(ancestor.id);
+        if (ancestorId === String(currentId || '')) throw new ConflictException('A department cannot be nested beneath one of its own child departments.');
+        if (seen.has(ancestorId)) break;
+        seen.add(ancestorId);
+        ancestor = ancestor.pid ? await this.prisma.department.findUnique({ where: { id: ancestor.pid }, select: { id: true, pid: true } }) : null;
+      }
+    }
     const current = currentId ? await this.prisma.department.findUnique({ where: { id: currentId } }) : null;
     const oldFlags = Number(current?.flags || 0);
+    if (data.type === 'private') {
+      const otherPublic = await this.prisma.department.count({ where: { ispublic: 1, ...(currentId ? { id: { not: currentId } } : {}) } });
+      if (!otherPublic) throw new ConflictException('At least one department must remain public.');
+    }
     const statusFlag = data.status === 'archived' ? 8 : data.status === 'disabled' ? 0 : 4;
     let flags = (oldFlags & ~ (4 | 8)) | statusFlag;
     flags = data.assignment === 'primary' ? flags | 16 : flags & ~16;
@@ -165,7 +180,7 @@ export class AdminService {
   async create(kind: string, data: any): Promise<any> {
     const created = stamp();
     switch (kind) {
-      case 'departments': { const d = await this.saveDepartment(data); return { id: String(d.id), name: d.name, active: true, ...this.departmentView(d) }; }
+      case 'departments': { const d = await this.saveDepartment(data); return { ...this.departmentView(d), active: true }; }
       case 'staff': {
         const [first, ...last] = String(data.name || [data.firstname, data.lastname].filter(Boolean).join(' ')).split(' ');
         const salt = randomBytes(16);
@@ -214,7 +229,7 @@ export class AdminService {
   async update(kind: string, rawId: string, data: any): Promise<any> {
     const updated = stamp();
     switch (kind) {
-      case 'departments': { const d = await this.saveDepartment(data, rawId); return { id: String(d.id), name: d.name, active: true, ...this.departmentView(d) }; }
+      case 'departments': { const d = await this.saveDepartment(data, rawId); return { ...this.departmentView(d), active: true }; }
       case 'staff': {
         const old = await this.prisma.staff.findUniqueOrThrow({ where: { staff_id: Number(rawId) } });
         const extra = { ...extraOf(old.extra), title: data.title ?? extraOf(old.extra).title };
@@ -271,7 +286,21 @@ export class AdminService {
 
   async remove(kind: string, rawId: string) {
     switch (kind) {
-      case 'departments': await this.prisma.department.delete({ where: { id: key(rawId) } }); break;
+      case 'departments': {
+        const id = key(rawId);
+        const [children, staff, tickets, topics] = await Promise.all([
+          this.prisma.department.count({ where: { pid: id } }),
+          this.prisma.staff.count({ where: { dept_id: Number(id) } }),
+          this.prisma.ticket.count({ where: { dept_id: id } }),
+          this.prisma.helpTopic.count({ where: { dept_id: id } }),
+        ]);
+        if (children || staff || tickets || topics) throw new ConflictException('This department is still used by child departments, agents, tickets, or help topics. Reassign those records before deleting it.');
+        await this.prisma.$transaction(async tx => {
+          await tx.staffDeptAccess.deleteMany({ where: { dept_id: Number(id) } });
+          await tx.department.delete({ where: { id } });
+        });
+        break;
+      }
       case 'staff': await this.prisma.staff.delete({ where: { staff_id: Number(rawId) } }); break;
       case 'organizations': await this.prisma.organization.delete({ where: { id: key(rawId) } }); break;
       case 'branches': await this.prisma.branch.delete({ where: { id: key(rawId) } }); break;
