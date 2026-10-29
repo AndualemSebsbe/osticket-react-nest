@@ -336,16 +336,16 @@ export function AdminTopicsPage() {
         onCreate={async (record) => {
           const token = accountSessionToken()
           if (!token) throw new Error('Administrator session expired. Sign in again.')
-          const topic = (await createApiHelpTopic(record as ApiHelpTopic, token)).topic
+          const topic = (await createApiHelpTopic(record as unknown as ApiHelpTopic, token)).topic
           setTopics((current) => [...current.filter((item) => item.id !== topic.id), topic])
-          return topic
+          return topic as unknown as Record<string, unknown>
         }}
         onUpdate={async (record) => {
           const token = accountSessionToken()
           if (!token) throw new Error('Administrator session expired. Sign in again.')
-          const topic = (await updateApiHelpTopic(record as ApiHelpTopic, token)).topic
+          const topic = (await updateApiHelpTopic(record as unknown as ApiHelpTopic, token)).topic
           setTopics((current) => current.map((item) => item.id === topic.id ? topic : item))
-          return topic
+          return topic as unknown as Record<string, unknown>
         }}
         onDelete={async (id) => {
           const token = accountSessionToken()
@@ -728,20 +728,20 @@ export function AdminDepartmentsPage() {
       onCreate={async (record) => {
         const token = accountSessionToken()
         if (!token) throw new Error('Administrator session expired. Sign in again.')
-        const saved = (await createApiDepartment(record as ApiDepartment, token)).department
+        const saved = (await createApiDepartment(record as unknown as ApiDepartment, token)).department
         const local = db.departments.find((item) => item.name.toLowerCase() === saved.name.toLowerCase())
         const department = { ...local, ...record, ...saved, active: saved.active ?? Boolean(record.active) }
         setDepartments((current) => [...current.filter((item) => item.id !== department.id), department])
         setDepartmentError('')
-        return department
+        return department as unknown as Record<string, unknown>
       }}
       onUpdate={async (record) => {
         const token = accountSessionToken()
         if (!token) throw new Error('Administrator session expired. Sign in again.')
-        const saved = (await updateApiDepartment(record as ApiDepartment, token)).department
+        const saved = (await updateApiDepartment(record as unknown as ApiDepartment, token)).department
         setDepartments((current) => current.map((item) => item.id === saved.id ? { ...item, ...saved, active: saved.active !== false } : item))
         setDepartmentError('')
-        return saved
+        return saved as unknown as Record<string, unknown>
       }}
       onDelete={async (id) => {
         const token = accountSessionToken()

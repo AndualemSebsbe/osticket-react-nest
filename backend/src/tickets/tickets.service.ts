@@ -102,6 +102,38 @@ export class TicketsService {
       await tx.ticketCdata.create({ data: { ticket_id: t.ticket_id, subject, priority: String(data.priority || 'normal'), employee_id: String(data.employeeId || ''), branch_id: bi(data.branchId) } });
       const th = await tx.thread.create({ data: { object_id: t.ticket_id, object_type: 'T', extra: JSON.stringify({ accessHash: createHash('sha256').update(accessToken).digest('hex'), fromEmail: this.security.clean(data.fromEmail,254), collaboratorNotice: ['all','user','none'].includes(data.collaboratorNotice)?data.collaboratorNotice:'all' }), created: timestamp } });
       const entry = await tx.threadEntry.create({ data: { thread_id: th.id, user_id: userId, type: 'M', poster: name, title: subject, body: message, ip_address: ip, created: timestamp, updated: timestamp } });
+      await tx.threadEvent.create({
+        data: {
+          thread_id: th.id,
+          thread_type: 'T',
+          event_id: 1n,
+          staff_id: BigInt(assignee?.staff_id || 0),
+          team_id: 0n,
+          dept_id: dept?.id || 0n,
+          topic_id: helpTopic?.topic_id || 0n,
+          username: name || 'SYSTEM',
+          uid: userId,
+          uid_type: 'U',
+          timestamp,
+        },
+      });
+      if (assignee?.staff_id) {
+        await tx.threadEvent.create({
+          data: {
+            thread_id: th.id,
+            thread_type: 'T',
+            event_id: 4n,
+            staff_id: BigInt(assignee.staff_id),
+            team_id: 0n,
+            dept_id: dept?.id || 0n,
+            topic_id: helpTopic?.topic_id || 0n,
+            username: name || 'SYSTEM',
+            uid: userId,
+            uid_type: 'U',
+            timestamp,
+          },
+        });
+      }
       if (uploads.length > 5 || uploads.some(file => file.size > 8 * 1024 * 1024)) throw new BadRequestException('You can attach up to five files of 8 MB each.');
       let total = 0;
       for (const upload of uploads) { const filename=String(upload.originalname||'attachment').replace(/[\\/\x00-\x1f\x7f]/g,'_').slice(0,255); const ext=filename.split('.').pop()?.toLowerCase()||''; if(!['pdf','png','jpg','jpeg','gif','webp','txt','csv','doc','docx','xls','xlsx','zip'].includes(ext)) throw new BadRequestException('Unsupported attachment type.'); total+=upload.size; const file=await tx.file.create({data:{name:filename,type:/^[\w.+-]+\/[\w.+-]+$/.test(upload.mimetype)?upload.mimetype:'application/octet-stream',size:BigInt(upload.size),key:randomBytes(32).toString('hex'),signature:createHash('sha256').update(upload.buffer).digest('hex'),created:timestamp}}); await tx.fileChunk.create({data:{file_id:file.id,chunk_id:0,filedata:Uint8Array.from(upload.buffer)}}); await tx.attachment.create({data:{object_id:entry.id,type:'H',file_id:file.id,name:filename}}); }
@@ -151,15 +183,49 @@ export class TicketsService {
     const internal = staff && body.internal === true;
     const entry = await this.prisma.threadEntry.create({ data: { thread_id: thread.id, user_id: actor?.user_id || 0n, staff_id: BigInt(staffRow?.staff_id || 0), type: staff ? (internal ? 'N' : 'R') : 'M', poster: staff ? [staffRow?.firstname, staffRow?.lastname].filter(Boolean).join(' ') : collaborator?.name || view.requesterName, title: null, body: message, recipients: JSON.stringify(body.recipients || []), ip_address: '', created: timestamp, updated: timestamp } });
     const update: any = { updated: timestamp };
+    let transitionEventId: bigint | null = null;
     if (!staff && view.status === 'closed') {
       const open = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: 'open', mode: 'insensitive' } } });
-      if (open) update.status_id = open.id;
+      if (open) {
+        update.status_id = open.id;
+        update.reopened = timestamp;
+        update.closed = null;
+        transitionEventId = 3n; // reopened
+      }
     }
     if (staff && ['open','pending','closed'].includes(String(body.status))) {
       const next = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: String(body.status), mode: 'insensitive' } } });
-      if (next) update.status_id = next.id;
+      if (next) {
+        update.status_id = next.id;
+        if (String(body.status) === 'closed' && view.status !== 'closed') {
+          update.closed = timestamp;
+          update.isoverdue = 0;
+          transitionEventId = 2n; // closed
+        } else if (String(body.status) === 'open' && view.status === 'closed') {
+          update.reopened = timestamp;
+          update.closed = null;
+          transitionEventId = 3n; // reopened
+        }
+      }
     }
     await this.prisma.ticket.update({ where: { ticket_id: row.ticket_id }, data: update });
+    if (transitionEventId) {
+      await this.prisma.threadEvent.create({
+        data: {
+          thread_id: thread.id,
+          thread_type: 'T',
+          event_id: transitionEventId,
+          staff_id: BigInt(staffRow?.staff_id || row.staff_id || 0),
+          team_id: row.team_id,
+          dept_id: row.dept_id,
+          topic_id: row.topic_id,
+          username: staff ? [staffRow?.firstname, staffRow?.lastname].filter(Boolean).join(' ') : (collaborator?.name || view.requesterName || 'SYSTEM'),
+          uid: staff ? BigInt(staffRow?.staff_id || 0) : (actor?.user_id || 0n),
+          uid_type: staff ? 'S' : 'U',
+          timestamp,
+        },
+      });
+    }
     const recipients = staff ? (Array.isArray(body.recipients) ? body.recipients : [view.requesterEmail]) : [view.requesterEmail];
     if (!internal) void this.mail.sendNotice(recipients, (staff ? 'Reply to' : 'Customer reply on') + ' ticket #' + number, message, number);
     return { message: { id: String(entry.id), ticketNumber: number, author: entry.poster, authorEmail: staff ? session!.email : email, kind: staff ? 'agent' : collaborator ? 'collaborator' : 'client', internal, body: message, attachments: [], recipients, createdAt: timestamp.toISOString() }, ticket: await this.view(await this.prisma.ticket.findUniqueOrThrow({ where: { ticket_id: row.ticket_id } })) };
@@ -169,16 +235,46 @@ export class TicketsService {
     const { row } = await this.get(number);
     const now = new Date();
     const ticketUpdate: any = { updated: now };
+    const eventsToCreate: Array<{
+      event_id: bigint;
+      staff_id?: bigint;
+      team_id?: bigint;
+      dept_id?: bigint;
+      topic_id?: bigint;
+    }> = [];
+
     if (input.status) {
       const status = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: String(input.status), mode: 'insensitive' } } });
       if (!status) throw new BadRequestException('Choose a valid ticket status.');
       ticketUpdate.status_id = status.id;
+      const nextState = (status.state || status.name).toLowerCase();
+      const currentStatusRow = await this.prisma.ticketStatus.findUnique({ where: { id: row.status_id } });
+      const currentState = (currentStatusRow?.state || currentStatusRow?.name || 'open').toLowerCase();
+      if (nextState === 'closed' && currentState !== 'closed') {
+        ticketUpdate.closed = now;
+        ticketUpdate.isoverdue = 0;
+        eventsToCreate.push({ event_id: 2n });
+      } else if (nextState === 'open' && currentState === 'closed') {
+        ticketUpdate.reopened = now;
+        ticketUpdate.closed = null;
+        eventsToCreate.push({ event_id: 3n });
+      }
     }
-    if (input.overdue !== undefined) ticketUpdate.isoverdue = input.overdue ? 1 : 0;
+    if (input.overdue !== undefined) {
+      ticketUpdate.isoverdue = input.overdue ? 1 : 0;
+      if (input.overdue && !row.isoverdue) {
+        eventsToCreate.push({ event_id: 8n });
+      }
+    }
     if (input.assigneeEmail !== undefined) {
       const staff = input.assigneeEmail ? await this.prisma.staff.findFirst({ where: { email: { equals: String(input.assigneeEmail), mode: 'insensitive' }, isactive: 1 } }) : null;
       if (input.assigneeEmail && !staff) throw new BadRequestException('Choose an active agent or administrator.');
       ticketUpdate.staff_id = BigInt(staff?.staff_id || 0);
+      if (staff && BigInt(staff.staff_id) !== row.staff_id) {
+        eventsToCreate.push({ event_id: 4n, staff_id: BigInt(staff.staff_id) });
+      } else if (!staff && row.staff_id > 0n) {
+        eventsToCreate.push({ event_id: 5n, staff_id: 0n });
+      }
     } else if (input.assignee !== undefined) throw new BadRequestException('Select an active agent from the staff directory.');
     const cdata: any = {};
     if (input.priority) {
@@ -191,6 +287,9 @@ export class TicketsService {
       const d = await this.prisma.department.findFirst({ where: { name: { equals: String(input.department), mode: 'insensitive' } } });
       if (!d) throw new BadRequestException('Choose a valid department.');
       ticketUpdate.dept_id = d.id;
+      if (d.id !== row.dept_id) {
+        eventsToCreate.push({ event_id: 6n, dept_id: d.id });
+      }
     }
     if (input.topic !== undefined) {
       const topic = await this.prisma.helpTopic.findFirst({ where: { topic: { equals: String(input.topic), mode: 'insensitive' } } });
@@ -200,6 +299,24 @@ export class TicketsService {
     await this.prisma.$transaction(async tx => {
       await tx.ticket.update({ where: { ticket_id: row.ticket_id }, data: ticketUpdate });
       if (Object.keys(cdata).length) await tx.ticketCdata.upsert({ where: { ticket_id: row.ticket_id }, create: { ticket_id: row.ticket_id, ...cdata }, update: cdata });
+      if (eventsToCreate.length) {
+        const thread = await this.threadFor(row.ticket_id);
+        for (const ev of eventsToCreate) {
+          await tx.threadEvent.create({
+            data: {
+              thread_id: thread.id,
+              thread_type: 'T',
+              event_id: ev.event_id,
+              staff_id: ev.staff_id ?? ticketUpdate.staff_id ?? row.staff_id,
+              team_id: ev.team_id ?? row.team_id,
+              dept_id: ev.dept_id ?? ticketUpdate.dept_id ?? row.dept_id,
+              topic_id: ev.topic_id ?? ticketUpdate.topic_id ?? row.topic_id,
+              username: 'SYSTEM',
+              timestamp: now,
+            },
+          });
+        }
+      }
     });
     return { ticket: await this.view(await this.prisma.ticket.findUniqueOrThrow({ where: { ticket_id: row.ticket_id } })) };
   }
@@ -229,6 +346,19 @@ export class TicketsService {
     if (!row) throw new NotFoundException('Ticket not found.');
     await this.prisma.$transaction(async (tx) => {
       const thread = await tx.thread.findUnique({ where: { object_id_object_type: { object_id: row.ticket_id, object_type: 'T' } } });
+      await tx.threadEvent.create({
+        data: {
+          thread_id: thread?.id || 0n,
+          thread_type: 'T',
+          event_id: 14n,
+          staff_id: row.staff_id,
+          team_id: row.team_id,
+          dept_id: row.dept_id,
+          topic_id: row.topic_id,
+          username: 'SYSTEM',
+          timestamp: new Date(),
+        },
+      });
       if (thread) {
         const entries = await tx.threadEntry.findMany({ where: { thread_id: thread.id }, select: { id: true } });
         const entryIds = entries.map((entry) => entry.id);

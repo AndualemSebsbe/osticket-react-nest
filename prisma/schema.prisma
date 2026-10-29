@@ -177,6 +177,15 @@ model EmailTemplateGroup {
   @@schema("osticket")
 }
 
+model Event {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(60)
+  description String?  @db.VarChar(60)
+
+  @@map("ost_event")
+  @@schema("osticket")
+}
+
 model Faq {
   faq_id      BigInt   @id @default(autoincrement())
   category_id BigInt   @default(0)
@@ -636,6 +645,28 @@ model ThreadEntry {
 
   @@index([thread_id, created], map: "ost_thread_entry_thread_idx")
   @@map("ost_thread_entry")
+  @@schema("osticket")
+}
+
+model ThreadEvent {
+  id          BigInt   @id @default(autoincrement())
+  thread_id   BigInt   @default(0)
+  thread_type String   @default("") @db.Char(1)
+  event_id    BigInt?
+  staff_id    BigInt   @default(0)
+  team_id     BigInt   @default(0)
+  dept_id     BigInt   @default(0)
+  topic_id    BigInt   @default(0)
+  data        String?  @db.VarChar(1024)
+  username    String   @default("SYSTEM") @db.VarChar(128)
+  uid         BigInt?
+  uid_type    String   @default("S") @db.Char(1)
+  annulled    Int      @default(0) @db.SmallInt
+  timestamp   DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([thread_id, event_id, timestamp], map: "ost_thread_event_ticket_state_idx")
+  @@index([timestamp, event_id], map: "ost_thread_event_ticket_stats_idx")
+  @@map("ost_thread_event")
   @@schema("osticket")
 }
 

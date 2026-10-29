@@ -39,7 +39,7 @@ export function listApiAssignableStaff(token: string) {
 }
 export interface ApiDepartment { id: string; name: string; email?: string; managerId?: string; slaId?: string; active?: boolean }
 export interface ApiFaqCategory { id: string; name: string; description: string; published: boolean }
-export interface ApiFaqArticle { id: string; categoryId: String; question: string; answer: string; published: boolean }
+export interface ApiFaqArticle { id: string; categoryId: string; question: string; answer: string; published: boolean }
 export function listApiFaqArticles() {
   return request<{ articles: ApiFaqArticle[] }>('/admin/faq-articles', { headers: currentSessionHeaders() }).then(result => result.articles)
 }
@@ -265,3 +265,85 @@ export async function downloadApiTicketAttachment(number: string, attachmentId: 
   link.remove()
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
+
+export interface DashboardTimeframe {
+  start: string
+  stop: string
+  period: string
+  displayRange: string
+  startDateInput: string
+}
+
+export interface DashboardWorkload {
+  open: number
+  pending: number
+  overdue: number
+  unassigned: number
+}
+
+export interface DashboardPlotData {
+  times: string[]
+  timestamps: number[]
+  events: string[]
+  plots: Record<string, number[]>
+  totals: Record<string, number>
+}
+
+export interface DashboardTabularReport {
+  columns: string[]
+  data: Array<Array<string | number>>
+}
+
+export interface DashboardOverview {
+  timeframe: DashboardTimeframe
+  workload: DashboardWorkload
+  plots: DashboardPlotData
+  tables: {
+    dept: DashboardTabularReport
+    topic: DashboardTabularReport
+    staff: DashboardTabularReport
+  }
+}
+
+export function getDashboardOverview(start?: string, period?: string, token?: string) {
+  const params = new URLSearchParams()
+  if (start) params.set('start', start)
+  if (period) params.set('period', period)
+  const q = params.toString() ? '?' + params.toString() : ''
+  return request<DashboardOverview>('/dashboard/overview' + q, {
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+  })
+}
+
+export async function downloadDashboardExport(
+  group: 'dept' | 'topic' | 'staff',
+  start?: string,
+  period?: string,
+  token?: string,
+) {
+  const params = new URLSearchParams({ group })
+  if (start) params.set('start', start)
+  if (period) params.set('period', period)
+  const headers = new Headers(token ? { 'x-user-session': token } : currentSessionHeaders())
+  const response = await fetch('/api/v1/dashboard/export?' + params.toString(), { headers })
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}))
+    throw new ApiRequestError(data.error || 'Export failed.', response.status)
+  }
+  const disposition = response.headers.get('content-disposition')
+  let filename = `stats-${group}.csv`
+  if (disposition) {
+    const match = disposition.match(/filename="?([^"]+)"?/)
+    if (match?.[1]) filename = match[1]
+  }
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+

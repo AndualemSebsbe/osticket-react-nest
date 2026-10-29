@@ -95,7 +95,6 @@ export interface Message {
   attachments?: string[]
   attachmentFiles?: Array<{ id: string; name: string }>
   recipients?: string[]
-  recipients?: string[]
   createdAt: string
 }
 
