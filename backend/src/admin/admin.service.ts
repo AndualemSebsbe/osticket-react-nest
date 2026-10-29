@@ -121,9 +121,38 @@ export class AdminService {
     return saved;
   }
 
+  private slaView(s: any, schedules: any[] = []) {
+    const flags = Number(s.flags || 0);
+    return { id: String(s.id), name: s.name, graceHours: Number(s.grace_period), active: Boolean(flags & 1), transient: Boolean(flags & 2), disableAlerts: Boolean(flags & 4), scheduleId: String(s.schedule_id || 0), scheduleName: schedules.find(x => String(x.id) === String(s.schedule_id))?.name || '', notes: s.notes || '' };
+  }
+
+  async slaOptions() {
+    const [slas, schedules] = await Promise.all([this.prisma.sla.findMany({ orderBy: { name: 'asc' } }), this.prisma.schedule.findMany({ orderBy: { name: 'asc' } })]);
+    const scheduleViews = schedules.map(x => ({ id: String(x.id), name: x.name, timezone: x.timezone || 'UTC', description: x.description || '' }));
+    return { slas: slas.map(x => this.slaView(x, scheduleViews)), schedules: scheduleViews };
+  }
+
+  private async saveSla(data: any, rawId?: string) {
+    const name = String(data.name || '').trim();
+    const graceHours = Number(data.graceHours);
+    if (!name || name.length > 64) throw new ConflictException('Enter an SLA plan name (up to 64 characters).');
+    if (!Number.isInteger(graceHours) || graceHours < 0 || graceHours > 87600) throw new ConflictException('Grace period must be a whole number from 0 to 87600 hours.');
+    const scheduleId = Number(data.scheduleId || 0);
+    if (!Number.isInteger(scheduleId) || scheduleId < 0) throw new ConflictException('Choose a valid schedule.');
+    if (scheduleId && !await this.prisma.schedule.findUnique({ where: { id: BigInt(scheduleId) }, select: { id: true } })) throw new ConflictException('The selected schedule does not exist.');
+    const old = rawId ? await this.prisma.sla.findUnique({ where: { id: Number(rawId) } }) : null;
+    let flags = Number(old?.flags ?? 0);
+    for (const [field, bit] of [['active', 1], ['transient', 2], ['disableAlerts', 4]] as const) flags = data[field] ? flags | bit : flags & ~bit;
+    const saved = rawId
+      ? await this.prisma.sla.update({ where: { id: Number(rawId) }, data: { name, grace_period: graceHours, schedule_id: scheduleId, flags, notes: String(data.notes || '') || null, updated: stamp() } })
+      : await this.prisma.sla.create({ data: { name, grace_period: graceHours, schedule_id: scheduleId, flags: flags || (data.active ? 1 : 0), notes: String(data.notes || '') || null, created: stamp(), updated: stamp() } });
+    return this.slaView(saved, await this.prisma.schedule.findMany({ select: { id: true, name: true } }));
+  }
+
   async list(kind: string): Promise<any[]> {
     switch (kind) {
       case 'departments': return (await this.departmentOptions()).departments;
+      case 'sla-plans': return (await this.slaOptions()).slas;
       case 'branches':
       case 'branches-all': return (await this.prisma.branch.findMany({ where: kind === 'branches' ? { active: 1 } : {}, orderBy: { name: 'asc' } })).map(b => ({ id: String(b.id), name: b.name, active: Boolean(b.active) }));
       case 'staff': {
@@ -181,6 +210,7 @@ export class AdminService {
     const created = stamp();
     switch (kind) {
       case 'departments': { const d = await this.saveDepartment(data); return { ...this.departmentView(d), active: true }; }
+      case 'sla-plans': return this.saveSla(data);
       case 'staff': {
         const [first, ...last] = String(data.name || [data.firstname, data.lastname].filter(Boolean).join(' ')).split(' ');
         const salt = randomBytes(16);
@@ -230,6 +260,7 @@ export class AdminService {
     const updated = stamp();
     switch (kind) {
       case 'departments': { const d = await this.saveDepartment(data, rawId); return { ...this.departmentView(d), active: true }; }
+      case 'sla-plans': return this.saveSla(data, rawId);
       case 'staff': {
         const old = await this.prisma.staff.findUniqueOrThrow({ where: { staff_id: Number(rawId) } });
         const extra = { ...extraOf(old.extra), title: data.title ?? extraOf(old.extra).title };
@@ -286,6 +317,19 @@ export class AdminService {
 
   async remove(kind: string, rawId: string) {
     switch (kind) {
+      case 'sla-plans': {
+        const id = Number(rawId);
+        const [tickets, departments, topics, filterActions, configSettings] = await Promise.all([
+          this.prisma.ticket.count({ where: { sla_id: BigInt(id) } }),
+          this.prisma.department.count({ where: { sla_id: id } }),
+          this.prisma.helpTopic.count({ where: { sla_id: BigInt(id) } }),
+          this.prisma.$queryRawUnsafe<Array<{ count: bigint }>>(`SELECT count(*)::bigint AS count FROM "osticket"."ost_filter_action" a WHERE (to_jsonb(a) - 'id' - 'filter_id')::text LIKE $1`, '%"sla_id"%' + '%' + String(id) + '%'),
+          this.prisma.config.count({ where: { key: { contains: 'sla', mode: 'insensitive' }, value: String(id) } }),
+        ]);
+        if (tickets || departments || topics || Number(filterActions[0]?.count || 0) || configSettings) throw new ConflictException('This SLA plan is still referenced by tickets, departments, help topics, ticket filter actions, or system configuration. Reassign those records before deleting it.');
+        await this.prisma.sla.delete({ where: { id } });
+        break;
+      }
       case 'departments': {
         const id = key(rawId);
         const [children, staff, tickets, topics] = await Promise.all([

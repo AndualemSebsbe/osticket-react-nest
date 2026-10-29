@@ -4,7 +4,7 @@ import { btnGhost, btnPrimary, Card, DataTable, Field, inputClass, PageHeader } 
 import { useAuth } from '../../context/AuthContext'
 import { useDb } from '../../hooks/useDb'
 import { adminGroups } from '../../layouts/staffNav'
-import { createApiBranch, createApiFaqCategory, createApiHelpTopic, createApiAgent, deleteApiBranch, deleteApiFaqCategory, deleteApiHelpTopic, deleteApiAgent, listApiAdminBranches, listApiHelpTopics, listApiUsers, listApiAgents, getApiAgentOptions, updateApiAgent, saveApiTicketVisibility, sendMailTest, updateApiBranch, updateApiFaqCategory, updateApiHelpTopic, updateApiUserVerification, massAgentAction, type ApiBranch, type ApiHelpTopic, type ApiAgent, type ApiAgentOptions, type ApiDeptAccess, type ApiTeamMembership } from '../../lib/api'
+import { createApiBranch, listApiSlaPlans, createApiSlaPlan, updateApiSlaPlan, deleteApiSlaPlan, createApiFaqCategory, createApiHelpTopic, createApiAgent, deleteApiBranch, deleteApiFaqCategory, deleteApiHelpTopic, deleteApiAgent, listApiAdminBranches, listApiHelpTopics, listApiUsers, listApiAgents, getApiAgentOptions, updateApiAgent, saveApiTicketVisibility, sendMailTest, updateApiBranch, updateApiFaqCategory, updateApiHelpTopic, updateApiUserVerification, massAgentAction, type ApiBranch, type ApiHelpTopic, type ApiSlaPlan, type ApiAgent, type ApiAgentOptions, type ApiDeptAccess, type ApiTeamMembership } from '../../lib/api'
 import { formatDate } from '../../lib/format'
 import { accountSessionToken, addLog, newId, removeRecord, saveSettings, syncUserVerification } from '../../lib/store'
 import type { LogLevel, SystemSettings } from '../../types'
@@ -388,27 +388,52 @@ export function AdminFiltersPage() {
 }
 
 export function AdminSlasPage() {
-  const db = useDb()
-  return (
-    <EntityManager
-      title="SLA plans"
-      subtitle="Grace period before a ticket is overdue."
-      collection="slas"
-      rows={db.slas}
-      columns={[
-        { key: 'name', label: 'Plan' },
-        { key: 'graceHours', label: 'Grace (hours)' },
-        { key: 'transient', label: 'Transient', render: (r) => (r.transient ? 'Yes' : 'No') },
-      ]}
-      fields={[
-        { name: 'name', label: 'Name', type: 'text', required: true },
-        { name: 'graceHours', label: 'Grace hours', type: 'number', required: true },
-        { name: 'notes', label: 'Notes', type: 'textarea', span2: true },
-        { name: 'transient', label: 'Transient', type: 'checkbox' },
-      ]}
-      defaults={{ name: '', graceHours: 24, transient: false, notes: '' }}
-    />
-  )
+  const [slas, setSlas] = useState<ApiSlaPlan[]>([])
+  const [schedules, setSchedules] = useState<Array<{ id: string; name: string; timezone: string; description: string }>>([])
+  const [editing, setEditing] = useState<ApiSlaPlan | 'new' | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const token = accountSessionToken()
+
+  async function refresh() {
+    if (!token) { setError('Administrator session expired. Sign in again.'); setLoading(false); return }
+    try { const result = await listApiSlaPlans(token); setSlas(result.slas); setSchedules(result.schedules); setError('') }
+    catch (err) { setError(err instanceof Error ? err.message : 'Could not load SLA plans from PostgreSQL.') }
+    finally { setLoading(false) }
+  }
+  useEffect(() => { void refresh() }, [])
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!editing || !token) return
+    const form = new FormData(event.currentTarget)
+    const payload = { name: String(form.get('name') || '').trim(), graceHours: Number(form.get('graceHours')), active: form.get('active') === 'on', transient: form.get('transient') === 'on', disableAlerts: form.get('disableAlerts') === 'on', scheduleId: String(form.get('scheduleId') || '0'), notes: String(form.get('notes') || '').trim() }
+    setSaving(true); setError('')
+    try { const saved = editing === 'new' ? await createApiSlaPlan(payload, token) : await updateApiSlaPlan(editing.id, payload, token); setSlas(rows => [...rows.filter(row => row.id !== saved.id), saved].sort((a,b) => a.name.localeCompare(b.name))); setEditing(null) }
+    catch (err) { setError(err instanceof Error ? err.message : 'Could not save the SLA plan.') } finally { setSaving(false) }
+  }
+  async function remove(id: string) {
+    if (!token || !window.confirm('Delete this SLA plan? Plans assigned to tickets, departments, or help topics cannot be deleted.')) return
+    setSaving(true); setError('')
+    try { await deleteApiSlaPlan(id, token); setSlas(rows => rows.filter(row => row.id !== id)) }
+    catch (err) { setError(err instanceof Error ? err.message : 'Could not delete the SLA plan.') } finally { setSaving(false) }
+  }
+  const actions = (row: Record<string, unknown>) => <div className="flex gap-3"><button type="button" disabled={saving} className="text-brand-600 disabled:opacity-50" onClick={() => setEditing(slas.find(item => item.id === String(row.id)) || null)}>Edit</button><button type="button" disabled={saving} className="text-rose-600 disabled:opacity-50" onClick={() => void remove(String(row.id))}>Delete</button></div>
+  return <div>
+    <PageHeader title="SLA plans" subtitle="Set ticket grace periods, business schedules, and overdue alert behavior." actions={<button type="button" className={btnPrimary} onClick={() => setEditing('new')}>Add new SLA plan</button>} />
+    {editing ? <Card className="mb-6"><h2 className="mb-4 font-semibold">{editing === 'new' ? 'Add new SLA plan' : 'Edit SLA plan'}</h2><form onSubmit={event => void save(event)} className="grid gap-4 sm:grid-cols-2">
+      <Field label="Name"><input name="name" required maxLength={64} defaultValue={editing === 'new' ? '' : editing.name} className={inputClass} /></Field>
+      <Field label="Grace period (hours)"><input name="graceHours" type="number" min="0" max="87600" step="1" required defaultValue={editing === 'new' ? 24 : editing.graceHours} className={inputClass} /><span className="text-xs text-ink-500">Hours before an open ticket becomes overdue.</span></Field>
+      <Field label="Schedule"><select name="scheduleId" defaultValue={editing === 'new' ? '0' : editing.scheduleId} className={inputClass}><option value="0">No schedule</option>{schedules.map(item => <option key={item.id} value={item.id}>{item.name}{item.timezone ? ' (' + item.timezone + ')' : ''}</option>)}</select></Field>
+      <Field label="Status"><select name="active" defaultValue={editing === 'new' || editing.active ? 'on' : 'off'} className={inputClass}><option value="on">Active</option><option value="off">Disabled</option></select></Field>
+      <Field label="Transient"><input name="transient" type="checkbox" defaultChecked={editing !== 'new' && editing.transient} className="h-4 w-4" /><span className="text-xs text-ink-500">Allow a non-transient SLA to replace this plan when department or help topic changes.</span></Field>
+      <Field label="Ticket overdue alerts"><input name="disableAlerts" type="checkbox" defaultChecked={editing !== 'new' && editing.disableAlerts} className="h-4 w-4" /><span className="text-xs text-ink-500">Disable overdue alert notices to staff for tickets on this plan.</span></Field>
+      <Field label="Notes" className="sm:col-span-2"><textarea name="notes" rows={3} defaultValue={editing === 'new' ? '' : editing.notes} className={inputClass} /></Field>
+      <div className="flex gap-2 sm:col-span-2"><button type="submit" disabled={saving} className={btnPrimary}>{saving ? 'Saving…' : 'Save SLA plan'}</button><button type="button" disabled={saving} className={btnGhost} onClick={() => setEditing(null)}>Cancel</button></div>
+    </form></Card> : null}
+    {error ? <p role="alert" className="mb-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
+    {loading ? <p className="text-sm text-ink-500">Loading SLA plans…</p> : <DataTable rows={slas as unknown as Record<string, unknown>[]} rowKey={row => String(row.id)} empty="No SLA plans have been created." columns={[{key:'name',label:'Plan',render:r=>String(r.name)},{key:'graceHours',label:'Grace (hours)',render:r=>String(r.graceHours)},{key:'scheduleName',label:'Schedule',render:r=>String(r.scheduleName || '—')},{key:'active',label:'Status',render:r=>r.active?'Active':'Disabled'},{key:'transient',label:'Transient',render:r=>r.transient?'Yes':'No'},{key:'disableAlerts',label:'Overdue alerts',render:r=>r.disableAlerts?'Disabled':'Enabled'},{key:'actions',label:'Actions',render:actions}]} renderCard={row=><Card><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{String(row.name)}</p><p className="mt-1 text-sm text-ink-600">{String(row.graceHours)} hour grace · {String(row.scheduleName || 'No schedule')}</p><p className="mt-1 text-xs text-ink-500">{row.active?'Active':'Disabled'} · {row.transient?'Transient':'Permanent'} · overdue alerts {row.disableAlerts?'disabled':'enabled'}</p></div>{actions(row)}</div>{row.notes ? <p className="mt-3 text-sm text-ink-600">{String(row.notes)}</p> : null}</Card>} />}
+  </div>
 }
 
 export function AdminSchedulesPage() {

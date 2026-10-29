@@ -82,6 +82,12 @@ export function updateApiDepartment(input: ApiDepartment, token: string) {
 export function deleteApiDepartment(id: string, token: string) {
   return request<{ deleted: boolean }>('/admin/departments', { method: 'DELETE', headers: { 'x-user-session': token }, body: JSON.stringify({ id }) })
 }
+export interface ApiSlaPlan { id: string; name: string; graceHours: number; active: boolean; transient: boolean; disableAlerts: boolean; scheduleId: string; scheduleName?: string; notes: string }
+export interface ApiSlaOptions { slas: ApiSlaPlan[]; schedules: Array<{ id: string; name: string; timezone: string; description: string }> }
+export function listApiSlaPlans(token: string) { return request<ApiSlaOptions>('/admin/sla-plans', { headers: { 'x-user-session': token } }) }
+export function createApiSlaPlan(input: Omit<ApiSlaPlan, 'id' | 'scheduleName'>, token: string) { return request<{ sla: ApiSlaPlan }>('/admin/sla-plans', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) }).then(r => r.sla) }
+export function updateApiSlaPlan(id: string, input: Omit<ApiSlaPlan, 'id' | 'scheduleName'>, token: string) { return request<{ sla: ApiSlaPlan }>('/admin/sla-plans/' + encodeURIComponent(id), { method: 'PUT', headers: { 'x-user-session': token }, body: JSON.stringify(input) }).then(r => r.sla) }
+export function deleteApiSlaPlan(id: string, token: string) { return request<{ deleted: boolean }>('/admin/sla-plans/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'x-user-session': token } }) }
 export interface ApiHelpTopic { id: string; name: string; deptId: string; departmentName?: string; priority: string; slaId?: string; slaName?: string; hint?: string; active: boolean }
 export interface ApiHelpTopicOptions {
   topics: ApiHelpTopic[]

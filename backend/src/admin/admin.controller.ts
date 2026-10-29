@@ -24,6 +24,11 @@ export class AdminController {
   @Post('admin/mail-test') async mailTest(@Req() req:any,@Body() body:any) { this.check(req); const to=String(body.to || process.env.MAIL_TEST_TO || process.env.SUPPORT_EMAIL || ''); const result=await this.mail.sendNotice(to,'osTicket React SMTP test','SMTP delivery test completed at '+new Date().toISOString()); return { sent:result.status==='sent',to }; }
   @Patch('admin/ticket-settings') async ticketSettings(@Body() body:any) { await this.admin.saveState({ ticketSettings:body }); return { saved:true }; }
 
+  @Get('admin/sla-plans') async slaPlans() { return await this.admin.slaOptions(); }
+  @Post('admin/sla-plans') async createSla(@Body() body:any) { return { sla:await this.admin.create('sla-plans',body) }; }
+  @Put('admin/sla-plans/:id') async updateSla(@Param('id') id:string,@Body() body:any) { return { sla:await this.admin.update('sla-plans',id,body) }; }
+  @Delete('admin/sla-plans/:id') removeSla(@Param('id') id:string) { return this.admin.remove('sla-plans',id); }
+
   @Get('admin/departments') async departments() { return await this.admin.departmentOptions(); }
   @Post('admin/departments') async createDepartment(@Body() body:any) { return { department:await this.admin.create('departments',body) }; }
   @Put('admin/departments') async updateDepartmentBody(@Body() body:any) { return { department:await this.admin.update('departments',String(body.id),body) }; }
