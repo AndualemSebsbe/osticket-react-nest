@@ -1,5 +1,6 @@
 import { Inject, Body, Controller, Delete, Get, Param, Patch, Post, Put, Req } from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { AgentsService } from './agents.service';
 import { MailService } from '../mail/mail.service';
 import { UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../common/admin.guard';
@@ -7,7 +8,11 @@ import { AdminGuard } from '../common/admin.guard';
 @Controller()
 @UseGuards(AdminGuard)
 export class AdminController {
-  constructor(@Inject(AdminService) private admin: AdminService, @Inject(MailService) private mail: MailService) {}
+  constructor(
+    @Inject(AdminService) private admin: AdminService,
+    @Inject(MailService) private mail: MailService,
+    @Inject(AgentsService) private agents: AgentsService,
+  ) {}
   private check(_req:any) { }
   @Get('health') health() { return { ok: true, mailConfigured: this.mail.isConfigured(), storage: 'postgresql' }; }
   @Get('public-state') async publicState() { return { state: await this.admin.publicState() }; }
@@ -19,7 +24,7 @@ export class AdminController {
   @Post('admin/mail-test') async mailTest(@Req() req:any,@Body() body:any) { this.check(req); const to=String(body.to || process.env.MAIL_TEST_TO || process.env.SUPPORT_EMAIL || ''); const result=await this.mail.sendNotice(to,'osTicket React SMTP test','SMTP delivery test completed at '+new Date().toISOString()); return { sent:result.status==='sent',to }; }
   @Patch('admin/ticket-settings') async ticketSettings(@Body() body:any) { await this.admin.saveState({ ticketSettings:body }); return { saved:true }; }
 
-  @Get('admin/departments') async departments() { return { departments:await this.admin.list('departments'),slas:[] }; }
+  @Get('admin/departments') async departments() { return await this.admin.departmentOptions(); }
   @Post('admin/departments') async createDepartment(@Body() body:any) { return { department:await this.admin.create('departments',body) }; }
   @Put('admin/departments') async updateDepartmentBody(@Body() body:any) { return { department:await this.admin.update('departments',String(body.id),body) }; }
   @Put('admin/departments/:id') async updateDepartment(@Param('id') id:string,@Body() body:any) { return { department:await this.admin.update('departments',id,body) }; }
@@ -61,4 +66,29 @@ export class AdminController {
   @Post('admin/faq-articles') async createFaqArticle(@Body() body:any) { return { article:await this.admin.create('faq-articles',body) }; }
   @Put('admin/faq-articles/:id') async updateFaqArticle(@Param('id') id:string,@Body() body:any) { return { article:await this.admin.update('faq-articles',id,body) }; }
   @Delete('admin/faq-articles/:id') removeFaqArticle(@Param('id') id:string) { return this.admin.remove('faq-articles',id); }
+
+  // ========== AGENTS (full osTicket agents page) ==========
+  @Get('admin/agents')
+  async listAgents() { return { agents: await this.agents.listAgents() }; }
+
+  @Get('admin/agents/options')
+  async agentOptions() { return await this.agents.getAgentOptions(); }
+
+  @Post('admin/agents/mass-action')
+  async massAgentAction(@Body() body: any) { return await this.agents.massAction(String(body.action || ''), (body.ids || []).map(Number), body.options); }
+
+  @Get('admin/agents/:id')
+  async getAgent(@Param('id') id: string) { return { agent: await this.agents.getAgent(Number(id)) }; }
+
+  @Post('admin/agents')
+  async createAgent(@Body() body: any) { return await this.agents.createAgent(body); }
+
+  @Put('admin/agents/:id')
+  async updateAgent(@Param('id') id: string, @Body() body: any) { return await this.agents.updateAgent(Number(id), body); }
+
+  @Delete('admin/agents/:id')
+  async deleteAgent(@Param('id') id: string) { return await this.agents.deleteAgent(Number(id)); }
+
+  @Post('admin/agents/:id/set-password')
+  async setAgentPassword(@Param('id') id: string, @Body() body: any) { return await this.agents.setAgentPassword(Number(id), String(body.password || ''), Boolean(body.forceChange)); }
 }

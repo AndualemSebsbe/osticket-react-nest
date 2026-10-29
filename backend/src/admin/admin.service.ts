@@ -20,9 +20,95 @@ export class AdminService {
     return { departments: departments.map(d => ({ id: String(d.id), name: d.name })), slas: slas.map(s => ({ id: String(s.id), name: s.name })), priorities: priorities.map(p => p.priority) };
   }
 
+  private departmentView(d: any, lookup: any = {}) {
+    const flags = Number(d.flags || 0);
+    return {
+      id: String(d.id), name: d.name, parentId: String(d.pid || ''),
+      status: flags & 4 ? 'active' : flags & 8 ? 'archived' : 'disabled',
+      type: d.ispublic ? 'public' : 'private', signature: d.signature || '',
+      slaId: String(d.sla_id || 0), scheduleId: String(d.schedule_id || 0),
+      managerId: String(d.manager_id || 0), emailId: String(d.email_id || 0),
+      templateId: String(d.tpl_id || 0), autoresponderEmailId: String(d.autoresp_email_id || 0),
+      assignment: flags & 16 ? 'primary' : flags & 1 ? 'members' : 'all',
+      disableAutoClaim: Boolean(flags & 2), disableReopenAutoAssign: Boolean(flags & 32),
+      alertRecipients: Number(d.group_membership ?? 1), ticketAutoResponse: Boolean(d.ticket_auto_response),
+      messageAutoResponse: Boolean(d.message_auto_response),
+      parentName: lookup.departments?.find((x: any) => String(x.id) === String(d.pid))?.name || '',
+      managerName: lookup.staff?.find((x: any) => String(x.id) === String(d.manager_id))?.name || '',
+      emailName: lookup.emails?.find((x: any) => String(x.id) === String(d.email_id))?.name || '',
+      slaName: lookup.slas?.find((x: any) => String(x.id) === String(d.sla_id))?.name || '',
+      scheduleName: lookup.schedules?.find((x: any) => String(x.id) === String(d.schedule_id))?.name || '',
+      templateName: lookup.templates?.find((x: any) => String(x.id) === String(d.tpl_id))?.name || '',
+    };
+  }
+
+  async departmentOptions() {
+    const [departments, staff, slas, schedules, emails, templates, roles, access] = await Promise.all([
+      this.prisma.department.findMany({ orderBy: { name: 'asc' } }),
+      this.prisma.staff.findMany({ orderBy: [{ firstname: 'asc' }, { lastname: 'asc' }] }),
+      this.prisma.sla.findMany({ orderBy: { name: 'asc' } }),
+      this.prisma.schedule.findMany({ orderBy: { name: 'asc' } }),
+      this.prisma.email.findMany({ orderBy: { name: 'asc' } }),
+      this.prisma.emailTemplateGroup.findMany({ where: { isactive: 1 }, orderBy: { name: 'asc' } }),
+      this.prisma.role.findMany({ orderBy: { name: 'asc' } }),
+      this.prisma.staffDeptAccess.findMany(),
+    ]);
+    const staffRows = staff.map(s => ({ id: String(s.staff_id), name: [s.firstname, s.lastname].filter(Boolean).join(' ') || s.username, departmentId: String(s.dept_id) }));
+    const lookups = {
+      departments: departments.map(d => ({ id: String(d.id), name: d.name })), staff: staffRows,
+      slas: slas.map(x => ({ id: String(x.id), name: x.name })),
+      schedules: schedules.map(x => ({ id: String(x.id), name: x.name })),
+      emails: emails.map(x => ({ id: String(x.email_id), name: x.name ? `${x.name} <${x.email}>` : x.email })),
+      templates: templates.map(x => ({ id: String(x.tpl_id), name: x.name })),
+      roles: roles.map(x => ({ id: String(x.id), name: x.name || '' })),
+    };
+    const rows = departments.map(d => ({ ...this.departmentView(d, lookups), primaryMembers: staffRows.filter(s => s.departmentId === String(d.id)).map(s => ({ ...s, primary: true, roleId: String(staff.find(x => String(x.staff_id) === s.id)?.role_id || 0), alerts: true })), extendedMembers: access.filter(a => a.dept_id === Number(d.id)).map(a => ({ ...staffRows.find(s => s.id === String(a.staff_id)), primary: false, roleId: String(a.role_id), alerts: Boolean(a.flags & 1) })).filter(x => x.id) }));
+    return { departments: rows, ...lookups };
+  }
+
+  private async saveDepartment(data: any, id?: string) {
+    const name = String(data.name || '').trim();
+    if (!name) throw new ConflictException('Department name is required.');
+    const parentId = data.parentId ? key(data.parentId) : null;
+    const currentId = id ? key(id) : null;
+    if (parentId && (parentId === currentId || !await this.prisma.department.findUnique({ where: { id: parentId } }))) throw new ConflictException('Choose a valid parent department.');
+    const current = currentId ? await this.prisma.department.findUnique({ where: { id: currentId } }) : null;
+    const oldFlags = Number(current?.flags || 0);
+    const statusFlag = data.status === 'archived' ? 8 : data.status === 'disabled' ? 0 : 4;
+    let flags = (oldFlags & ~ (4 | 8)) | statusFlag;
+    flags = data.assignment === 'primary' ? flags | 16 : flags & ~16;
+    flags = data.assignment === 'members' || data.assignment === 'primary' ? flags | 1 : flags & ~1;
+    flags = data.disableAutoClaim ? flags | 2 : flags & ~2;
+    flags = data.disableReopenAutoAssign ? flags | 32 : flags & ~32;
+    const values: any = {
+      name, pid: parentId, ispublic: data.type === 'private' ? 0 : 1, signature: String(data.signature || ''), flags,
+      sla_id: Number(data.slaId || 0), schedule_id: Number(data.scheduleId || 0), manager_id: Number(data.managerId || 0),
+      email_id: Number(data.emailId || 0), tpl_id: Number(data.templateId || 0), autoresp_email_id: Number(data.autoresponderEmailId || 0),
+      group_membership: Number(data.alertRecipients ?? 1), ticket_auto_response: data.ticketAutoResponse === false ? 0 : 1,
+      message_auto_response: data.messageAutoResponse === false ? 0 : 1, updated: stamp(),
+    };
+    const saved = currentId
+      ? await this.prisma.department.update({ where: { id: currentId }, data: values })
+      : await this.prisma.department.create({ data: { ...values, created: stamp() } });
+    if (Array.isArray(data.extendedMembers)) {
+      const deptId = Number(saved.id);
+      await this.prisma.$transaction(async tx => {
+        await tx.staffDeptAccess.deleteMany({ where: { dept_id: deptId } });
+        const entries = data.extendedMembers.filter((m: any) => Number(m.staffId) > 0 && Number(m.roleId) > 0);
+        for (const member of entries) {
+          const staffMember = await tx.staff.findUnique({ where: { staff_id: Number(member.staffId) } });
+          const role = await tx.role.findUnique({ where: { id: Number(member.roleId) } });
+          if (!staffMember || !role || staffMember.dept_id === deptId) throw new ConflictException('Select a valid agent and role for extended department access.');
+          await tx.staffDeptAccess.create({ data: { staff_id: staffMember.staff_id, dept_id: deptId, role_id: role.id, flags: member.alerts ? 1 : 0 } });
+        }
+      });
+    }
+    return saved;
+  }
+
   async list(kind: string): Promise<any[]> {
     switch (kind) {
-      case 'departments': return (await this.prisma.department.findMany({ orderBy: { name: 'asc' } })).map(d => ({ id: String(d.id), name: d.name, active: true }));
+      case 'departments': return (await this.departmentOptions()).departments;
       case 'branches':
       case 'branches-all': return (await this.prisma.branch.findMany({ where: kind === 'branches' ? { active: 1 } : {}, orderBy: { name: 'asc' } })).map(b => ({ id: String(b.id), name: b.name, active: Boolean(b.active) }));
       case 'staff': {
@@ -79,7 +165,7 @@ export class AdminService {
   async create(kind: string, data: any): Promise<any> {
     const created = stamp();
     switch (kind) {
-      case 'departments': { const d = await this.prisma.department.create({ data: { name: String(data.name || ''), signature: String(data.signature || ''), ispublic: flag(data.ispublic), created, updated: created } }); return { id: String(d.id), name: d.name, active: true }; }
+      case 'departments': { const d = await this.saveDepartment(data); return { id: String(d.id), name: d.name, active: true, ...this.departmentView(d) }; }
       case 'staff': {
         const [first, ...last] = String(data.name || [data.firstname, data.lastname].filter(Boolean).join(' ')).split(' ');
         const salt = randomBytes(16);
@@ -128,7 +214,7 @@ export class AdminService {
   async update(kind: string, rawId: string, data: any): Promise<any> {
     const updated = stamp();
     switch (kind) {
-      case 'departments': { const d = await this.prisma.department.update({ where: { id: key(rawId) }, data: { ...(data.name !== undefined ? { name: String(data.name) } : {}), signature: data.signature !== undefined ? String(data.signature) : undefined, updated } }); return { id: String(d.id), name: d.name, active: true }; }
+      case 'departments': { const d = await this.saveDepartment(data, rawId); return { id: String(d.id), name: d.name, active: true, ...this.departmentView(d) }; }
       case 'staff': {
         const old = await this.prisma.staff.findUniqueOrThrow({ where: { staff_id: Number(rawId) } });
         const extra = { ...extraOf(old.extra), title: data.title ?? extraOf(old.extra).title };

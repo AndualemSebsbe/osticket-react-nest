@@ -37,7 +37,9 @@ export interface ApiAssignableStaff { id: string; name: string; email: string; p
 export function listApiAssignableStaff(token: string) {
   return request<{ staff: ApiAssignableStaff[] }>('/staff/assignable', { headers: { 'x-user-session': token } })
 }
-export interface ApiDepartment { id: string; name: string; email?: string; managerId?: string; slaId?: string; active?: boolean }
+export interface ApiDepartmentMember { id: string; name: string; departmentId?: string; primary: boolean; roleId: string; alerts: boolean }
+export interface ApiDepartment { id: string; name: string; parentId?: string; parentName?: string; status: 'active' | 'disabled' | 'archived'; type: 'public' | 'private'; signature: string; emailId: string; emailName?: string; managerId: string; managerName?: string; slaId: string; slaName?: string; scheduleId: string; scheduleName?: string; templateId: string; templateName?: string; autoresponderEmailId: string; assignment: 'all' | 'members' | 'primary'; disableAutoClaim: boolean; disableReopenAutoAssign: boolean; alertRecipients: number; ticketAutoResponse: boolean; messageAutoResponse: boolean; primaryMembers: ApiDepartmentMember[]; extendedMembers: ApiDepartmentMember[]; active?: boolean }
+export interface ApiDepartmentOptions { departments: ApiDepartment[]; staff: Array<{ id: string; name: string; departmentId: string }>; slas: Array<{ id: string; name: string }>; schedules: Array<{ id: string; name: string }>; emails: Array<{ id: string; name: string }>; templates: Array<{ id: string; name: string }>; roles: Array<{ id: string; name: string }> }
 export interface ApiFaqCategory { id: string; name: string; description: string; published: boolean }
 export interface ApiFaqArticle { id: string; categoryId: string; question: string; answer: string; published: boolean }
 export function listApiFaqArticles() {
@@ -65,7 +67,7 @@ export function listApiStaffDepartments(token: string) {
   return request<{ departments: ApiDepartment[] }>('/staff/departments', { headers: { 'x-user-session': token } })
 }
 export function listApiDepartments(token: string) {
-  return request<{ departments: ApiDepartment[]; slas: Array<{ id: string; name: string }> }>('/admin/departments', { headers: { 'x-user-session': token } })
+  return request<ApiDepartmentOptions>('/admin/departments', { headers: { 'x-user-session': token } })
 }
 export function createApiDepartment(input: Partial<ApiDepartment> & Pick<ApiDepartment, 'name'>, token: string) {
   return request<{ department: ApiDepartment }>('/admin/departments', {
@@ -347,3 +349,121 @@ export async function downloadDashboardExport(
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+
+// --- Agent Management -------------------------------------------------------
+
+export interface ApiDeptAccess {
+  deptId: string
+  deptName: string
+  roleId: string
+  roleName: string
+  alerts: boolean
+}
+
+export interface ApiTeamMembership {
+  teamId: string
+  teamName: string
+  alerts: boolean
+}
+
+export interface ApiAgent {
+  id: string
+  staffId: string
+  username: string
+  firstname: string
+  lastname: string
+  name: string
+  email: string
+  phone: string
+  phoneExt: string
+  mobile: string
+  isadmin: boolean
+  isactive: boolean
+  isvisible: boolean
+  onvacation: boolean
+  assignedOnly: boolean
+  changePasswd: boolean
+  notes: string
+  deptId: string
+  deptName: string
+  roleId: string
+  roleName: string
+  title: string
+  usePrimaryRoleOnAssignment: boolean
+  created: string
+  lastlogin: string | null
+  deptAccess: ApiDeptAccess[]
+  teams: ApiTeamMembership[]
+  // Compat
+  role: 'agent' | 'admin'
+  active: boolean
+}
+
+export interface ApiAgentOptions {
+  departments: Array<{ id: string; name: string }>
+  roles: Array<{ id: string; name: string }>
+  teams: Array<{ id: string; name: string; active: boolean }>
+}
+
+export function listApiAgents(token: string) {
+  return request<{ agents: ApiAgent[] }>('/admin/agents', { headers: { 'x-user-session': token } })
+}
+
+export function getApiAgentOptions(token: string) {
+  return request<ApiAgentOptions>('/admin/agents/options', { headers: { 'x-user-session': token } })
+}
+
+export function getApiAgent(id: string, token: string) {
+  return request<{ agent: ApiAgent }>('/admin/agents/' + id, { headers: { 'x-user-session': token } })
+}
+
+export function createApiAgent(
+  data: Partial<ApiAgent> & { password?: string; deptAccess?: ApiDeptAccess[]; teams?: ApiTeamMembership[] },
+  token: string,
+) {
+  return request<{ saved: boolean; id: string }>('/admin/agents', {
+    method: 'POST',
+    headers: { 'x-user-session': token },
+    body: JSON.stringify(data),
+  })
+}
+
+export function updateApiAgent(
+  id: string,
+  data: Partial<ApiAgent> & { password?: string; deptAccess?: ApiDeptAccess[]; teams?: ApiTeamMembership[] },
+  token: string,
+) {
+  return request<{ saved: boolean; id: string }>('/admin/agents/' + id, {
+    method: 'PUT',
+    headers: { 'x-user-session': token },
+    body: JSON.stringify(data),
+  })
+}
+
+export function deleteApiAgent(id: string, token: string) {
+  return request<{ deleted: boolean }>('/admin/agents/' + id, {
+    method: 'DELETE',
+    headers: { 'x-user-session': token },
+  })
+}
+
+export function massAgentAction(
+  action: string,
+  ids: string[],
+  options: { deptId?: string; roleId?: string } | undefined,
+  token: string,
+) {
+  return request<{ updated?: number; deleted?: number }>('/admin/agents/mass-action', {
+    method: 'POST',
+    headers: { 'x-user-session': token },
+    body: JSON.stringify({ action, ids, options }),
+  })
+}
+
+export function setApiAgentPassword(id: string, password: string, forceChange: boolean, token: string) {
+  return request<{ updated: boolean }>('/admin/agents/' + id + '/set-password', {
+    method: 'POST',
+    headers: { 'x-user-session': token },
+    body: JSON.stringify({ password, forceChange }),
+  })
+}

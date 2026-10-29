@@ -4,10 +4,10 @@ import { btnGhost, btnPrimary, Card, DataTable, Field, inputClass, PageHeader } 
 import { useAuth } from '../../context/AuthContext'
 import { useDb } from '../../hooks/useDb'
 import { adminGroups } from '../../layouts/staffNav'
-import { createApiBranch, createApiDepartment, createApiFaqCategory, createApiHelpTopic, deleteApiBranch, deleteApiDepartment, deleteApiFaqCategory, deleteApiHelpTopic, listApiAdminBranches, listApiDepartments, listApiHelpTopics, listApiStaff, listApiUsers, saveApiStaff, saveApiTicketVisibility, sendMailTest, updateApiBranch, updateApiDepartment, updateApiFaqCategory, updateApiHelpTopic, updateApiUserVerification, type ApiBranch, type ApiDepartment, type ApiHelpTopic, type ApiStaffAccount } from '../../lib/api'
+import { createApiBranch, createApiDepartment, createApiFaqCategory, createApiHelpTopic, createApiAgent, deleteApiBranch, deleteApiDepartment, deleteApiFaqCategory, deleteApiHelpTopic, deleteApiAgent, listApiAdminBranches, listApiDepartments, listApiHelpTopics, listApiStaff, listApiUsers, listApiAgents, getApiAgentOptions, updateApiAgent, saveApiTicketVisibility, sendMailTest, updateApiBranch, updateApiDepartment, updateApiFaqCategory, updateApiHelpTopic, updateApiUserVerification, massAgentAction, type ApiBranch, type ApiDepartment, type ApiHelpTopic, type ApiStaffAccount, type ApiAgent, type ApiAgentOptions, type ApiDeptAccess, type ApiTeamMembership } from '../../lib/api'
 import { formatDate } from '../../lib/format'
-import { accountSessionToken, addLog, newId, removeRecord, saveSettings, syncUserVerification, upsertUser } from '../../lib/store'
-import type { LogLevel, SystemSettings, User } from '../../types'
+import { accountSessionToken, addLog, newId, removeRecord, saveSettings, syncUserVerification } from '../../lib/store'
+import type { LogLevel, SystemSettings } from '../../types'
 import { EntityManager } from './EntityManager'
 
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
@@ -755,197 +755,760 @@ export function AdminDepartmentsPage() {
   )
 }
 
-export function AdminStaffPage() {
-  const db = useDb()
-  const [staff, setStaff] = useState<ApiStaffAccount[]>([])
-  const [staffDepartments, setStaffDepartments] = useState<Array<{ id: string; name: string }>>([])
-  const [staffRoles, setStaffRoles] = useState<Array<{ id: string; name: string }>>([])
-  const [loadError, setLoadError] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState<ApiStaffAccount | 'new' | null>(null)
+type AgentSortField = 'name' | 'username' | 'status' | 'dept' | 'created' | 'login'
+type AgentSortDir = 'asc' | 'desc'
+type AgentTab = 'account' | 'access' | 'permissions' | 'teams'
+type MassActionType = 'enable' | 'disable' | 'delete' | 'change-department' | null
 
-  async function refreshStaff() {
-    const token = accountSessionToken()
-    if (!token) { setLoadError('Administrator session expired. Sign in again.'); setLoading(false); return }
+export function AdminAgentsPage() {
+  const [agents, setAgents] = useState<ApiAgent[]>([])
+  const [options, setOptions] = useState<ApiAgentOptions>({ departments: [], roles: [], teams: [] })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  // Filter
+  const [filterDept, setFilterDept] = useState('')
+  const [filterTeam, setFilterTeam] = useState('')
+
+  // Sort
+  const [sortField, setSortField] = useState<AgentSortField>('name')
+  const [sortDir, setSortDir] = useState<AgentSortDir>('asc')
+
+  // Pagination
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 15
+
+  // Selection
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  // Mass action
+  const [massAction, setMassAction] = useState<MassActionType>(null)
+  const [massActionDept, setMassActionDept] = useState('')
+  const [massActionRole, setMassActionRole] = useState('')
+  const [showMoreMenu, setShowMoreMenu] = useState(false)
+
+  // Edit form
+  const [editing, setEditing] = useState<ApiAgent | 'new' | null>(null)
+  const [activeTab, setActiveTab] = useState<AgentTab>('account')
+
+  // Access/teams form state
+  const [deptAccess, setDeptAccess] = useState<ApiDeptAccess[]>([])
+  const [teamMemberships, setTeamMemberships] = useState<ApiTeamMembership[]>([])
+  const [addAccessDept, setAddAccessDept] = useState('')
+  const [addAccessRole, setAddAccessRole] = useState('')
+  const [addTeamId, setAddTeamId] = useState('')
+
+  const token = accountSessionToken()
+
+  async function load() {
+    if (!token) { setError('Session expired.'); setLoading(false); return }
     try {
-      const result = await listApiStaff(token)
-      setStaff(result.staff)
-      setStaffDepartments(result.departments)
-      setStaffRoles(result.roles)
-      setLoadError('')
-    } catch (error) { setLoadError(error instanceof Error ? error.message : 'Could not load staff accounts from PostgreSQL.') }
-    finally { setLoading(false) }
+      const [agentsRes, optionsRes] = await Promise.all([
+        listApiAgents(token),
+        getApiAgentOptions(token),
+      ])
+      setAgents(agentsRes.agents)
+      setOptions(optionsRes)
+      setError('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load agents.')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(() => { void refreshStaff() }, [])
+  useEffect(() => { void load() }, [])
 
-  async function deactivateStaff(person: ApiStaffAccount) {
-    const token = accountSessionToken()
-    if (!token) { setLoadError('Administrator session expired. Sign in again.'); return }
-    try {
-      await saveApiStaff({ staffId: person.id, name: person.name, email: person.email, role: person.role, active: false }, token)
-      await refreshStaff()
-    } catch (error) { setLoadError(error instanceof Error ? error.message : 'Could not deactivate staff account.') }
+  // Filtered + sorted agents
+  const filtered = useMemo(() => {
+    let list = [...agents]
+    if (filterDept) list = list.filter(a => a.deptId === filterDept)
+    if (filterTeam) list = list.filter(a => a.teams?.some(t => t.teamId === filterTeam))
+    list.sort((a, b) => {
+      let av = '', bv = ''
+      switch (sortField) {
+        case 'name': av = (a.name || '').toLowerCase(); bv = (b.name || '').toLowerCase(); break
+        case 'username': av = (a.username || '').toLowerCase(); bv = (b.username || '').toLowerCase(); break
+        case 'status': av = a.isactive ? '1' : '0'; bv = b.isactive ? '1' : '0'; break
+        case 'dept': av = (a.deptName || '').toLowerCase(); bv = (b.deptName || '').toLowerCase(); break
+        case 'created': av = a.created || ''; bv = b.created || ''; break
+        case 'login': av = a.lastlogin || ''; bv = b.lastlogin || ''; break
+      }
+      if (av < bv) return sortDir === 'asc' ? -1 : 1
+      if (av > bv) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+    return list
+  }, [agents, filterDept, filterTeam, sortField, sortDir])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  function toggleSort(field: AgentSortField) {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortField(field); setSortDir('asc') }
+    setPage(1)
+  }
+
+  function sortIcon(field: AgentSortField) {
+    if (sortField !== field) return ' ↕'
+    return sortDir === 'asc' ? ' ↑' : ' ↓'
+  }
+
+  function toggleSelect(id: string) {
+    setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+  function selectAll() { setSelected(new Set(paginated.map(a => a.id))) }
+  function selectNone() { setSelected(new Set()) }
+
+  function openEdit(agent: ApiAgent) {
+    setEditing(agent)
+    setDeptAccess(agent.deptAccess ? [...agent.deptAccess] : [])
+    setTeamMemberships(agent.teams ? [...agent.teams] : [])
+    setActiveTab('account')
+    setAddAccessDept(''); setAddAccessRole(''); setAddTeamId('')
+  }
+
+  function openNew() {
+    setEditing('new')
+    setDeptAccess([]); setTeamMemberships([])
+    setActiveTab('account')
+    setAddAccessDept(''); setAddAccessRole(''); setAddTeamId('')
   }
 
   async function onSave(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (!token) return
     const form = new FormData(e.currentTarget)
-    const next = {
-      id: editing !== 'new' && editing ? editing.id : undefined,
-      name: String(form.get('name')),
-      email: String(form.get('email')),
-      phone: String(form.get('phone')),
-      password: String(form.get('password') || ''),
-      title: String(form.get('title')),
-      role: String(form.get('role')) as User['role'],
-      deptName: String(form.get('deptName')),
-      roleName: String(form.get('roleName')),
-      departmentAccess: form.getAll('departmentAccess').map(String),
-      deptId: db.departments.find((department) => department.name === String(form.get('deptName')))?.id,
-      roleId: db.roles.find((staffRole) => staffRole.name === String(form.get('roleName')))?.id,
-      active: form.get('active') === 'on',
+    const isNew = editing === 'new'
+    const current = isNew ? null : (editing as ApiAgent)
+    const pwVal = String(form.get('password') || '')
+    const firstName = String(form.get('firstname') || '').trim()
+    const lastName = String(form.get('lastname') || '').trim()
+    const email = String(form.get('email') || '').trim()
+    const username = String(form.get('username') || '').trim()
+    const deptId = String(form.get('deptId') || '')
+    const roleId = String(form.get('roleId') || '')
+    if (!firstName || !lastName || !email || !username || !deptId || !roleId || ((isNew || pwVal.length > 0) && pwVal.length < 8) || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+      setError('Enter the agent’s name, valid email, username, primary department, primary role, and a password of at least 8 characters for new agents.')
+      setActiveTab(!firstName || !lastName || !email || !username || ((isNew || pwVal.length > 0) && pwVal.length < 8) ? 'account' : 'access')
+      return
     }
+    const payload: Partial<ApiAgent> & { password?: string; deptAccess?: ApiDeptAccess[]; teams?: ApiTeamMembership[] } = {
+      firstname: firstName,
+      lastname: lastName,
+      email,
+      phone: String(form.get('phone') || ''),
+      phoneExt: String(form.get('phoneExt') || ''),
+      mobile: String(form.get('mobile') || ''),
+      username,
+      ...(pwVal ? { password: pwVal } : {}),
+      isadmin: form.get('isadmin') === 'on',
+      isactive: form.get('islocked') !== 'on',
+      isvisible: form.get('isvisible') === 'on',
+      onvacation: form.get('onvacation') === 'on',
+      assignedOnly: form.get('assignedOnly') === 'on',
+      changePasswd: form.get('changePasswd') === 'on',
+      notes: String(form.get('notes') || ''),
+      deptId,
+      roleId,
+      usePrimaryRoleOnAssignment: form.get('usePrimaryRole') === 'on',
+      deptAccess: deptAccess.filter(access => access.deptId !== deptId),
+      teams: teamMemberships,
+    }
+    setSaving(true)
     try {
-      const token = accountSessionToken()
-      if (!token) throw new Error('Administrator session expired. Sign in again.')
-      const saved = await saveApiStaff({ staffId: next.id, name: next.name, email: next.email, phone: next.phone, password: next.password || undefined, role: next.role as 'agent' | 'admin', active: next.active !== false, title: next.title, deptId: next.deptId, roleId: next.roleId, deptName: next.deptName, roleName: next.roleName, departmentAccess: next.departmentAccess }, token)
-      upsertUser({ ...next, id: saved.id, password: '' })
-      await refreshStaff()
+      if (isNew) {
+        await createApiAgent(payload, token)
+        setSuccess('Agent created successfully.')
+      } else {
+        await updateApiAgent(current!.id, payload, token)
+        setSuccess('Agent updated successfully.')
+      }
       setEditing(null)
-    } catch (error) { window.alert(error instanceof Error ? error.message : 'Could not save staff account.') }
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save agent.')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const current = editing === 'new' ? null : editing
+  async function onDelete(agent: ApiAgent) {
+    if (!token) return
+    if (!window.confirm(`Delete agent ${agent.name}? This cannot be undone.`)) return
+    try {
+      await deleteApiAgent(agent.id, token)
+      setSuccess('Agent deleted.')
+      setEditing(null)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete agent.')
+    }
+  }
+
+  async function onMassAction() {
+    if (!token || !massAction || selected.size === 0) return
+    const ids = Array.from(selected)
+    const opts = massAction === 'change-department' ? { deptId: massActionDept, roleId: massActionRole } : undefined
+    try {
+      const res = await massAgentAction(massAction, ids, opts, token)
+      setSuccess(`${res.updated ?? res.deleted ?? ids.length} agent(s) ${massAction === 'delete' ? 'deleted' : 'updated'}.`)
+      setSelected(new Set()); setMassAction(null)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Mass action failed.')
+    }
+  }
+
+  function exportAgents() {
+    const headers = ['Name', 'Username', 'Email', 'Phone', 'Department', 'Role', 'Status', 'Admin', 'Created', 'Last Login']
+    const rows = filtered.map(a => [
+      a.name, a.username, a.email, a.phone, a.deptName, a.roleName,
+      a.isactive ? 'Active' : 'Locked',
+      a.isadmin ? 'Yes' : 'No',
+      a.created ? new Date(a.created).toLocaleDateString() : '',
+      a.lastlogin ? new Date(a.lastlogin).toLocaleDateString() : 'Never',
+    ])
+    const csv = [headers, ...rows].map(r => r.map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'agents.csv'; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const currentAgent = editing === 'new' ? null : (editing as ApiAgent | null)
+
+  const availableAccessDepts = options.departments.filter(d => !deptAccess.some(da => da.deptId === d.id))
+  const availableTeams = options.teams.filter(t => !teamMemberships.some(tm => tm.teamId === t.id))
+
+  function addDeptAccess() {
+    if (!addAccessDept || !addAccessRole) return
+    const dept = options.departments.find(d => d.id === addAccessDept)
+    const role = options.roles.find(r => r.id === addAccessRole)
+    if (!dept || !role) return
+    setDeptAccess(prev => [...prev, { deptId: dept.id, deptName: dept.name, roleId: role.id, roleName: role.name, alerts: false }])
+    setAddAccessDept(''); setAddAccessRole('')
+  }
+
+  function removeDeptAccess(deptId: string) {
+    setDeptAccess(prev => prev.filter(da => da.deptId !== deptId))
+  }
+
+  function addTeam() {
+    if (!addTeamId) return
+    const team = options.teams.find(t => t.id === addTeamId)
+    if (!team) return
+    setTeamMemberships(prev => [...prev, { teamId: team.id, teamName: team.name, alerts: false }])
+    setAddTeamId('')
+  }
+
+  function removeTeam(teamId: string) {
+    setTeamMemberships(prev => prev.filter(tm => tm.teamId !== teamId))
+  }
+
+  const tabBtn = (tab: AgentTab) =>
+    `px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-brand-600 text-brand-700' : 'border-transparent text-ink-600 hover:text-ink-800'}`
+
+  const colHeader = (field: AgentSortField, label: string) => (
+    <button type="button" onClick={() => toggleSort(field)} className="flex items-center gap-1 whitespace-nowrap text-left font-medium hover:text-brand-700">
+      {label}{sortIcon(field)}
+    </button>
+  )
 
   return (
-    <div>
+    <div className="min-w-0">
       <PageHeader
         title="Agents"
-        subtitle="Staff accounts loaded from PostgreSQL. Changes apply to account access immediately."
+        subtitle={`${filtered.length} agent${filtered.length !== 1 ? 's' : ''} — Staff accounts with access to the help desk.`}
         actions={
-          <button type="button" className={btnPrimary} onClick={() => setEditing('new')}>
-            Add agent
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className={btnPrimary} onClick={openNew}>
+              + Add New Agent
+            </button>
+            <div className="relative">
+              <button type="button" className={btnGhost} onClick={() => setShowMoreMenu(v => !v)}>
+                ⚙ More ▾
+              </button>
+              {showMoreMenu && (
+                <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-xl border border-line bg-surface shadow-lg" onMouseLeave={() => setShowMoreMenu(false)}>
+                  <button type="button" className="flex w-full items-center gap-2 px-4 py-2.5 text-sm hover:bg-paper" onClick={() => { setMassAction('enable'); setShowMoreMenu(false) }}>✓ Enable</button>
+                  <button type="button" className="flex w-full items-center gap-2 px-4 py-2.5 text-sm hover:bg-paper" onClick={() => { setMassAction('disable'); setShowMoreMenu(false) }}>⊘ Disable</button>
+                  <button type="button" className="flex w-full items-center gap-2 px-4 py-2.5 text-sm hover:bg-paper" onClick={() => { setMassAction('change-department'); setShowMoreMenu(false) }}>⇄ Change Department</button>
+                  <button type="button" className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50" onClick={() => { setMassAction('delete'); setShowMoreMenu(false) }}>🗑 Delete</button>
+                  <hr className="border-line" />
+                  <button type="button" className="flex w-full items-center gap-2 px-4 py-2.5 text-sm hover:bg-paper" onClick={() => { exportAgents(); setShowMoreMenu(false) }}>↓ Export Agents</button>
+                </div>
+              )}
+            </div>
+          </div>
         }
       />
-      {loadError ? <p role="alert" className="mb-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{loadError}</p> : null}
-      {loading ? <Card className="mb-4"><p className="text-sm text-ink-600">Loading staff accounts…</p></Card> : null}
-      {editing ? (
-        <Card className="mb-6">
-          <form onSubmit={onSave} className="grid gap-4 sm:grid-cols-2">
-            <Field label="Name">
-              <input name="name" required defaultValue={current?.name} className={inputClass} />
-            </Field>
-            <Field label="Email">
-              <input name="email" type="email" required defaultValue={current?.email} className={inputClass} />
-            </Field>
-            <Field label="Phone">
-              <input name="phone" defaultValue={current?.phone} className={inputClass} />
-            </Field>
-            <Field label="Password">
-              <input name="password" type="password" required={!current} minLength={8} autoComplete="new-password" placeholder={current ? 'Leave blank to keep current password' : 'At least 8 characters'} className={inputClass} />
-            </Field>
-            <Field label="Title">
-              <input name="title" defaultValue={current?.title} className={inputClass} />
-            </Field>
-            <Field label="Account type">
-              <select name="role" defaultValue={current?.role ?? 'agent'} className={inputClass}>
-                <option value="agent">Agent</option>
-                <option value="admin">Admin</option>
-              </select>
-            </Field>
-            <Field label="Department">
-              <select name="deptName" defaultValue={current?.deptName ?? ''} className={inputClass}>
-                <option value="">—</option>
-                {staffDepartments.map((d) => (
-                  <option key={d.id} value={d.name}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Department access">
-              <select name="departmentAccess" multiple defaultValue={current?.departmentAccess ?? []} className={`${inputClass} min-h-28`}>
-                {staffDepartments.map((d) => (
-                  <option key={d.id} value={d.name}>{d.name}</option>
-                ))}
-              </select>
-              <span className="mt-1 block text-xs text-ink-400">Use Ctrl or Command to select multiple departments.</span>
-            </Field>
-            <Field label="Role pack">
-              <select name="roleName" defaultValue={current?.roleName ?? ''} className={inputClass}>
-                <option value="">—</option>
-                {staffRoles.map((r) => (
-                  <option key={r.id} value={r.name}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Active">
-              <input name="active" type="checkbox" defaultChecked={current?.active !== false} />
-            </Field>
-            <div className="flex gap-2 sm:col-span-2">
-              <button className={btnPrimary}>Save</button>
-              <button type="button" className={btnGhost} onClick={() => setEditing(null)}>
-                Cancel
+
+      {/* Alerts */}
+      {error && (
+        <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          {error}{' '}
+          <button className="ml-2 underline" onClick={() => setError('')}>dismiss</button>
+        </div>
+      )}
+      {success && (
+        <div className="mb-4 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-800">
+          {success}{' '}
+          <button className="ml-2 underline" onClick={() => setSuccess('')}>dismiss</button>
+        </div>
+      )}
+
+      {/* Mass action confirmation */}
+      {massAction && (
+        <Card className="mb-4 border-amber-200 bg-amber-50">
+          <div className="flex flex-col gap-3">
+            {massAction === 'enable' && <p className="text-sm">Enable (unlock) <strong>{selected.size}</strong> selected agent(s)?</p>}
+            {massAction === 'disable' && <p className="text-sm text-rose-700">Disable (lock) <strong>{selected.size}</strong> selected agent(s)? Locked agents cannot log in.</p>}
+            {massAction === 'delete' && <p className="text-sm font-semibold text-rose-700">⚠ Permanently DELETE <strong>{selected.size}</strong> selected agent(s)? This cannot be undone.</p>}
+            {massAction === 'change-department' && (
+              <div className="flex flex-wrap items-end gap-3">
+                <Field label="New Department">
+                  <select value={massActionDept} onChange={e => setMassActionDept(e.target.value)} className={inputClass}>
+                    <option value="">— Select Department —</option>
+                    {options.departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </Field>
+                <Field label="Role">
+                  <select value={massActionRole} onChange={e => setMassActionRole(e.target.value)} className={inputClass}>
+                    <option value="">— Select Role —</option>
+                    {options.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </Field>
+              </div>
+            )}
+            <div className="flex gap-2">
+              {selected.size === 0 && <span className="text-xs text-ink-500">Select at least one agent below.</span>}
+              <button
+                type="button"
+                className={selected.size > 0 ? btnPrimary : `${btnPrimary} opacity-50 cursor-not-allowed`}
+                onClick={() => void onMassAction()}
+                disabled={selected.size === 0}
+              >
+                Confirm
               </button>
+              <button type="button" className={btnGhost} onClick={() => setMassAction(null)}>Cancel</button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Filters */}
+      <Card className="mb-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Department">
+            <select value={filterDept} onChange={e => { setFilterDept(e.target.value); setPage(1) }} className={inputClass + ' w-48'}>
+              <option value="">— All Departments —</option>
+              {options.departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Team">
+            <select value={filterTeam} onChange={e => { setFilterTeam(e.target.value); setPage(1) }} className={inputClass + ' w-48'}>
+              <option value="">— All Teams —</option>
+              {options.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </Field>
+          <button type="button" className={btnGhost} onClick={() => { setFilterDept(''); setFilterTeam(''); setPage(1) }}>Clear</button>
+        </div>
+      </Card>
+
+      {/* Inline edit / create form */}
+      {editing && (
+        <Card className="mb-6 border-brand-200">
+          <h2 className="mb-4 text-lg font-semibold">
+            {editing === 'new' ? 'Add New Agent' : `Manage Agent — ${currentAgent?.name}`}
+          </h2>
+          <form noValidate onSubmit={e => void onSave(e)}>
+            {/* Tab navigation */}
+            <div className="mb-4 flex border-b border-line">
+              <button type="button" className={tabBtn('account')} onClick={() => setActiveTab('account')}>Account</button>
+              <button type="button" className={tabBtn('access')} onClick={() => setActiveTab('access')}>Access</button>
+              <button type="button" className={tabBtn('permissions')} onClick={() => setActiveTab('permissions')}>Permissions</button>
+              <button type="button" className={tabBtn('teams')} onClick={() => setActiveTab('teams')}>Teams</button>
+            </div>
+
+            {/* ── Account Tab ── */}
+            <div className={activeTab === 'account' ? 'space-y-4' : 'hidden'}>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="First Name *">
+                    <input name="firstname" required defaultValue={currentAgent?.firstname} className={inputClass} placeholder="First name" />
+                  </Field>
+                  <Field label="Last Name *">
+                    <input name="lastname" required defaultValue={currentAgent?.lastname} className={inputClass} placeholder="Last name" />
+                  </Field>
+                  <Field label="Email Address *">
+                    <input name="email" type="email" required defaultValue={currentAgent?.email} className={inputClass} placeholder="agent@company.com" />
+                  </Field>
+                  <Field label="Username *">
+                    <input name="username" required defaultValue={currentAgent?.username} className={inputClass} placeholder="Username for login" />
+                  </Field>
+                  <Field label="Phone Number">
+                    <div className="flex gap-2">
+                      <input name="phone" defaultValue={currentAgent?.phone} className={inputClass} placeholder="Phone" />
+                      <input name="phoneExt" defaultValue={currentAgent?.phoneExt} className={`${inputClass} w-20`} placeholder="Ext" />
+                    </div>
+                  </Field>
+                  <Field label="Mobile Number">
+                    <input name="mobile" defaultValue={currentAgent?.mobile} className={inputClass} placeholder="Mobile" />
+                  </Field>
+                </div>
+
+                <div className="border-t border-line pt-4">
+                  <h3 className="mb-3 text-sm font-semibold text-ink-700">Authentication</h3>
+                  <Field label={editing === 'new' ? 'Password *' : 'New Password (leave blank to keep current)'}>
+                    <input
+                      name="password"
+                      type="password"
+                      required={editing === 'new'}
+                      minLength={8}
+                      autoComplete="new-password"
+                      className={inputClass}
+                      placeholder={editing === 'new' ? 'At least 8 characters' : 'Leave blank to keep current'}
+                    />
+                  </Field>
+                  <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
+                    <input type="checkbox" name="changePasswd" defaultChecked={currentAgent?.changePasswd} className="h-4 w-4 rounded border-line" />
+                    <span>Require password change on next login</span>
+                  </label>
+                </div>
+
+                <div className="border-t border-line pt-4">
+                  <h3 className="mb-3 text-sm font-semibold text-ink-700">Status &amp; Settings</h3>
+                  <div className="space-y-2">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input type="checkbox" name="islocked" defaultChecked={currentAgent ? !currentAgent.isactive : false} className="h-4 w-4 rounded border-line" />
+                      <span><strong>Locked</strong> — Agent cannot log in; hidden from assignments and email alerts</span>
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input type="checkbox" name="isvisible" defaultChecked={currentAgent?.isvisible ?? true} className="h-4 w-4 rounded border-line" />
+                      <span><strong>Visible to other agents</strong> — Agent can be seen in the staff directory</span>
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input type="checkbox" name="isadmin" defaultChecked={currentAgent?.isadmin} className="h-4 w-4 rounded border-line" />
+                      <span><strong>Administrator</strong> — Grants access to the Admin Panel for global configuration</span>
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input type="checkbox" name="assignedOnly" defaultChecked={currentAgent?.assignedOnly} className="h-4 w-4 rounded border-line" />
+                      <span><strong>Limit ticket access to ONLY assigned tickets</strong></span>
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input type="checkbox" name="onvacation" defaultChecked={currentAgent?.onvacation} className="h-4 w-4 rounded border-line" />
+                      <span><strong>Vacation Mode</strong> — Agent is temporarily on vacation</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="border-t border-line pt-4">
+                  <h3 className="mb-2 text-sm font-semibold text-ink-700">Internal Notes</h3>
+                  <p className="mb-2 text-xs text-ink-500">Be liberal — these notes are internal only.</p>
+                  <textarea name="notes" defaultValue={currentAgent?.notes} rows={4} className={inputClass} placeholder="Internal notes about this agent…" />
+                </div>
+              </div>
+
+
+          {/* ── Access Tab ── */}
+            <div className={activeTab === 'access' ? 'space-y-6' : 'hidden'}>
+                <div>
+                  <h3 className="mb-1 text-sm font-semibold text-ink-700">Primary Department</h3>
+                  <p className="mb-3 text-xs text-ink-500">The department the agent belongs to and their effective role within it.</p>
+                  <div className="flex flex-wrap gap-3">
+                    <Field label="Primary Department *">
+                      <select name="deptId" defaultValue={currentAgent?.deptId || ''} className={`${inputClass} w-56`}>
+                        <option value="">— Select Department —</option>
+                        {options.departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Primary Role *">
+                      <select name="roleId" defaultValue={currentAgent?.roleId || ''} className={`${inputClass} w-48`}>
+                        <option value="">— Select Role —</option>
+                        {options.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      </select>
+                    </Field>
+                  </div>
+                  <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
+                    <input type="checkbox" name="usePrimaryRole" defaultChecked={currentAgent?.usePrimaryRoleOnAssignment} className="h-4 w-4 rounded border-line" />
+                    <span>Fall back to primary role on ticket assignments</span>
+                  </label>
+                </div>
+
+                <div>
+                  <h3 className="mb-1 text-sm font-semibold text-ink-700">Extended Access</h3>
+                  <p className="mb-3 text-xs text-ink-500">Grant the agent access to additional departments with specific roles.</p>
+
+                  {deptAccess.length > 0 && (
+                    <div className="mb-3 overflow-hidden rounded-xl border border-line">
+                      <table className="w-full text-sm">
+                        <thead className="bg-paper">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium text-ink-600">Department</th>
+                            <th className="px-3 py-2 text-left font-medium text-ink-600">Role</th>
+                            <th className="px-3 py-2 text-left font-medium text-ink-600">Alerts</th>
+                            <th className="px-3 py-2" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {deptAccess.map(da => (
+                            <tr key={da.deptId} className="border-t border-line">
+                              <td className="px-3 py-2">{da.deptName}</td>
+                              <td className="px-3 py-2">
+                                <select
+                                  value={da.roleId}
+                                  onChange={e => setDeptAccess(prev => prev.map(x =>
+                                    x.deptId === da.deptId
+                                      ? { ...x, roleId: e.target.value, roleName: options.roles.find(r => r.id === e.target.value)?.name || '' }
+                                      : x
+                                  ))}
+                                  className="rounded-lg border border-line px-2 py-1 text-sm"
+                                >
+                                  {options.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                                </select>
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="checkbox"
+                                  checked={da.alerts}
+                                  onChange={e => setDeptAccess(prev => prev.map(x =>
+                                    x.deptId === da.deptId ? { ...x, alerts: e.target.checked } : x
+                                  ))}
+                                  className="h-4 w-4 rounded border-line"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <button type="button" onClick={() => removeDeptAccess(da.deptId)} className="text-rose-600 hover:text-rose-800">✕</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-end gap-2">
+                    <Field label="Add Department">
+                      <select value={addAccessDept} onChange={e => setAddAccessDept(e.target.value)} className={`${inputClass} w-48`}>
+                        <option value="">— Select Department —</option>
+                        {availableAccessDepts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Role">
+                      <select value={addAccessRole} onChange={e => setAddAccessRole(e.target.value)} className={`${inputClass} w-40`}>
+                        <option value="">— Select Role —</option>
+                        {options.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      </select>
+                    </Field>
+                    <button type="button" className={btnGhost} onClick={addDeptAccess} disabled={!addAccessDept || !addAccessRole}>+ Add</button>
+                  </div>
+                </div>
+              </div>
+
+
+          {/* ── Permissions Tab ── */}
+            <div className={activeTab === 'permissions' ? 'space-y-4' : 'hidden'}>
+              <div className="rounded-xl border border-line bg-paper px-4 py-3 text-sm text-ink-700">
+                Permissions are granted by the agent’s primary role and any department specific roles. Change those assignments in the Access tab.
+              </div>
+              <div className="rounded-xl border border-line p-4">
+                <p className="text-sm text-ink-500">Primary role</p>
+                <p className="mt-1 font-semibold">{currentAgent?.roleName || 'Select a primary role in Access'}</p>
+                <Link to="/scp/admin/roles" className="mt-3 inline-block text-sm font-medium text-brand-700 hover:underline">Manage roles and permissions →</Link>
+              </div>
+              {deptAccess.length > 0 && <div className="rounded-xl border border-line p-4">
+                <h3 className="mb-2 text-sm font-semibold">Department roles</h3>
+                <ul className="space-y-1 text-sm">{deptAccess.map(access => <li key={access.deptId}>{access.deptName}: <span className="font-medium">{access.roleName}</span></li>)}</ul>
+              </div>}
+            </div>
+
+          {/* ── Teams Tab ── */}
+            <div className={activeTab === 'teams' ? 'space-y-4' : 'hidden'}>
+                <div>
+                  <h3 className="mb-1 text-sm font-semibold text-ink-700">Assigned Teams</h3>
+                  <p className="mb-3 text-xs text-ink-500">Agent has access to tickets assigned to any team they belong to regardless of the ticket's department.</p>
+
+                  {teamMemberships.length > 0 && (
+                    <div className="mb-3 overflow-hidden rounded-xl border border-line">
+                      <table className="w-full text-sm">
+                        <thead className="bg-paper">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium text-ink-600">Team</th>
+                            <th className="px-3 py-2 text-left font-medium text-ink-600">Alerts</th>
+                            <th className="px-3 py-2" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {teamMemberships.map(tm => (
+                            <tr key={tm.teamId} className="border-t border-line">
+                              <td className="px-3 py-2">{tm.teamName}</td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="checkbox"
+                                  checked={tm.alerts}
+                                  onChange={e => setTeamMemberships(prev => prev.map(x =>
+                                    x.teamId === tm.teamId ? { ...x, alerts: e.target.checked } : x
+                                  ))}
+                                  className="h-4 w-4 rounded border-line"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <button type="button" onClick={() => removeTeam(tm.teamId)} className="text-rose-600 hover:text-rose-800">✕</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  <div className="flex items-end gap-2">
+                    <Field label="Add Team">
+                      <select value={addTeamId} onChange={e => setAddTeamId(e.target.value)} className={`${inputClass} w-48`}>
+                        <option value="">— Select Team —</option>
+                        {availableTeams.map(t => <option key={t.id} value={t.id}>{t.name}{!t.active ? ' (inactive)' : ''}</option>)}
+                      </select>
+                    </Field>
+                    <button type="button" className={btnGhost} onClick={addTeam} disabled={!addTeamId}>+ Add</button>
+                  </div>
+
+                  {options.teams.length === 0 && (
+                    <p className="mt-2 text-sm text-ink-400">No teams exist yet. Create a team first.</p>
+                  )}
+                </div>
+              </div>
+
+
+          {/* Form actions */}
+            <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+              <button type="submit" className={btnPrimary} disabled={saving}>
+                {saving ? 'Saving…' : (editing === 'new' ? 'Create Agent' : 'Save Changes')}
+              </button>
+              <button type="button" className={btnGhost} onClick={() => setEditing(null)}>Cancel</button>
+              {currentAgent && (
+                <button type="button" className="ml-auto text-sm text-rose-600 hover:text-rose-800" onClick={() => void onDelete(currentAgent)}>
+                  Delete Agent
+                </button>
+              )}
             </div>
           </form>
         </Card>
-      ) : null}
-      <DataTable
-        rows={staff as unknown as Record<string, unknown>[]}
-        rowKey={(row) => String(row.id)}
-        columns={[
-          { key: 'name', label: 'Name', render: (r) => String(r.name) },
-          { key: 'email', label: 'Email', render: (r) => String(r.email) },
-          {
-            key: 'dept',
-            label: 'Dept',
-            render: (r) => String(r.deptName || '—'),
-          },
-          { key: 'departmentAccess', label: 'Department access', render: (r) => Array.isArray(r.departmentAccess) && r.departmentAccess.length ? r.departmentAccess.join(', ') : '—' },
-          { key: 'role', label: 'Type', render: (r) => String(r.role) },
-          { key: 'active', label: 'Active', render: (r) => (r.active === false ? 'No' : 'Yes') },
-          {
-            key: 'actions',
-            label: 'Actions',
-            render: (r) => (
-              <div className="flex flex-wrap gap-3">
-                 <button type="button" className="text-brand-600" onClick={() => setEditing(r as unknown as ApiStaffAccount)}>
-                  Edit
-                </button>
-              <button type="button" className="text-rose-600" onClick={() => void deactivateStaff(r as unknown as ApiStaffAccount)}>
-                  Deactivate
-                </button>
+      )}
+
+      {/* Loading state */}
+      {loading && (
+        <Card><p className="py-4 text-center text-sm text-ink-500">Loading agents…</p></Card>
+      )}
+
+      {/* Agents table */}
+      {!loading && (
+        <Card className="overflow-hidden p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[50rem] text-sm">
+              <thead className="border-b border-line bg-paper text-ink-600">
+                <tr>
+                  <th className="w-10 px-4 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-line"
+                      checked={paginated.length > 0 && paginated.every(a => selected.has(a.id))}
+                      onChange={e => e.target.checked ? selectAll() : selectNone()}
+                    />
+                  </th>
+                  <th className="px-4 py-3 text-left">{colHeader('name', 'Name')}</th>
+                  <th className="px-4 py-3 text-left">{colHeader('username', 'Username')}</th>
+                  <th className="px-4 py-3 text-left">{colHeader('status', 'Status')}</th>
+                  <th className="px-4 py-3 text-left">{colHeader('dept', 'Department')}</th>
+                  <th className="px-4 py-3 text-left">{colHeader('created', 'Created')}</th>
+                  <th className="px-4 py-3 text-left">{colHeader('login', 'Last Login')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginated.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-ink-400">No agents found.</td>
+                  </tr>
+                )}
+                {paginated.map(agent => (
+                  <tr
+                    key={agent.id}
+                    className={`border-t border-line hover:bg-paper/50 ${selected.has(agent.id) ? 'bg-brand-50' : ''}`}
+                  >
+                    <td className="px-4 py-3 text-center">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-line"
+                        checked={selected.has(agent.id)}
+                        onChange={() => toggleSelect(agent.id)}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <button type="button" className="font-medium text-brand-700 hover:underline" onClick={() => openEdit(agent)}>
+                        {agent.name}
+                      </button>
+                      {agent.isadmin && (
+                        <span className="ml-1 rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700">admin</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">{agent.username}</td>
+                    <td className="px-4 py-3">
+                      {agent.isactive
+                        ? (
+                          <span className="text-green-700">
+                            Active
+                            {agent.onvacation && <em className="ml-1 text-ink-400">(vacation)</em>}
+                          </span>
+                          )
+                        : <span className="font-semibold text-rose-700">Locked</span>
+                      }
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">
+                      {agent.deptName || <span className="text-ink-400">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-ink-500">
+                      {agent.created ? new Date(agent.created).toLocaleDateString() : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-ink-500">
+                      {agent.lastlogin ? new Date(agent.lastlogin).toLocaleDateString() : <span className="text-ink-400">Never</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-line px-4 py-3 text-sm text-ink-600">
+              <span>{filtered.length} agents · Page {page} of {totalPages}</span>
+              <div className="flex gap-2">
+                <button type="button" className={btnGhost} onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>← Prev</button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPage(p)}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${p === page ? 'bg-brand-600 text-white' : 'hover:bg-paper'}`}
+                  >
+                    {p}
+                  </button>
+                ))}
+                <button type="button" className={btnGhost} onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next →</button>
               </div>
-            ),
-          },
-        ]}
-        renderCard={(r) => {
-          const u = r as unknown as ApiStaffAccount
-          return (
-            <Card>
-              <p className="font-medium">{u.name}</p>
-              <p className="break-all text-sm text-ink-600">{u.email}</p>
-              <p className="text-sm text-ink-600">{u.deptName || 'No primary department'} · Access: {u.departmentAccess?.join(', ') || '—'}</p>
-              <p className="text-xs uppercase text-brand-700">{u.role}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                 <button type="button" className={btnGhost} onClick={() => setEditing(u as unknown as ApiStaffAccount)}>
-                  Edit
-                </button>
-                <button type="button" className={`${btnGhost} text-rose-600`} onClick={() => void deactivateStaff(u as unknown as ApiStaffAccount)}>
-                  Deactivate
-                </button>
-              </div>
-            </Card>
-          )
-        }}
-      />
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   )
+}
+
+export function AdminStaffPage() {
+  return <AdminAgentsPage />
 }
 
 const settingTabs: { id: keyof Pick<SystemSettings, never> | string; label: string; keys: (keyof SystemSettings)[] }[] = [
