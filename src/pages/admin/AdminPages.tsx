@@ -4,7 +4,7 @@ import { btnGhost, btnPrimary, Card, DataTable, Field, inputClass, PageHeader } 
 import { useAuth } from '../../context/AuthContext'
 import { useDb } from '../../hooks/useDb'
 import { adminGroups } from '../../layouts/staffNav'
-import { createApiBranch, listApiSlaPlans, createApiSlaPlan, updateApiSlaPlan, deleteApiSlaPlan, createApiFaqCategory, createApiHelpTopic, createApiAgent, deleteApiBranch, deleteApiFaqCategory, deleteApiHelpTopic, deleteApiAgent, listApiAdminBranches, listApiHelpTopics, listApiUsers, listApiAgents, getApiAgentOptions, updateApiAgent, saveApiTicketVisibility, sendMailTest, updateApiBranch, updateApiFaqCategory, updateApiHelpTopic, updateApiUserVerification, massAgentAction, type ApiBranch, type ApiHelpTopic, type ApiSlaPlan, type ApiAgent, type ApiAgentOptions, type ApiDeptAccess, type ApiTeamMembership } from '../../lib/api'
+import { createApiBranch, listApiSlaPlans, createApiSlaPlan, updateApiSlaPlan, deleteApiSlaPlan, createApiFaqCategory, createApiHelpTopic, createApiAgent, updateApiAgent, deleteApiBranch, deleteApiFaqCategory, deleteApiHelpTopic, deleteApiAgent, listApiAdminBranches, listApiHelpTopics, listApiUsers, listApiAgents, getApiAgentOptions, saveApiTicketVisibility, sendMailTest, updateApiBranch, updateApiFaqCategory, updateApiHelpTopic, updateApiUserVerification, massAgentAction, listApiSchedules, createApiSchedule, updateApiSchedule, cloneApiSchedule, deleteApiSchedule, setApiDefaultSchedule, type ApiBranch, type ApiHelpTopic, type ApiSlaPlan, type ApiSchedule, type ApiScheduleEntry, type ApiSchedulesResponse, type ApiAgent, type ApiAgentOptions, type ApiDeptAccess, type ApiTeamMembership } from '../../lib/api'
 import { formatDate } from '../../lib/format'
 import { accountSessionToken, addLog, newId, removeRecord, saveSettings, syncUserVerification } from '../../lib/store'
 import type { LogLevel, SystemSettings } from '../../types'
@@ -437,26 +437,113 @@ export function AdminSlasPage() {
 }
 
 export function AdminSchedulesPage() {
-  const db = useDb()
-  return (
-    <EntityManager
-      title="Schedules"
-      subtitle="Business hours used with SLA plans."
-      collection="schedules"
-      rows={db.schedules}
-      columns={[
-        { key: 'name', label: 'Name' },
-        { key: 'timezone', label: 'Timezone' },
-        { key: 'hours', label: 'Hours' },
-      ]}
-      fields={[
-        { name: 'name', label: 'Name', type: 'text', required: true },
-        { name: 'timezone', label: 'Timezone', type: 'text', required: true },
-        { name: 'hours', label: 'Hours', type: 'text', required: true, span2: true },
-      ]}
-      defaults={{ name: '', timezone: 'UTC', hours: 'Mon–Fri 09:00–17:00' }}
-    />
-  )
+  const token = accountSessionToken() || ''
+  const [data, setData] = useState<ApiSchedulesResponse>({ schedules: [], defaultScheduleId: '0', slas: [] })
+  const [editing, setEditing] = useState<ApiSchedule | 'new' | null>(null)
+  const [entries, setEntries] = useState<ApiScheduleEntry[]>([])
+  const [entryDraft, setEntryDraft] = useState<ApiScheduleEntry | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [query, setQuery] = useState('')
+  const [diagnostic, setDiagnostic] = useState<string | null>(null)
+  const [diagnosticHours, setDiagnosticHours] = useState(24)
+
+  async function refresh() {
+    try { setData(await listApiSchedules(token)); setError('') }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not load schedules.') }
+    finally { setLoading(false) }
+  }
+  useEffect(() => { void refresh() }, [token])
+  function openSchedule(schedule: ApiSchedule | 'new') {
+    setEntries(schedule === 'new' ? [] : schedule.entries.map(e => ({ ...e })))
+    setEntryDraft(null); setEditing(schedule); setError('')
+  }
+  async function saveSchedule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const form = new FormData(event.currentTarget)
+    const payload: Partial<ApiSchedule> = {
+      name: String(form.get('name') || '').trim(), description: String(form.get('description') || ''),
+      timezone: String(form.get('timezone') || ''), type: String(form.get('type') || 'bizhrs') as ApiSchedule['type'], entries,
+      holidays: form.getAll('holidays').map(String),
+    }
+    setSaving(true); setError('')
+    try {
+      if (editing === 'new') await createApiSchedule(payload, token)
+      else if (editing) await updateApiSchedule(editing.id, payload, token)
+      setEditing(null); await refresh()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not save the schedule.') }
+    finally { setSaving(false) }
+  }
+  async function removeSchedule(id: string) {
+    if (!window.confirm('Delete this schedule and its entries?')) return
+    setSaving(true); setError('')
+    try { await deleteApiSchedule(id, token); await refresh() }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not delete the schedule.') }
+    finally { setSaving(false) }
+  }
+  async function cloneSchedule(schedule: ApiSchedule) {
+    const name = window.prompt('Name for the cloned schedule', `${schedule.name} (copy)`)
+    if (!name?.trim()) return
+    setSaving(true); setError('')
+    try { await cloneApiSchedule(schedule.id, { name: name.trim() }, token); await refresh() }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not clone the schedule.') }
+    finally { setSaving(false) }
+  }
+  async function changeDefault(id: string) {
+    setSaving(true); setError('')
+    try { await setApiDefaultSchedule(id, token); await refresh() }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not update the system schedule.') }
+    finally { setSaving(false) }
+  }
+  function entrySummary(entry: ApiScheduleEntry) {
+    const day = entry.repeats === 'weekdays' ? 'Weekdays' : entry.repeats === 'weekends' ? 'Weekends' : entry.repeats === 'weekly' ? ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][(entry.day || 1) - 1] : entry.repeats[0].toUpperCase() + entry.repeats.slice(1)
+    return `${day}${entry.startsOn ? ` from ${entry.startsOn}` : ''} · ${entry.startsAt}–${entry.endsAt}${entry.stopsOn ? ` · until ${entry.stopsOn}` : ''}`
+  }
+  function diagnosticRows(schedule: ApiSchedule) {
+    const occurrences: Array<{ date: string; start: string; end: string; hours: number }> = []
+    if (schedule.type !== 'bizhrs') return occurrences
+    const start = new Date(); start.setHours(0, 0, 0, 0)
+    const holidayDates = data.schedules.filter(s => schedule.holidays.includes(s.id)).flatMap(s => s.entries.map(e => e.startsOn?.slice(5)))
+    for (let offset = 0; offset < 366 && occurrences.reduce((n, x) => n + x.hours, 0) < diagnosticHours; offset++) {
+      const date = new Date(start); date.setDate(start.getDate() + offset)
+      const day = date.getDay() === 0 ? 7 : date.getDay()
+      const key = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`
+      if (holidayDates.includes(key.slice(5))) continue
+      for (const entry of schedule.entries) {
+        const begins = entry.startsOn ? new Date(`${entry.startsOn}T00:00:00`) : null
+        const ends = entry.stopsOn ? new Date(`${entry.stopsOn}T23:59:59`) : null
+        if (begins && date < begins || ends && date > ends) continue
+        const applies = entry.repeats === 'daily' || entry.repeats === 'weekdays' && day <= 5 || entry.repeats === 'weekends' && day >= 6 || entry.repeats === 'weekly' && (entry.day || 1) === day || entry.repeats === 'never' && entry.startsOn === key || entry.repeats === 'yearly' && date.getMonth()+1 === (entry.month || 1) && date.getDate() === (entry.day || 1) || entry.repeats === 'monthly' && date.getDate() === (entry.day || 1)
+        if (!applies) continue
+        const [sh, sm] = entry.startsAt.split(':').map(Number); const [eh, em] = entry.endsAt.split(':').map(Number)
+        const hours = Math.max(0, (eh * 60 + em - sh * 60 - sm) / 60)
+        if (hours) occurrences.push({ date: key, start: entry.startsAt, end: entry.endsAt, hours })
+      }
+    }
+    return occurrences
+  }
+  const filtered = data.schedules.filter(s => `${s.name} ${s.description} ${s.timezone}`.toLowerCase().includes(query.toLowerCase()))
+  const current = editing === 'new' ? null : editing
+  const repeatOptions = ['never','daily','weekdays','weekends','weekly','monthly','yearly']
+
+  return <div className="min-w-0">
+    <PageHeader title="Schedules" subtitle="Set business hours and holiday exceptions used to calculate SLA deadlines." actions={<div className="flex flex-wrap gap-2"><input aria-label="Search schedules" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search schedules" className={inputClass} /><button type="button" className={btnPrimary} onClick={() => openSchedule('new')}>Add new schedule</button></div>} />
+    <Card className="mb-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">System default schedule</h2><p className="mt-1 text-sm text-ink-500">Used when an SLA does not specify its own schedule.</p></div><select aria-label="System default schedule" disabled={saving} value={data.defaultScheduleId} onChange={e => void changeDefault(e.target.value)} className={`${inputClass} sm:max-w-sm`}><option value="0">No default schedule</option>{data.schedules.filter(s => s.type === 'bizhrs').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div></Card>
+    {error ? <p role="alert" className="mb-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
+    {editing ? <Card className="mb-6"><h2 className="mb-4 font-semibold">{editing === 'new' ? 'Add schedule' : `Edit ${editing.name}`}</h2><form onSubmit={e => void saveSchedule(e)} className="grid gap-4 sm:grid-cols-2">
+      <Field label="Name"><input name="name" required maxLength={255} defaultValue={current?.name || ''} className={inputClass} /></Field>
+      <Field label="Type"><select name="type" disabled={editing !== 'new'} defaultValue={current?.type || 'bizhrs'} className={inputClass}><option value="bizhrs">Business hours</option><option value="hdays">Holiday hours</option></select>{editing !== 'new' ? <span className="text-xs text-ink-500">Schedule type is fixed when created.</span> : null}</Field>
+      <Field label="Timezone"><input name="timezone" defaultValue={current?.timezone || ''} placeholder="Use system timezone" className={inputClass} /><span className="text-xs text-ink-500">Leave blank to use the helpdesk timezone.</span></Field>
+      <Field label="Description"><input name="description" maxLength={255} defaultValue={current?.description || ''} className={inputClass} /></Field>
+      {current?.type === 'bizhrs' || editing === 'new' ? <Field label="Holiday schedules applied" className="sm:col-span-2"><div className="flex flex-wrap gap-3 rounded-lg border border-line p-3">{data.schedules.filter(s => s.type === 'hdays' && s.id !== current?.id).map(s => <label key={s.id} className="flex items-center gap-2 text-sm"><input type="checkbox" name="holidays" value={s.id} defaultChecked={current?.holidays.includes(s.id)} />{s.name}</label>)}{data.schedules.every(s => s.type !== 'hdays') ? <span className="text-sm text-ink-500">Create a Holiday Hours schedule to apply exceptions.</span> : null}</div></Field> : null}
+      <section className="sm:col-span-2"><div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-semibold">{current?.type === 'hdays' ? 'Holiday entries' : 'Business hours entries'}</h3><p className="text-sm text-ink-500">Add recurring weekly hours or date specific exceptions.</p></div><button type="button" className={btnGhost} onClick={() => setEntryDraft({ name:'', repeats: current?.type === 'hdays' ? 'never' : 'weekdays', startsOn:'', startsAt:'09:00', endsOn:'', endsAt:'17:00', stopsOn:'', day:1 })}>Add entry</button></div>
+        {entries.length ? <ul className="divide-y divide-line rounded-lg border border-line">{entries.map((entry,index) => <li key={entry.id || index} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2"><div><p className="text-sm font-medium">{entry.name}</p><p className="text-xs text-ink-500">{entrySummary(entry)}</p></div><div className="flex gap-3"><button type="button" className="text-brand-700" onClick={() => setEntryDraft({...entry})}>Edit</button><button type="button" className="text-rose-600" onClick={() => setEntries(rows => rows.filter((_,i)=>i!==index))}>Remove</button></div></li>)}</ul> : <p className="rounded-lg border border-dashed border-line p-4 text-sm text-ink-500">No entries yet.</p>}
+      </section>
+      {entryDraft ? <div className="grid gap-3 rounded-lg bg-paper p-4 sm:col-span-2 sm:grid-cols-2"><Field label="Entry name"><input autoFocus value={entryDraft.name} onChange={e=>setEntryDraft({...entryDraft,name:e.target.value})} className={inputClass} /></Field><Field label="Repeats"><select value={entryDraft.repeats} onChange={e=>setEntryDraft({...entryDraft,repeats:e.target.value})} className={inputClass}>{repeatOptions.map(x=><option key={x} value={x}>{x==='never'?'Once':x[0].toUpperCase()+x.slice(1)}</option>)}</select></Field><Field label="Starts on"><input required type="date" value={entryDraft.startsOn} onChange={e=>setEntryDraft({...entryDraft,startsOn:e.target.value})} className={inputClass} /></Field><Field label="Stops repeating on"><input type="date" value={entryDraft.stopsOn} onChange={e=>setEntryDraft({...entryDraft,stopsOn:e.target.value})} className={inputClass} /></Field><Field label="Starts at"><input required type="time" value={entryDraft.startsAt} onChange={e=>setEntryDraft({...entryDraft,startsAt:e.target.value})} className={inputClass} /></Field><Field label="Ends at"><input required type="time" value={entryDraft.endsAt} onChange={e=>setEntryDraft({...entryDraft,endsAt:e.target.value})} className={inputClass} /></Field>{entryDraft.repeats==='weekly'?<Field label="Day of week"><select value={entryDraft.day||1} onChange={e=>setEntryDraft({...entryDraft,day:Number(e.target.value)})} className={inputClass}>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((d,i)=><option key={d} value={i+1}>{d}</option>)}</select></Field>:null}{entryDraft.repeats==='monthly'?<Field label="Day of month"><select value={entryDraft.day||1} onChange={e=>setEntryDraft({...entryDraft,day:Number(e.target.value)})} className={inputClass}>{Array.from({length:31},(_,i)=>i+1).map(d=><option key={d} value={d}>{d}</option>)}</select></Field>:null}{entryDraft.repeats==='yearly'?<><Field label="Month"><select value={entryDraft.month||1} onChange={e=>setEntryDraft({...entryDraft,month:Number(e.target.value)})} className={inputClass}>{['January','February','March','April','May','June','July','August','September','October','November','December'].map((m,i)=><option key={m} value={i+1}>{m}</option>)}</select></Field><Field label="Day of month"><select value={entryDraft.day||1} onChange={e=>setEntryDraft({...entryDraft,day:Number(e.target.value)})} className={inputClass}>{Array.from({length:31},(_,i)=>i+1).map(d=><option key={d} value={d}>{d}</option>)}</select></Field></>:null}<div className="flex items-end gap-2"><button type="button" className={btnPrimary} onClick={()=>{if(!entryDraft.name.trim()||!entryDraft.startsOn||!entryDraft.startsAt||!entryDraft.endsAt)return;setEntries(rows=>entryDraft.id?rows.map(e=>e.id===entryDraft.id?entryDraft:e):[...rows,{...entryDraft,id:`draft-${Date.now()}`}]);setEntryDraft(null)}}>Save entry</button><button type="button" className={btnGhost} onClick={()=>setEntryDraft(null)}>Cancel</button></div></div> : null}
+      <div className="flex flex-wrap gap-2 sm:col-span-2"><button type="submit" disabled={saving||Boolean(entryDraft)} className={btnPrimary}>{saving?'Saving…':'Save schedule'}</button><button type="button" disabled={saving} className={btnGhost} onClick={()=>setEditing(null)}>Cancel</button></div>
+    </form></Card> : null}
+    {loading ? <p className="text-sm text-ink-500">Loading schedules…</p> : <ul className="grid gap-3 lg:grid-cols-2">{filtered.map(s=><li key={s.id}><Card><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">{s.name}</h2><span className="rounded-full bg-paper px-2 py-0.5 text-xs text-ink-600">{s.type==='bizhrs'?'Business hours':'Holiday hours'}</span>{s.isDefault?<span className="rounded-full bg-brand-50 px-2 py-0.5 text-xs text-brand-700">System default</span>:null}</div><p className="mt-1 text-sm text-ink-600">{s.description||'No description'} · {s.timezone||'System timezone'}</p><p className="mt-1 text-xs text-ink-500">{s.entries.length} entries{s.type==='bizhrs'?` · ${s.holidays.length} holidays applied`:''}</p><p className="mt-1 text-xs text-ink-500">SLAs: {s.slaNames.join(', ')||'None'} · Departments: {s.departments.join(', ')||'None'} · Tickets: {s.ticketCount}</p></div><div className="flex flex-wrap gap-3 text-sm"><button type="button" className="text-brand-700" onClick={()=>openSchedule(s)}>Edit</button><button type="button" className="text-brand-700" onClick={()=>void cloneSchedule(s)}>Clone</button><button type="button" className="text-brand-700" onClick={()=>setDiagnostic(diagnostic===s.id?null:s.id)}>Diagnostics</button><button type="button" disabled={saving} className="text-rose-600" onClick={()=>void removeSchedule(s.id)}>Delete</button></div></div>{s.entries.slice(0,4).map(e=><p key={e.id} className="mt-2 text-xs text-ink-500">{e.name} · {entrySummary(e)}</p>)}{s.entries.length>4?<p className="mt-1 text-xs text-ink-500">and {s.entries.length-4} more…</p>:null}{diagnostic===s.id?<div className="mt-4 border-t border-line pt-3"><label className="flex flex-wrap items-center gap-2 text-sm">Preview next <input type="number" min="1" max="8760" value={diagnosticHours} onChange={e=>setDiagnosticHours(Math.max(1,Number(e.target.value)||1))} className={`${inputClass} w-24`} /> working hours</label><ul className="mt-2 max-h-48 space-y-1 overflow-auto text-xs text-ink-600">{diagnosticRows(s).map((r,i)=><li key={`${r.date}-${r.start}-${i}`}>{r.date} · {r.start}–{r.end}</li>)}{diagnosticRows(s).length===0?<li>No matching hours in the next year.</li>:null}</ul></div>:null}</Card></li>)}{filtered.length===0?<li className="lg:col-span-2"><Card>{data.schedules.length?'No schedules match this search.':'No schedules have been created.'}</Card></li>:null}</ul>}
+  </div>
 }
 
 export function AdminApiKeysPage() {

@@ -454,8 +454,34 @@ model Schedule {
   description String   @default("") @db.VarChar(255)
   created     DateTime @default(now()) @db.Timestamp(6)
   updated     DateTime @default(now()) @db.Timestamp(6)
+  entries     ScheduleEntry[]
 
   @@map("ost_schedule")
+  @@schema("osticket")
+}
+
+model ScheduleEntry {
+  id          BigInt    @id @default(autoincrement())
+  schedule_id BigInt    @default(0)
+  flags       Int       @default(0)
+  sort        Int       @default(0) @db.SmallInt
+  name        String    @default("") @db.VarChar(255)
+  repeats     String    @default("never") @db.VarChar(16)
+  starts_on   DateTime? @db.Date
+  starts_at   DateTime? @db.Time(6)
+  ends_on     DateTime? @db.Date
+  ends_at     DateTime? @db.Time(6)
+  stops_on    DateTime? @db.Timestamp(6)
+  day         Int?      @db.SmallInt
+  week        Int?      @db.SmallInt
+  month       Int?      @db.SmallInt
+  created     DateTime  @default(now()) @db.Timestamp(6)
+  updated     DateTime  @default(now()) @db.Timestamp(6)
+  schedule    Schedule  @relation(fields: [schedule_id], references: [id], onDelete: Cascade)
+
+  @@index([schedule_id])
+  @@index([repeats])
+  @@map("ost_schedule_entry")
   @@schema("osticket")
 }
 

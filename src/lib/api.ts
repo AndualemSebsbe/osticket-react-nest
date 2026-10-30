@@ -88,6 +88,15 @@ export function listApiSlaPlans(token: string) { return request<ApiSlaOptions>('
 export function createApiSlaPlan(input: Omit<ApiSlaPlan, 'id' | 'scheduleName'>, token: string) { return request<{ sla: ApiSlaPlan }>('/admin/sla-plans', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) }).then(r => r.sla) }
 export function updateApiSlaPlan(id: string, input: Omit<ApiSlaPlan, 'id' | 'scheduleName'>, token: string) { return request<{ sla: ApiSlaPlan }>('/admin/sla-plans/' + encodeURIComponent(id), { method: 'PUT', headers: { 'x-user-session': token }, body: JSON.stringify(input) }).then(r => r.sla) }
 export function deleteApiSlaPlan(id: string, token: string) { return request<{ deleted: boolean }>('/admin/sla-plans/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'x-user-session': token } }) }
+export interface ApiScheduleEntry { id?: string; name: string; repeats: string; startsOn: string; startsAt: string; endsOn: string; endsAt: string; stopsOn: string; day?: number | null; week?: number | null; month?: number | null }
+export interface ApiSchedule { id: string; name: string; description: string; timezone: string; type: 'bizhrs' | 'hdays'; holidays: string[]; entries: ApiScheduleEntry[]; slaNames: string[]; departments: string[]; ticketCount: number; isDefault: boolean }
+export interface ApiSchedulesResponse { schedules: ApiSchedule[]; defaultScheduleId: string; slas: Array<{ id: string; name: string; scheduleId: string }> }
+export function listApiSchedules(token: string) { return request<ApiSchedulesResponse>('/admin/schedules', { headers: { 'x-user-session': token } }) }
+export function createApiSchedule(input: Partial<ApiSchedule>, token: string) { return request<ApiSchedule>('/admin/schedules', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) }) }
+export function updateApiSchedule(id: string, input: Partial<ApiSchedule>, token: string) { return request<ApiSchedule>('/admin/schedules/' + encodeURIComponent(id), { method: 'PUT', headers: { 'x-user-session': token }, body: JSON.stringify(input) }) }
+export function cloneApiSchedule(id: string, input: Pick<ApiSchedule, 'name'>, token: string) { return request<ApiSchedule>('/admin/schedules/' + encodeURIComponent(id) + '/clone', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) }) }
+export function deleteApiSchedule(id: string, token: string) { return request<{ deleted: boolean }>('/admin/schedules/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'x-user-session': token } }) }
+export function setApiDefaultSchedule(id: string, token: string) { return request<{ saved: boolean }>('/admin/schedules/default/' + encodeURIComponent(id), { method: 'PUT', headers: { 'x-user-session': token } }) }
 export interface ApiHelpTopic { id: string; name: string; deptId: string; departmentName?: string; priority: string; slaId?: string; slaName?: string; hint?: string; active: boolean }
 export interface ApiHelpTopicOptions {
   topics: ApiHelpTopic[]

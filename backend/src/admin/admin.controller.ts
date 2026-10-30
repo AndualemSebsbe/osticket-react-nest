@@ -4,6 +4,7 @@ import { AgentsService } from './agents.service';
 import { MailService } from '../mail/mail.service';
 import { UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../common/admin.guard';
+import { SchedulesService } from './schedules.service';
 
 @Controller()
 @UseGuards(AdminGuard)
@@ -12,6 +13,7 @@ export class AdminController {
     @Inject(AdminService) private admin: AdminService,
     @Inject(MailService) private mail: MailService,
     @Inject(AgentsService) private agents: AgentsService,
+    @Inject(SchedulesService) private schedules: SchedulesService,
   ) {}
   private check(_req:any) { }
   @Get('health') health() { return { ok: true, mailConfigured: this.mail.isConfigured(), storage: 'postgresql' }; }
@@ -28,6 +30,13 @@ export class AdminController {
   @Post('admin/sla-plans') async createSla(@Body() body:any) { return { sla:await this.admin.create('sla-plans',body) }; }
   @Put('admin/sla-plans/:id') async updateSla(@Param('id') id:string,@Body() body:any) { return { sla:await this.admin.update('sla-plans',id,body) }; }
   @Delete('admin/sla-plans/:id') removeSla(@Param('id') id:string) { return this.admin.remove('sla-plans',id); }
+
+  @Get('admin/schedules') schedulesList() { return this.schedules.list(); }
+  @Post('admin/schedules') scheduleCreate(@Body() body:any) { return this.schedules.create(body); }
+  @Put('admin/schedules/:id') scheduleUpdate(@Param('id') id:string,@Body() body:any) { return this.schedules.update(id,body); }
+  @Post('admin/schedules/:id/clone') scheduleClone(@Param('id') id:string,@Body() body:any) { return this.schedules.clone(id,body); }
+  @Delete('admin/schedules/:id') scheduleRemove(@Param('id') id:string) { return this.schedules.remove(id); }
+  @Put('admin/schedules/default/:id') scheduleDefault(@Param('id') id:string) { return this.schedules.setDefault(id); }
 
   @Get('admin/departments') async departments() { return await this.admin.departmentOptions(); }
   @Post('admin/departments') async createDepartment(@Body() body:any) { return { department:await this.admin.create('departments',body) }; }
