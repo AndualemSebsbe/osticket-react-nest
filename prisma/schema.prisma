@@ -317,6 +317,93 @@ model FormField {
   @@schema("osticket")
 }
 
+model FormEntry {
+  id       BigInt   @id @default(autoincrement())
+  form_id  BigInt
+  object_id BigInt
+  object_type String @default("T") @db.VarChar()
+  sort     BigInt   @default(1)
+  extra    String?
+  created  DateTime @default(now()) @db.Timestamp(6)
+  updated  DateTime @default(now()) @db.Timestamp(6)
+  @@map("ost_form_entry")
+  @@schema("osticket")
+}
+
+model FormEntryValues {
+  entry_id BigInt
+  field_id BigInt
+  value    String?
+  @@id([entry_id, field_id])
+  @@map("ost_form_entry_values")
+  @@schema("osticket")
+}
+
+model SearchIndex {
+  object_id BigInt
+  object_type String @db.VarChar(1)
+  content String?
+  @@id([object_id, object_type])
+  @@map("ost__search")
+  @@schema("osticket")
+}
+
+model QueueColumn {
+  id BigInt @id @default(autoincrement())
+  name String? @db.VarChar(64)
+  primary BigInt @default(0)
+  secondary BigInt @default(0)
+  heading String? @db.VarChar(64)
+  width String? @db.VarChar(16)
+  sort BigInt @default(0)
+  @@map("ost_queue_column")
+  @@schema("osticket")
+}
+
+model QueueColumns {
+  queue_id BigInt
+  column_id BigInt
+  sort BigInt @default(0)
+  @@id([queue_id, column_id])
+  @@map("ost_queue_columns")
+  @@schema("osticket")
+}
+
+model QueueSort {
+  id BigInt @id @default(autoincrement())
+  name String? @db.VarChar(64)
+  field String? @db.VarChar(64)
+  sort BigInt @default(0)
+  @@map("ost_queue_sort")
+  @@schema("osticket")
+}
+
+model QueueSorts {
+  queue_id BigInt
+  sort_id BigInt
+  sort BigInt @default(0)
+  @@id([queue_id, sort_id])
+  @@map("ost_queue_sorts")
+  @@schema("osticket")
+}
+
+model QueueExport {
+  id BigInt @id @default(autoincrement())
+  queue_id BigInt
+  config String?
+  @@map("ost_queue_export")
+  @@schema("osticket")
+}
+
+model QueueConfig {
+  id BigInt @id @default(autoincrement())
+  queue_id BigInt
+  key String @db.VarChar(64)
+  value String?
+  @@map("ost_queue_config")
+  @@schema("osticket")
+}
+
 model HelpTopic {
   topic_id      BigInt   @id @default(autoincrement())
   topic_pid     BigInt   @default(0)

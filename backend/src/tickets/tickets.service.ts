@@ -53,6 +53,38 @@ export class TicketsService {
     return Promise.all(rows.map(async t => { const v=await this.view(t); const {accessHash,...safe}=v; return safe; }));
   }
 
+  async advancedSearch(input: any) {
+    const q = String(input.q || '').trim();
+    const filters = input.filters && typeof input.filters === 'object' ? input.filters : {};
+    const rows = await this.prisma.ticket.findMany({ orderBy: { updated: 'desc' } });
+    const matched = [];
+    const keyword = q.toLocaleLowerCase();
+    const entriesCache = new Map<string, string>();
+    for (const row of rows) {
+      const v = await this.view(row);
+      const values: Record<string, string> = { number: v.number, subject: v.subject, status: v.status, priority: v.priority, department: v.department, topic: v.topic, requester: v.requesterName, email: v.requesterEmail, assignee: v.assignee || '', source: String((row as any).source || ''), created: v.createdAt.slice(0,10), updated: v.updatedAt.slice(0,10) };
+      let ok = !keyword || Object.values(values).some(x => x.toLocaleLowerCase().includes(keyword));
+      if (keyword && !ok) {
+        const thread = await this.prisma.thread.findUnique({ where: { object_id_object_type: { object_id: row.ticket_id, object_type: 'T' } } });
+        if (thread) {
+          let content = entriesCache.get(String(row.ticket_id));
+          if (content === undefined) { content = (await this.prisma.threadEntry.findMany({ where: { thread_id: thread.id }, select: { body: true, title: true } })).map(e => `${e.title || ''} ${e.body}`).join(' ').toLocaleLowerCase(); entriesCache.set(String(row.ticket_id), content); }
+          ok = content.includes(keyword);
+        }
+      }
+      for (const [field, expected] of Object.entries(filters)) {
+        if (expected === '' || expected == null) continue;
+        const actual = values[field];
+        if (['createdFrom','createdTo','updatedFrom','updatedTo'].includes(field)) {
+          const dateField = field.startsWith('created') ? 'created' : 'updated';
+          if (field.endsWith('From') ? values[dateField] < String(expected) : values[dateField] > String(expected)) { ok = false; break; }
+        } else if (actual == null || !actual.toLocaleLowerCase().includes(String(expected).toLocaleLowerCase())) { ok = false; break; }
+      }
+      if (ok) matched.push(v);
+    }
+    return matched;
+  }
+
   async listForClient(email: string, userId?: string) {
     const addresses = await this.prisma.userEmail.findMany({ where: { user_id: userId ? bi(userId) : undefined } });
     const threadIds = await this.prisma.threadCollaborator.findMany({ where: { user_id: { in: addresses.map(a => Number(a.user_id)) }, flags: { not: 0 } } });
