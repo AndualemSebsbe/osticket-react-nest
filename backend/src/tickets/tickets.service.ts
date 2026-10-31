@@ -53,11 +53,28 @@ export class TicketsService {
     return Promise.all(rows.map(async t => { const v=await this.view(t); const {accessHash,...safe}=v; return safe; }));
   }
 
+  async queueDefinitions() {
+    const [queues, columns, sorts, links, sortLinks, saved] = await Promise.all([
+      this.prisma.queue.findMany({ orderBy: [{ sort: 'asc' }, { title: 'asc' }] }),
+      this.prisma.queueColumn.findMany({ orderBy: [{ sort: 'asc' }, { id: 'asc' }] }),
+      this.prisma.queueSort.findMany({ orderBy: [{ sort: 'asc' }, { id: 'asc' }] }),
+      this.prisma.queueColumns.findMany({ orderBy: [{ queue_id: 'asc' }, { sort: 'asc' }] }),
+      this.prisma.queueSorts.findMany({ orderBy: [{ queue_id: 'asc' }, { sort: 'asc' }] }),
+      this.prisma.config.findMany({ where: { namespace: 'react_app_state', key: 'queues' } }),
+    ]);
+    let custom: any[] = [];
+    try { custom = JSON.parse(saved[0]?.value || '[]'); } catch { /* Ignore malformed optional app queue settings. */ }
+    return {
+      queues: queues.map(queue => ({ id: String(queue.id), title: queue.title || 'Untitled queue', parentId: String(queue.parent_id || ''), filter: queue.filter || '', root: queue.root || '', sort: Number(queue.sort), columns: links.filter(link => link.queue_id === queue.id).map(link => { const column = columns.find(item => item.id === link.column_id); return column && { id: String(column.id), heading: column.heading || column.name || '', field: column.name || '', width: column.width || '', sort: Number(link.sort) }; }).filter(Boolean), sorting: sortLinks.filter(link => link.queue_id === queue.id).map(link => { const sort = sorts.find(item => item.id === link.sort_id); return sort && { id: String(sort.id), name: sort.name || '', field: sort.field || '', sort: Number(link.sort) }; }).filter(Boolean) })),
+      customQueues: Array.isArray(custom) ? custom : [],
+    };
+  }
+
   async advancedSearch(input: any) {
     const q = String(input.q || '').trim();
     const filters = input.filters && typeof input.filters === 'object' ? input.filters : {};
     const rows = await this.prisma.ticket.findMany({ orderBy: { updated: 'desc' } });
-    const matched = [];
+    const matched: any[] = [];
     const keyword = q.toLocaleLowerCase();
     const entriesCache = new Map<string, string>();
     for (const row of rows) {

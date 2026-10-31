@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { PriorityBadge, StatusBadge } from '../../components/Badges'
 import { btnGhost, btnPrimary, PageHeader, inputClass} from '../../components/ui'
@@ -8,6 +8,8 @@ import { useDb } from '../../hooks/useDb'
 import { ticketQueues } from '../../layouts/staffNav'
 import { relativeTime } from '../../lib/format'
 import { bulkTickets, matchQueue, ticketsToCsv } from '../../lib/store'
+import { listApiQueues } from '../../lib/api'
+import type { TicketQueue } from '../../types'
 
 export function StaffQueuePage() {
   const [params, setParams] = useSearchParams()
@@ -18,11 +20,19 @@ export function StaffQueuePage() {
   const { user } = useAuth()
   const agents = useAgents()
   const [selected, setSelected] = useState<string[]>([])
+  const [serverQueues, setServerQueues] = useState<TicketQueue[] | null>(null)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [advanced, setAdvanced] = useState({ number: '', subject: '', requester: '', status: 'all', priority: 'all', assignee: 'all', topic: 'all', createdFrom: '', createdTo: '', keyword: '' })
 
+  useEffect(() => {
+    let active = true
+    listApiQueues().then(result => { if (active) setServerQueues(result.customQueues) }).catch(() => { if (active) setServerQueues(null) })
+    return () => { active = false }
+  }, [])
+  const queueDefinitions = serverQueues ?? db.queues
+
   const tickets = useMemo(() => {
-    return matchQueue(db.tickets, queue, user?.id, db.queues).filter((t) => {
+    return matchQueue(db.tickets, queue, user?.id, queueDefinitions).filter((t) => {
       if (dept !== 'all' && t.deptId !== dept) return false
       if (q && !`${t.number} ${t.subject}`.toLowerCase().includes(q.toLowerCase())) return false
       const requester = db.users.find((u) => u.id === t.userId)
@@ -39,7 +49,7 @@ export function StaffQueuePage() {
       if (advanced.keyword && !haystack.includes(advanced.keyword.toLowerCase())) return false
       return true
     })
-  }, [db, queue, q, dept, user?.id, advanced])
+  }, [db, queue, q, dept, user?.id, advanced, queueDefinitions])
 
   function patch(key: string, value: string) {
     const copy = new URLSearchParams(params)
@@ -81,7 +91,7 @@ export function StaffQueuePage() {
         }
       />
       <div className="flex gap-2 overflow-x-auto pb-2">
-        {[...ticketQueues, ...db.queues.filter((item) => item.enabled).map((item) => ({ id: item.id, label: item.title }))].map((item) => (
+        {[...ticketQueues, ...queueDefinitions.filter((item) => item.enabled).map((item) => ({ id: item.id, label: item.title }))].map((item) => (
           <button
             key={item.id}
             type="button"

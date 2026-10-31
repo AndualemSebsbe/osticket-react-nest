@@ -30,6 +30,8 @@ function currentSessionHeaders(): Record<string, string> {
 }
 export function apiHealth() { return request<ApiHealth>('/health') }
 export function listApiTickets(token?: string) { return request<{ tickets: Array<Record<string, any>> }>('/tickets', { headers: token ? { 'x-user-session': token } : currentSessionHeaders() }) }
+export interface ApiQueueDefinition { id: string; title: string; parentId: string; filter: string; root: string; sort: number; columns: Array<{ id: string; heading: string; field: string; width: string; sort: number }>; sorting: Array<{ id: string; name: string; field: string; sort: number }> }
+export function listApiQueues() { return request<{ queues: ApiQueueDefinition[]; customQueues: import('../types').TicketQueue[] }>('/tickets/queues', { headers: currentSessionHeaders() }) }
 export function advancedSearchApiTickets(input: { q?: string; filters?: Record<string, string> }) { return request<{ tickets: Array<Record<string, any>> }>('/tickets/advanced-search', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }) }
 export function listApiAccountTickets(token: string) {
   return request<{ tickets: ApiPersistedTicket[]; messages: ApiPersistedMessage[] }>('/users/tickets', { headers: { 'x-user-session': token } })
