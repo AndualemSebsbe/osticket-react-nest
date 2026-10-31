@@ -29,21 +29,78 @@ export class AdminService {
       slaId: String(d.sla_id || 0), scheduleId: String(d.schedule_id || 0),
       managerId: String(d.manager_id || 0), emailId: String(d.email_id || 0),
       templateId: String(d.tpl_id || 0), autoresponderEmailId: String(d.autoresp_email_id || 0),
-      assignment: flags & 16 ? 'primary' : flags & 1 ? 'members' : 'all',
+      assignment: flags & 1 ? 'members' : flags & 16 ? 'primary' : 'all',
       disableAutoClaim: Boolean(flags & 2), disableReopenAutoAssign: Boolean(flags & 32),
       alertRecipients: Number(d.group_membership ?? 1), ticketAutoResponse: Boolean(d.ticket_auto_response),
       messageAutoResponse: Boolean(d.message_auto_response),
+      isDefault: Boolean(lookup.defaultDeptId && String(d.id) === String(lookup.defaultDeptId)),
+      path: d.path || '',
       parentName: lookup.departments?.find((x: any) => String(x.id) === String(d.pid))?.name || '',
       managerName: lookup.staff?.find((x: any) => String(x.id) === String(d.manager_id))?.name || '',
       emailName: lookup.emails?.find((x: any) => String(x.id) === String(d.email_id))?.name || '',
+      autoresponderEmailName: lookup.emails?.find((x: any) => String(x.id) === String(d.autoresp_email_id))?.name || '',
       slaName: lookup.slas?.find((x: any) => String(x.id) === String(d.sla_id))?.name || '',
       scheduleName: lookup.schedules?.find((x: any) => String(x.id) === String(d.schedule_id))?.name || '',
       templateName: lookup.templates?.find((x: any) => String(x.id) === String(d.tpl_id))?.name || '',
     };
   }
 
+  private async defaultDepartmentId() {
+    const [core, appSettings, appDefault] = await Promise.all([
+      this.prisma.config.findUnique({ where: { namespace_key: { namespace: 'core', key: 'default_dept_id' } } }).catch(() => null),
+      this.prisma.config.findUnique({ where: { namespace_key: { namespace: 'react_app_state', key: 'settings' } } }).catch(() => null),
+      this.prisma.config.findUnique({ where: { namespace_key: { namespace: 'react_app_state', key: 'defaultDeptId' } } }).catch(() => null),
+    ]);
+    const positiveId = (raw: unknown) => {
+      if (raw === null || raw === undefined) return 0;
+      let value: unknown = raw;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) return 0;
+        try { value = JSON.parse(trimmed); } catch { value = trimmed; }
+      }
+      const parsed = Number(value);
+      return Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
+    };
+    let settingsId = 0;
+    try { settingsId = positiveId(JSON.parse(appSettings?.value || '{}').defaultDeptId); } catch { /* ignore malformed state */ }
+    return positiveId(core?.value) || settingsId || positiveId(appDefault?.value);
+  }
+
+  /**
+   * Rebuild the materialised department path (`/parent/child/`) used by
+   * osTicket for cascading department access. Paths for the whole tree are
+   * refreshed so moving a department also fixes its descendants.
+   */
+  private async refreshDepartmentPaths(tx: any) {
+    const rows: Array<{ id: bigint; pid: bigint | null; path: string }> = await tx.department.findMany({ select: { id: true, pid: true, path: true } });
+    const byId = new Map<string, { id: bigint; pid: bigint | null }>(rows.map(row => [String(row.id), row]));
+    const paths = new Map<string, string>();
+    for (const row of rows) {
+      if (paths.has(String(row.id))) continue;
+      const chain: Array<{ id: bigint; pid: bigint | null }> = [];
+      const seen = new Set<string>();
+      let cursor: { id: bigint; pid: bigint | null } | null = row;
+      while (cursor && !paths.has(String(cursor.id)) && !seen.has(String(cursor.id))) {
+        seen.add(String(cursor.id));
+        chain.push(cursor);
+        cursor = cursor.pid ? byId.get(String(cursor.pid)) || null : null;
+      }
+      let path = cursor ? paths.get(String(cursor.id)) || '/' : '/';
+      for (let index = chain.length - 1; index >= 0; index--) {
+        path = `${path}${chain[index].id}/`;
+        paths.set(String(chain[index].id), path);
+      }
+    }
+    for (const row of rows) {
+      const path = paths.get(String(row.id));
+      if ((row.path || '') === path) continue;
+      await tx.department.update({ where: { id: row.id }, data: { path } });
+    }
+  }
+
   async departmentOptions() {
-    const [departments, staff, slas, schedules, emails, templates, roles, access] = await Promise.all([
+    const [departments, staff, slas, schedules, emails, templates, roles, access, defaultDeptId] = await Promise.all([
       this.prisma.department.findMany({ orderBy: { name: 'asc' } }),
       this.prisma.staff.findMany({ orderBy: [{ firstname: 'asc' }, { lastname: 'asc' }] }),
       this.prisma.sla.findMany({ orderBy: { name: 'asc' } }),
@@ -52,6 +109,7 @@ export class AdminService {
       this.prisma.emailTemplateGroup.findMany({ where: { isactive: 1 }, orderBy: { name: 'asc' } }),
       this.prisma.role.findMany({ orderBy: { name: 'asc' } }),
       this.prisma.staffDeptAccess.findMany(),
+      this.defaultDepartmentId(),
     ]);
     const staffRows = staff.map(s => ({ id: String(s.staff_id), name: [s.firstname, s.lastname].filter(Boolean).join(' ') || s.username, departmentId: String(s.dept_id) }));
     const lookups = {
@@ -61,19 +119,41 @@ export class AdminService {
       emails: emails.map(x => ({ id: String(x.email_id), name: x.name ? `${x.name} <${x.email}>` : x.email })),
       templates: templates.map(x => ({ id: String(x.tpl_id), name: x.name })),
       roles: roles.map(x => ({ id: String(x.id), name: x.name || '' })),
+      defaultDeptId: defaultDeptId ? String(defaultDeptId) : '',
     };
-    const rows = departments.map(d => ({ ...this.departmentView(d, lookups), primaryMembers: staffRows.filter(s => s.departmentId === String(d.id)).map(s => ({ ...s, primary: true, roleId: String(staff.find(x => String(x.staff_id) === s.id)?.role_id || 0), alerts: true })), extendedMembers: access.filter(a => a.dept_id === Number(d.id)).map(a => ({ ...staffRows.find(s => s.id === String(a.staff_id)), primary: false, roleId: String(a.role_id), alerts: Boolean(a.flags & 1) })).filter(x => x.id) }));
+    const rows = departments.map(d => ({
+      ...this.departmentView(d, lookups),
+      primaryMembers: staffRows
+        .filter(s => s.departmentId === String(d.id))
+        .map(s => ({ ...s, primary: true, roleId: String(staff.find(x => String(x.staff_id) === s.id)?.role_id || 0), alerts: true })),
+      extendedMembers: access
+        .filter(a => a.dept_id === Number(d.id))
+        .map(a => ({ ...staffRows.find(s => s.id === String(a.staff_id)), primary: false, roleId: String(a.role_id), alerts: Boolean(a.flags & 1) }))
+        .filter(x => x.id),
+    }));
     return { ...lookups, departments: rows };
   }
 
   private async saveDepartment(data: any, id?: string) {
     const name = String(data.name || '').trim();
     if (!name) throw new ConflictException('Department name is required.');
+    if (name.length > 128) throw new ConflictException('Department name cannot exceed 128 characters.');
     const parentId = data.parentId ? key(data.parentId) : null;
     const currentId = id ? key(id) : null;
-    if (parentId && (parentId === currentId || !await this.prisma.department.findUnique({ where: { id: parentId } }))) throw new ConflictException('Choose a valid parent department.');
-    if (parentId) {
-      let ancestor: any = await this.prisma.department.findUnique({ where: { id: parentId }, select: { id: true, pid: true } });
+    const status = ['active', 'disabled', 'archived'].includes(String(data.status)) ? String(data.status) : 'disabled';
+    const type = data.type === 'private' ? 'private' : 'public';
+    const assignment = ['members', 'primary'].includes(String(data.assignment)) ? String(data.assignment) : 'all';
+    const defaultDeptId = await this.defaultDepartmentId();
+    const isDefault = Boolean(currentId && Number(currentId) === defaultDeptId);
+    if (isDefault && status !== 'active') throw new ConflictException('The system default department must remain active.');
+    if (isDefault && type === 'private') throw new ConflictException('The system default department cannot be private.');
+
+    if (parentId && parentId === currentId) throw new ConflictException('A department cannot be its own parent.');
+    const parent = parentId ? await this.prisma.department.findUnique({ where: { id: parentId } }) : null;
+    if (parentId && !parent) throw new ConflictException('Choose a valid parent department.');
+    if (parent && !(Number(parent.flags) & 4)) throw new ConflictException('The selected parent department must be active.');
+    if (parent) {
+      let ancestor: any = parent;
       const seen = new Set<string>();
       while (ancestor) {
         const ancestorId = String(ancestor.id);
@@ -83,42 +163,108 @@ export class AdminService {
         ancestor = ancestor.pid ? await this.prisma.department.findUnique({ where: { id: ancestor.pid }, select: { id: true, pid: true } }) : null;
       }
     }
+
     const current = currentId ? await this.prisma.department.findUnique({ where: { id: currentId } }) : null;
-    const oldFlags = Number(current?.flags || 0);
-    if (data.type === 'private') {
+    if (currentId && !current) throw new ConflictException('Department not found.');
+    const duplicate = await this.prisma.department.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' }, pid: parentId, ...(currentId ? { id: { not: currentId } } : {}) },
+      select: { id: true },
+    });
+    if (duplicate) throw new ConflictException('A department with that name already exists under the selected parent.');
+
+    if (type === 'private') {
       const otherPublic = await this.prisma.department.count({ where: { ispublic: 1, ...(currentId ? { id: { not: currentId } } : {}) } });
       if (!otherPublic) throw new ConflictException('At least one department must remain public.');
     }
-    const statusFlag = data.status === 'archived' ? 8 : data.status === 'disabled' ? 0 : 4;
-    let flags = (oldFlags & ~ (4 | 8)) | statusFlag;
-    flags = data.assignment === 'primary' ? flags | 16 : flags & ~16;
-    flags = data.assignment === 'members' || data.assignment === 'primary' ? flags | 1 : flags & ~1;
+
+    const numeric = (value: unknown, label: string) => {
+      const parsed = Number(value || 0);
+      if (!Number.isInteger(parsed) || parsed < 0) throw new ConflictException(`Choose a valid ${label}.`);
+      return parsed;
+    };
+    const slaId = numeric(data.slaId, 'SLA plan');
+    const scheduleId = numeric(data.scheduleId, 'schedule');
+    const managerId = numeric(data.managerId, 'manager');
+    const emailId = numeric(data.emailId, 'outgoing email');
+    const templateId = numeric(data.templateId, 'template set');
+    const autoresponderEmailId = numeric(data.autoresponderEmailId, 'auto-response email');
+    const alertRecipients = Number(data.alertRecipients ?? 1);
+    if (![0, 1, 2, 3].includes(alertRecipients)) throw new ConflictException('Choose a valid alert recipient option.');
+
+    const [sla, schedule, manager, email, template, autoresponderEmail] = await Promise.all([
+      slaId ? this.prisma.sla.findUnique({ where: { id: slaId }, select: { id: true } }) : null,
+      scheduleId ? this.prisma.schedule.findUnique({ where: { id: BigInt(scheduleId) }, select: { id: true } }) : null,
+      managerId ? this.prisma.staff.findUnique({ where: { staff_id: managerId }, select: { staff_id: true } }) : null,
+      emailId ? this.prisma.email.findUnique({ where: { email_id: emailId }, select: { email_id: true } }) : null,
+      templateId ? this.prisma.emailTemplateGroup.findUnique({ where: { tpl_id: BigInt(templateId) }, select: { tpl_id: true } }) : null,
+      autoresponderEmailId ? this.prisma.email.findUnique({ where: { email_id: autoresponderEmailId }, select: { email_id: true } }) : null,
+    ]);
+    if ((slaId && !sla) || (scheduleId && !schedule) || (managerId && !manager) || (emailId && !email) || (templateId && !template) || (autoresponderEmailId && !autoresponderEmail)) {
+      throw new ConflictException('One or more selected SLA, schedule, manager, email, or template records no longer exist.');
+    }
+
+    const oldFlags = Number(current?.flags || 0);
+    const statusFlag = status === 'archived' ? 8 : status === 'disabled' ? 0 : 4;
+    let flags = (oldFlags & ~(4 | 8)) | statusFlag;
+    flags = assignment === 'primary'
+      ? (flags | 16) & ~1
+      : assignment === 'members'
+        ? (flags | 1) & ~16
+        : flags & ~(1 | 16);
     flags = data.disableAutoClaim ? flags | 2 : flags & ~2;
     flags = data.disableReopenAutoAssign ? flags | 32 : flags & ~32;
     const values: any = {
-      name, pid: parentId, ispublic: data.type === 'private' ? 0 : 1, signature: String(data.signature || ''), flags,
-      sla_id: Number(data.slaId || 0), schedule_id: Number(data.scheduleId || 0), manager_id: Number(data.managerId || 0),
-      email_id: Number(data.emailId || 0), tpl_id: Number(data.templateId || 0), autoresp_email_id: Number(data.autoresponderEmailId || 0),
-      group_membership: Number(data.alertRecipients ?? 1), ticket_auto_response: data.ticketAutoResponse === false ? 0 : 1,
+      name, pid: parentId, ispublic: type === 'private' ? 0 : 1, signature: String(data.signature || ''), flags,
+      sla_id: slaId, schedule_id: scheduleId, manager_id: managerId,
+      email_id: emailId, tpl_id: templateId, autoresp_email_id: autoresponderEmailId,
+      group_membership: alertRecipients, ticket_auto_response: data.ticketAutoResponse === false ? 0 : 1,
       message_auto_response: data.messageAutoResponse === false ? 0 : 1, updated: stamp(),
     };
-    const saved = currentId
-      ? await this.prisma.department.update({ where: { id: currentId }, data: values })
-      : await this.prisma.department.create({ data: { ...values, created: stamp() } });
-    if (Array.isArray(data.extendedMembers)) {
+
+    return this.prisma.$transaction(async tx => {
+      const saved = currentId
+        ? await tx.department.update({ where: { id: currentId }, data: values })
+        : await tx.department.create({ data: { ...values, created: stamp() } });
       const deptId = Number(saved.id);
-      await this.prisma.$transaction(async tx => {
-        await tx.staffDeptAccess.deleteMany({ where: { dept_id: deptId } });
-        const entries = data.extendedMembers.filter((m: any) => Number(m.staffId) > 0 && Number(m.roleId) > 0);
-        for (const member of entries) {
-          const staffMember = await tx.staff.findUnique({ where: { staff_id: Number(member.staffId) } });
-          const role = await tx.role.findUnique({ where: { id: Number(member.roleId) } });
-          if (!staffMember || !role || staffMember.dept_id === deptId) throw new ConflictException('Select a valid agent and role for extended department access.');
-          await tx.staffDeptAccess.create({ data: { staff_id: staffMember.staff_id, dept_id: deptId, role_id: role.id, flags: member.alerts ? 1 : 0 } });
+
+      if (Array.isArray(data.primaryMembers)) {
+        const seen = new Set<number>();
+        for (const member of data.primaryMembers) {
+          const staffId = Number(member.staffId ?? member.id);
+          const roleId = Number(member.roleId);
+          if (!staffId || !roleId) continue;
+          if (seen.has(staffId)) throw new ConflictException('An agent can only appear once in department access.');
+          seen.add(staffId);
+          const agent = await tx.staff.findUnique({ where: { staff_id: staffId }, select: { staff_id: true, dept_id: true } });
+          const role = await tx.role.findUnique({ where: { id: roleId }, select: { id: true } });
+          if (!agent || agent.dept_id !== deptId) throw new ConflictException('Primary department members must belong to this department.');
+          if (!role) throw new ConflictException('Select a valid role for every department member.');
+          await tx.staff.update({ where: { staff_id: staffId }, data: { role_id: roleId, updated: stamp() } });
         }
-      });
-    }
-    return saved;
+      }
+
+      if (Array.isArray(data.extendedMembers)) {
+        await tx.staffDeptAccess.deleteMany({ where: { dept_id: deptId } });
+        const seen = new Set<number>();
+        const rows: Array<{ staff_id: number; dept_id: number; role_id: number; flags: number }> = [];
+        for (const member of data.extendedMembers) {
+          const staffId = Number(member.staffId ?? member.id);
+          const roleId = Number(member.roleId);
+          if (!staffId || !roleId) throw new ConflictException('Select a valid agent and role for extended department access.');
+          if (seen.has(staffId)) throw new ConflictException('An agent can only appear once in extended department access.');
+          seen.add(staffId);
+          const agent = await tx.staff.findUnique({ where: { staff_id: staffId }, select: { staff_id: true, dept_id: true } });
+          const role = await tx.role.findUnique({ where: { id: roleId }, select: { id: true } });
+          if (!agent || !role) throw new ConflictException('Select a valid agent and role for extended department access.');
+          if (agent.dept_id === deptId) throw new ConflictException('Primary department members already have access to this department.');
+          rows.push({ staff_id: staffId, dept_id: deptId, role_id: roleId, flags: member.alerts ? 1 : 0 });
+        }
+        if (rows.length) await tx.staffDeptAccess.createMany({ data: rows });
+      }
+
+      await this.refreshDepartmentPaths(tx);
+      return tx.department.findUniqueOrThrow({ where: { id: saved.id } });
+    });
   }
 
   private slaView(s: any, schedules: any[] = []) {
@@ -332,6 +478,8 @@ export class AdminService {
       }
       case 'departments': {
         const id = key(rawId);
+        const defaultDeptId = await this.defaultDepartmentId();
+        if (Number(id) === defaultDeptId) throw new ConflictException('The system default department cannot be deleted.');
         const [children, staff, tickets, topics] = await Promise.all([
           this.prisma.department.count({ where: { pid: id } }),
           this.prisma.staff.count({ where: { dept_id: Number(id) } }),
@@ -341,6 +489,10 @@ export class AdminService {
         if (children || staff || tickets || topics) throw new ConflictException('This department is still used by child departments, agents, tickets, or help topics. Reassign those records before deleting it.');
         await this.prisma.$transaction(async tx => {
           await tx.staffDeptAccess.deleteMany({ where: { dept_id: Number(id) } });
+          // Match osTicket house cleaning: unlink email addresses and move tasks
+          // to the default department instead of leaving dangling references.
+          await tx.email.updateMany({ where: { dept_id: Number(id) }, data: { dept_id: defaultDeptId || 0 } });
+          await tx.task.updateMany({ where: { dept_id: id }, data: { dept_id: BigInt(defaultDeptId || 0) } });
           await tx.department.delete({ where: { id } });
         });
         break;
