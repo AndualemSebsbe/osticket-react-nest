@@ -32,7 +32,154 @@ export function apiHealth() { return request<ApiHealth>('/health') }
 export function listApiTickets(token?: string) { return request<{ tickets: Array<Record<string, any>> }>('/tickets', { headers: token ? { 'x-user-session': token } : currentSessionHeaders() }) }
 export interface ApiQueueDefinition { id: string; title: string; parentId: string; filter: string; root: string; sort: number; columns: Array<{ id: string; heading: string; field: string; width: string; sort: number }>; sorting: Array<{ id: string; name: string; field: string; sort: number }> }
 export function listApiQueues() { return request<{ queues: ApiQueueDefinition[]; customQueues: import('../types').TicketQueue[] }>('/tickets/queues', { headers: currentSessionHeaders() }) }
-export function advancedSearchApiTickets(input: { q?: string; filters?: Record<string, string> }) { return request<{ tickets: Array<Record<string, any>> }>('/tickets/advanced-search', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }) }
+
+export type ApiSearchFieldType = 'text' | 'number' | 'date' | 'boolean' | 'select'
+export interface ApiSearchFieldOption { value: string; label: string }
+export interface ApiSearchField { path: string; label: string; type: ApiSearchFieldType; group: string; options?: ApiSearchFieldOption[] }
+export interface ApiSearchColumn { path: string; label: string; width?: number; sortable?: boolean; type?: ApiSearchFieldType }
+export interface ApiSearchOperator { value: string; label: string }
+export interface ApiSearchCriterion { field: string; operator?: string; value?: string | number | boolean; value2?: string | number | boolean }
+export interface ApiSearchSort { field: string; direction: 'asc' | 'desc' }
+export interface ApiAdvancedSearchInput {
+  q?: string
+  keyword?: string
+  criteria?: ApiSearchCriterion[]
+  filters?: Record<string, string>
+  quickFilters?: Record<string, string>
+  quickFilter?: string
+  quickFilterValue?: string
+  columns?: Array<ApiSearchColumn | string>
+  sort?: ApiSearchSort | string
+  page?: number
+  pageSize?: number
+  savedSearchId?: string
+}
+export interface ApiSearchTicket {
+  id: string
+  number: string
+  subject: string
+  status: string
+  statusName: string
+  priority: string
+  source: string
+  department: string
+  departmentId: string
+  topic: string
+  topicId: string
+  requesterName: string
+  requesterEmail: string
+  requesterId: string
+  assignee: string
+  assigneeEmail: string
+  assigneeStaffId: string
+  team: string
+  teamId: string
+  sla: string
+  slaId: string
+  branchId: string
+  branchName: string
+  employeeId: string
+  org: string
+  orgId: string
+  overdue: boolean
+  answered: boolean
+  assigned: boolean
+  createdAt: string
+  updatedAt: string
+  dueAt: string | null
+  estDueAt: string | null
+  closedAt: string | null
+  lastUpdate: string | null
+  threadCount: number
+  attachmentCount: number
+  collaboratorCount: number
+  snippet: string
+  values: Record<string, unknown>
+  custom: Record<string, Record<string, unknown>>
+}
+export interface ApiAdvancedSearchResult {
+  tickets: ApiSearchTicket[]
+  total: number
+  page: number
+  pageSize: number
+  pages: number
+  sort: ApiSearchSort
+  columns: ApiSearchField[]
+  criteria: ApiSearchCriterion[]
+  keyword: string
+  savedSearchId: string
+  tookMs: number
+}
+export interface ApiSavedSearchConfig {
+  q: string
+  criteria: ApiSearchCriterion[]
+  columns: ApiSearchColumn[]
+  sort: ApiSearchSort | null
+  pageSize: number
+  quickFilter: string
+  settings: Record<string, unknown>
+  exportConfig: Record<string, unknown>
+}
+export interface ApiSavedSearch {
+  id: string
+  title: string
+  name: string
+  parentId: string
+  root: string
+  filter: string
+  sort: number
+  owner: boolean
+  editable: boolean
+  staffId: string
+  createdAt: string
+  updatedAt: string
+  config: ApiSavedSearchConfig
+  columns: ApiSearchColumn[]
+  sorting: Array<{ id: string; name: string; field: string; sort: number }>
+  exportConfig: Record<string, unknown>
+}
+export interface ApiAdvancedSearchOptions {
+  fields: ApiSearchField[]
+  operators: Record<ApiSearchFieldType, ApiSearchOperator[]>
+  columns: ApiSearchField[]
+  sorts: ApiSearchField[]
+  quickFilters: Array<{ path: string; label: string; options: ApiSearchFieldOption[] }>
+  statuses: Array<{ id: string; name: string; state: string }>
+  departments: Array<{ id: string; name: string }>
+  topics: Array<{ id: string; name: string; deptId: string }>
+  priorities: string[]
+  agents: Array<{ id: string; name: string; email: string }>
+  teams: Array<{ id: string; name: string }>
+  slas: Array<{ id: string; name: string }>
+  branches: Array<{ id: string; name: string }>
+  organizations: Array<{ id: string; name: string }>
+  sources: Array<{ id: string; name: string }>
+  defaults: { columns: ApiSearchField[]; sort: ApiSearchSort; pageSize: number; settings: Record<string, unknown> }
+  settings: Record<string, unknown>
+  savedSearches: ApiSavedSearch[]
+}
+export interface ApiSavedSearchInput {
+  title: string
+  parentId?: string
+  q?: string
+  criteria?: ApiSearchCriterion[]
+  columns?: ApiSearchColumn[]
+  sort?: ApiSearchSort | null
+  pageSize?: number
+  quickFilter?: string
+  settings?: Record<string, unknown>
+  exportConfig?: Record<string, unknown>
+}
+
+export function advancedSearchApiTickets(input: ApiAdvancedSearchInput) { return request<ApiAdvancedSearchResult>('/tickets/advanced-search', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }) }
+export function searchApiTickets(input: ApiAdvancedSearchInput) { return request<ApiAdvancedSearchResult>('/tickets/search', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }) }
+export function getApiAdvancedSearchOptions() { return request<ApiAdvancedSearchOptions>('/tickets/search/options', { headers: currentSessionHeaders() }) }
+export function listApiSavedSearches() { return request<{ searches: ApiSavedSearch[] }>('/tickets/search/saved', { headers: currentSessionHeaders() }).then((result) => result.searches) }
+export function createApiSavedSearch(input: ApiSavedSearchInput) { return request<{ search: ApiSavedSearch }>('/tickets/search/saved', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }).then((result) => result.search) }
+export function updateApiSavedSearch(id: string, input: ApiSavedSearchInput) { return request<{ search: ApiSavedSearch }>('/tickets/search/saved/' + encodeURIComponent(id), { method: 'PUT', headers: currentSessionHeaders(), body: JSON.stringify(input) }).then((result) => result.search) }
+export function deleteApiSavedSearch(id: string) { return request<{ deleted: boolean }>('/tickets/search/saved/' + encodeURIComponent(id), { method: 'DELETE', headers: currentSessionHeaders() }) }
+export function saveApiSearchSettings(settings: Record<string, unknown>, queueId = '0') { return request<{ saved: boolean; settings: Record<string, unknown> }>('/tickets/search/settings', { method: 'PUT', headers: currentSessionHeaders(), body: JSON.stringify({ queueId, settings }) }) }
+
 export function listApiAccountTickets(token: string) {
   return request<{ tickets: ApiPersistedTicket[]; messages: ApiPersistedMessage[] }>('/users/tickets', { headers: { 'x-user-session': token } })
 }

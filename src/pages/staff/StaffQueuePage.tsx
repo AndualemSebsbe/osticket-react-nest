@@ -21,8 +21,6 @@ export function StaffQueuePage() {
   const agents = useAgents()
   const [selected, setSelected] = useState<string[]>([])
   const [serverQueues, setServerQueues] = useState<TicketQueue[] | null>(null)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [advanced, setAdvanced] = useState({ number: '', subject: '', requester: '', status: 'all', priority: 'all', assignee: 'all', topic: 'all', createdFrom: '', createdTo: '', keyword: '' })
 
   useEffect(() => {
     let active = true
@@ -35,21 +33,9 @@ export function StaffQueuePage() {
     return matchQueue(db.tickets, queue, user?.id, queueDefinitions).filter((t) => {
       if (dept !== 'all' && t.deptId !== dept) return false
       if (q && !`${t.number} ${t.subject}`.toLowerCase().includes(q.toLowerCase())) return false
-      const requester = db.users.find((u) => u.id === t.userId)
-      const haystack = `${t.number} ${t.subject} ${requester?.name ?? ''} ${requester?.email ?? ''}`.toLowerCase()
-      if (advanced.number && !t.number.toLowerCase().includes(advanced.number.toLowerCase())) return false
-      if (advanced.subject && !t.subject.toLowerCase().includes(advanced.subject.toLowerCase())) return false
-      if (advanced.requester && !`${requester?.name ?? ''} ${requester?.email ?? ''}`.toLowerCase().includes(advanced.requester.toLowerCase())) return false
-      if (advanced.status !== 'all' && t.status !== advanced.status) return false
-      if (advanced.priority !== 'all' && t.priority !== advanced.priority) return false
-      if (advanced.assignee !== 'all' && (advanced.assignee === 'none' ? !!t.assigneeId : t.assigneeId !== advanced.assignee)) return false
-      if (advanced.topic !== 'all' && t.topicId !== advanced.topic) return false
-      if (advanced.createdFrom && t.createdAt.slice(0, 10) < advanced.createdFrom) return false
-      if (advanced.createdTo && t.createdAt.slice(0, 10) > advanced.createdTo) return false
-      if (advanced.keyword && !haystack.includes(advanced.keyword.toLowerCase())) return false
       return true
     })
-  }, [db, queue, q, dept, user?.id, advanced, queueDefinitions])
+  }, [db, queue, q, dept, user?.id, queueDefinitions])
 
   function patch(key: string, value: string) {
     const copy = new URLSearchParams(params)
@@ -103,20 +89,7 @@ export function StaffQueuePage() {
         ))}
       </div>
       <div className="mt-2">
-        <button type="button" className={btnGhost} aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((open) => !open)}>Advanced Search</button>
-        {advancedOpen ? <div className="mt-3 grid gap-3 rounded-xl border border-line bg-surface p-4 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="text-sm">Ticket number<input className={inputClass + ' mt-1'} value={advanced.number} onChange={e=>setAdvanced({...advanced,number:e.target.value})} /></label>
-          <label className="text-sm">Subject<input className={inputClass + ' mt-1'} value={advanced.subject} onChange={e=>setAdvanced({...advanced,subject:e.target.value})} /></label>
-          <label className="text-sm">Requester<input className={inputClass + ' mt-1'} placeholder="Name or email" value={advanced.requester} onChange={e=>setAdvanced({...advanced,requester:e.target.value})} /></label>
-          <label className="text-sm">Keyword<input className={inputClass + ' mt-1'} placeholder="Ticket number, subject, requester" value={advanced.keyword} onChange={e=>setAdvanced({...advanced,keyword:e.target.value})} /></label>
-          <label className="text-sm">Status<select className={inputClass + ' mt-1'} value={advanced.status} onChange={e=>setAdvanced({...advanced,status:e.target.value})}><option value="all">Any status</option>{['open','pending','closed'].map(x=><option key={x}>{x}</option>)}</select></label>
-          <label className="text-sm">Priority<select className={inputClass + ' mt-1'} value={advanced.priority} onChange={e=>setAdvanced({...advanced,priority:e.target.value})}><option value="all">Any priority</option>{['low','normal','high','urgent'].map(x=><option key={x}>{x}</option>)}</select></label>
-          <label className="text-sm">Assigned agent<select className={inputClass + ' mt-1'} value={advanced.assignee} onChange={e=>setAdvanced({...advanced,assignee:e.target.value})}><option value="all">Any agent</option><option value="none">Unassigned</option>{agents.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
-          <label className="text-sm">Help topic<select className={inputClass + ' mt-1'} value={advanced.topic} onChange={e=>setAdvanced({...advanced,topic:e.target.value})}><option value="all">Any topic</option>{db.topics.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
-          <label className="text-sm">Created from<input type="date" className={inputClass + ' mt-1'} value={advanced.createdFrom} onChange={e=>setAdvanced({...advanced,createdFrom:e.target.value})} /></label>
-          <label className="text-sm">Created through<input type="date" className={inputClass + ' mt-1'} value={advanced.createdTo} onChange={e=>setAdvanced({...advanced,createdTo:e.target.value})} /></label>
-          <button type="button" className={btnGhost + ' self-end'} onClick={()=>setAdvanced({number:'',subject:'',requester:'',status:'all',priority:'all',assignee:'all',topic:'all',createdFrom:'',createdTo:'',keyword:''})}>Clear advanced filters</button>
-        </div> : null}
+        <Link to="/scp/search" className={btnGhost}>Advanced Search</Link>
       </div>
       <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
         <input
