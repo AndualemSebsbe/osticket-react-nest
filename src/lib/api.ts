@@ -485,3 +485,83 @@ export function setApiAgentPassword(id: string, password: string, forceChange: b
     body: JSON.stringify({ password, forceChange }),
   })
 }
+
+export interface ApiCompanyField {
+  id: string
+  name: string
+  label: string
+  type: string
+  hint: string
+  sort: number
+  configuration: Record<string, unknown>
+  value: string
+}
+
+export interface ApiCompanyPage {
+  id: string
+  name: string
+  type: string
+  active: boolean
+  body: string
+}
+
+export interface ApiCompanyImage {
+  id: string
+  name: string
+  type: string
+  size: number
+  created: string
+  url: string
+}
+
+export interface ApiCompanySelection {
+  landingPageId: string
+  offlinePageId: string
+  thankYouPageId: string
+  clientLogoId: string
+  staffLogoId: string
+  staffBackdropId: string
+}
+
+export interface ApiCompanySettings {
+  form: { id: string; title: string; instructions: string; notes: string }
+  entryId: string
+  fields: ApiCompanyField[]
+  pages: ApiCompanyPage[]
+  selected: ApiCompanySelection
+  logos: ApiCompanyImage[]
+  backdrops: ApiCompanyImage[]
+}
+
+export interface ApiCompanySaveInput extends ApiCompanySelection {
+  values: Record<string, string>
+  deleteLogoIds?: string[]
+  deleteBackdropIds?: string[]
+}
+
+export function getApiCompanySettings() {
+  return request<ApiCompanySettings>('/admin/company', { headers: currentSessionHeaders() })
+}
+
+export function saveApiCompanySettings(input: ApiCompanySaveInput) {
+  return request<{ saved: boolean }>('/admin/company', {
+    method: 'PUT',
+    headers: currentSessionHeaders(),
+    body: JSON.stringify(input),
+  })
+}
+
+export function uploadApiCompanyImage(kind: 'logo' | 'backdrop', file: File) {
+  const body = new FormData()
+  body.append('kind', kind)
+  body.append('file', file)
+  return request<{ image: ApiCompanyImage }>('/admin/company/upload', {
+    method: 'POST',
+    headers: currentSessionHeaders(),
+    body,
+  }).then((result) => result.image)
+}
+
+export function companyAssetUrl(id: string) {
+  return '/api/v1/company/files/' + encodeURIComponent(id)
+}

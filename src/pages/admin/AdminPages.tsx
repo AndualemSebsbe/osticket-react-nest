@@ -10,6 +10,7 @@ import { accountSessionToken, addLog, newId, removeRecord, saveSettings, syncUse
 import type { LogLevel, SystemSettings } from '../../types'
 import { EntityManager } from './EntityManager'
 import { AdminDepartmentsPage } from './AdminDepartmentsPage'
+import { AdminCompanySettings } from './AdminCompanySettings'
 export { AdminDepartmentsPage }
 
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
@@ -1627,78 +1628,82 @@ export function AdminSettingsPage() {
           </button>
         ))}
       </div>
-      <Card>
-        <form key={current.id} onSubmit={onSave} className="grid gap-4 sm:grid-cols-2">
-          {current.keys.map((key) => {
-            const value = db.settings[key]
-            if (typeof value === 'boolean') {
+      {current.id === 'company' ? (
+        <AdminCompanySettings />
+      ) : (
+        <Card>
+          <form key={current.id} onSubmit={onSave} className="grid gap-4 sm:grid-cols-2">
+            {current.keys.map((key) => {
+              const value = db.settings[key]
+              if (typeof value === 'boolean') {
+                return (
+                  <Field key={key} label={labels[key]} className="sm:col-span-2">
+                    <input name={key} type="checkbox" defaultChecked={value} key={`${tab}-${key}-${String(value)}`} />
+                  </Field>
+                )
+              }
+              if (key === 'defaultDeptId') {
+                return (
+                  <Field key={key} label={labels[key]}>
+                    <select name={key} defaultValue={String(value)} className={inputClass}>
+                      {db.departments.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )
+              }
+              if (key === 'logLevel') {
+                return (
+                  <Field key={key} label={labels[key]}>
+                    <select name={key} defaultValue={String(value)} className={inputClass}>
+                      {(['debug', 'info', 'warning', 'error'] as LogLevel[]).map((l) => (
+                        <option key={l} value={l}>
+                          {l}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )
+              }
+              if (key === 'defaultPriority') {
+                return (
+                  <Field key={key} label={labels[key]}>
+                    <select name={key} defaultValue={String(value)} className={inputClass}>
+                      {['low', 'normal', 'high', 'emergency'].map((l) => (
+                        <option key={l} value={l}>
+                          {l}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )
+              }
+              if (key === 'registrationMode') {
+                return (
+                  <Field key={key} label={labels[key]}>
+                    <select name={key} defaultValue={String(value)} className={inputClass}>
+                      <option value="public">Public</option>
+                      <option value="closed">Closed (invite)</option>
+                      <option value="disabled">Disabled</option>
+                    </select>
+                  </Field>
+                )
+              }
               return (
-                <Field key={key} label={labels[key]} className="sm:col-span-2">
-                  <input name={key} type="checkbox" defaultChecked={value} key={`${tab}-${key}-${String(value)}`} />
+                <Field key={key} label={labels[key]} className={key === 'address' ? 'sm:col-span-2' : ''}>
+                  <input name={key} type={typeof value === 'number' ? 'number' : 'text'} defaultValue={String(value)} className={inputClass} />
                 </Field>
               )
-            }
-            if (key === 'defaultDeptId') {
-              return (
-                <Field key={key} label={labels[key]}>
-                  <select name={key} defaultValue={String(value)} className={inputClass}>
-                    {db.departments.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              )
-            }
-            if (key === 'logLevel') {
-              return (
-                <Field key={key} label={labels[key]}>
-                  <select name={key} defaultValue={String(value)} className={inputClass}>
-                    {(['debug', 'info', 'warning', 'error'] as LogLevel[]).map((l) => (
-                      <option key={l} value={l}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              )
-            }
-            if (key === 'defaultPriority') {
-              return (
-                <Field key={key} label={labels[key]}>
-                  <select name={key} defaultValue={String(value)} className={inputClass}>
-                    {['low', 'normal', 'high', 'emergency'].map((l) => (
-                      <option key={l} value={l}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              )
-            }
-            if (key === 'registrationMode') {
-              return (
-                <Field key={key} label={labels[key]}>
-                  <select name={key} defaultValue={String(value)} className={inputClass}>
-                    <option value="public">Public</option>
-                    <option value="closed">Closed (invite)</option>
-                    <option value="disabled">Disabled</option>
-                  </select>
-                </Field>
-              )
-            }
-            return (
-              <Field key={key} label={labels[key]} className={key === 'address' ? 'sm:col-span-2' : ''}>
-                <input name={key} type={typeof value === 'number' ? 'number' : 'text'} defaultValue={String(value)} className={inputClass} />
-              </Field>
-            )
-          })}
-          <div className="sm:col-span-2">
-            <button className={btnPrimary}>Save changes</button>
-          </div>
-        </form>
-      </Card>
+            })}
+            <div className="sm:col-span-2">
+              <button className={btnPrimary}>Save changes</button>
+            </div>
+          </form>
+        </Card>
+      )}
     </div>
   )
 }
