@@ -459,6 +459,18 @@ model ListItems {
   @@schema("osticket")
 }
 
+model Lock {
+  lock_id  Int       @id @default(autoincrement())
+  staff_id Int       @default(0)
+  expire   DateTime? @db.Timestamp(6)
+  code     String?   @db.VarChar(20)
+  created  DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([staff_id])
+  @@map("ost_lock")
+  @@schema("osticket")
+}
+
 model Organization {
   id      BigInt   @id @default(autoincrement())
   name    String   @unique @db.VarChar(128)

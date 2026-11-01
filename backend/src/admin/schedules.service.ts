@@ -110,7 +110,11 @@ export class SchedulesService {
       if (!(Number(schedule.flags) & 1)) throw new ConflictException('Only a Business Hours schedule can be the system default.');
     }
     const where = { namespace: 'core', key: 'default_schedule' };
-    await this.prisma.config.upsert({ where: { namespace_key: where }, create: { ...where, value: id, updated: now() }, update: { value: id, updated: now() } });
+    const scheduleWhere = { namespace: 'core', key: 'schedule_id' };
+    await this.prisma.$transaction([
+      this.prisma.config.upsert({ where: { namespace_key: where }, create: { ...where, value: id, updated: now() }, update: { value: id, updated: now() } }),
+      this.prisma.config.upsert({ where: { namespace_key: scheduleWhere }, create: { ...scheduleWhere, value: id, updated: now() }, update: { value: id, updated: now() } }),
+    ]);
     return { saved: true };
   }
 }

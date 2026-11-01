@@ -174,6 +174,71 @@ export function saveApiTicketVisibility(hideCollaboratorTickets: boolean) {
   return request<{ saved: boolean }>('/admin/ticket-settings', { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify({ hideCollaboratorTickets }) })
 }
 export function sendMailTest(to: string) { return request<{ sent: boolean; to: string }>('/admin/mail-test', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify({ to }) }) }
+export type ApiSystemLogLevel = 'none' | 'debug' | 'warning' | 'error'
+export interface ApiSystemSettingsValues {
+  isOnline: boolean
+  helpdeskUrl: string
+  helpdeskTitle: string
+  defaultDeptId: string
+  forceHttps: boolean
+  autolockMinutes: number
+  maxPageSize: number
+  logLevel: ApiSystemLogLevel
+  logGracePeriod: number
+  showAvatars: boolean
+  enableRichText: boolean
+  allowIframes: string
+  embeddedDomainWhitelist: string
+  acl: string
+  aclBackend: string
+  defaultLocale: string
+  defaultTimezone: string
+  dateFormats: '' | '24' | 'custom'
+  timeFormat: string
+  dateFormat: string
+  datetimeFormat: string
+  daydatetimeFormat: string
+  scheduleId: string
+  systemLanguage: string
+  secondaryLanguages: string[]
+  defaultStorageBk: string
+  maxFileSize: number
+  filesRequireAuth: boolean
+}
+export interface ApiSystemSettingsDepartment { id: string; name: string; isPublic: boolean; active: boolean }
+export interface ApiSystemSettingsSchedule { id: string; name: string; timezone: string }
+export interface ApiSystemSettingsResponse {
+  values: ApiSystemSettingsValues
+  departments: ApiSystemSettingsDepartment[]
+  schedules: ApiSystemSettingsSchedule[]
+  options: {
+    pageSizes: number[]
+    logLevels: Array<{ value: ApiSystemLogLevel; label: string }>
+    logGracePeriods: Array<{ value: number; label: string }>
+    aclBackends: Array<{ value: string; label: string }>
+    storageBackends: Array<{ value: string; label: string }>
+    maxFileSizes: Array<{ value: number; label: string }>
+    languages: Array<{ value: string; label: string }>
+    timezones: string[]
+  }
+  stats: {
+    attachments: { files: number; links: number; chunks: number; bytes: number; storage: string }
+    locks: { total: number; active: number; expired: number; table: string }
+    logs: { total: number; debug: number; warning: number; error: number; newest: string | null; oldest: string | null; table: string }
+  }
+}
+export function getApiSystemSettings() {
+  return request<ApiSystemSettingsResponse>('/admin/system-settings', { headers: currentSessionHeaders() })
+}
+export function saveApiSystemSettings(values: ApiSystemSettingsValues) {
+  return request<ApiSystemSettingsResponse>('/admin/system-settings', { method: 'PUT', headers: currentSessionHeaders(), body: JSON.stringify({ values }) })
+}
+export function purgeApiSystemLogs() {
+  return request<{ deleted: number; cutoff: string; months: number }>('/admin/system-settings/purge-logs', { method: 'POST', headers: currentSessionHeaders() })
+}
+export function purgeApiExpiredLocks() {
+  return request<{ deleted: number }>('/admin/system-settings/purge-expired-locks', { method: 'POST', headers: currentSessionHeaders() })
+}
 export function getMailLog() { return request<{ messages: Array<Record<string, unknown>> }>('/admin/mail-log', { headers: currentSessionHeaders() }) }
 export function registerApiUser(input: { name: string; email: string; password: string; phone?: string; employeeId?: string; branchId?: string }) {
   return request<{ submitted: boolean; verificationStatus: 'pending' }>('/users/register', { method: 'POST', body: JSON.stringify(input) })

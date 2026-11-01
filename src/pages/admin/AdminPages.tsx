@@ -11,6 +11,7 @@ import type { LogLevel, SystemSettings } from '../../types'
 import { EntityManager } from './EntityManager'
 import { AdminDepartmentsPage } from './AdminDepartmentsPage'
 import { AdminCompanySettings } from './AdminCompanySettings'
+import { AdminSystemSettings } from './AdminSystemSettings'
 export { AdminDepartmentsPage }
 
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
@@ -135,7 +136,7 @@ export function AdminBranchesPage() {
 
   return (
     <div>
-      <PageHeader title="Branches" subtitle="Manage ticket branches stored in ost_branch." actions={<button type="button" className={btnPrimary} onClick={() => setEditing('new')}>Add branch</button>} />
+      <PageHeader title="Branches" subtitle="Manage ticket branches." actions={<button type="button" className={btnPrimary} onClick={() => setEditing('new')}>Add branch</button>} />
       {editing ? (
         <Card className="mb-6">
           <h2 className="mb-4 font-semibold">{editing === 'new' ? 'Add branch' : 'Edit branch'}</h2>
@@ -1630,6 +1631,8 @@ export function AdminSettingsPage() {
       </div>
       {current.id === 'company' ? (
         <AdminCompanySettings />
+      ) : current.id === 'system' ? (
+        <AdminSystemSettings />
       ) : (
         <Card>
           <form key={current.id} onSubmit={onSave} className="grid gap-4 sm:grid-cols-2">
