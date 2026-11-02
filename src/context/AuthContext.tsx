@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ApiRequestError, apiClientLogin, apiStaffLogin, apiValidateClientSession, apiValidateStaffSession } from '../lib/api'
-import { accountSessionToken, currentUser, establishApiSession, hydrateAppStateFromApi, hydrateAssignableStaffFromApi, hydrateTicketsFromApi, logout as doLogout, register as doRegister, subscribe } from '../lib/store'
+import { accountSessionToken, currentUser, establishApiSession, hydrateAppStateFromApi, hydrateAssignableStaffFromApi, hydrateTasksFromApi, hydrateTicketsFromApi, logout as doLogout, register as doRegister, subscribe } from '../lib/store'
 import type { User } from '../types'
 
 interface AuthValue {
@@ -55,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (result.role === 'agent' || result.role === 'admin') await hydrateAssignableStaffFromApi(token)
           await hydrateTicketsFromApi(token)
           await hydrateAppStateFromApi(token, result.role)
+          if (result.role === 'agent' || result.role === 'admin') await hydrateTasksFromApi(token)
         } catch (error) {
           // A failed data refresh does not mean the signed-in account is invalid.
           console.warn('[helpdesk session refresh]', error instanceof Error ? error.message : error)
@@ -104,6 +105,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               console.info('[staff-login] ticket data loaded')
               await hydrateAppStateFromApi(result.sessionToken, result.user.role)
               console.info('[staff-login] shared application data loaded from PostgreSQL')
+              await hydrateTasksFromApi(result.sessionToken)
+              console.info('[staff-login] task data loaded')
             } catch (error) {
               console.error('[staff-login] post-login data loading failed; keeping the session', error)
             }

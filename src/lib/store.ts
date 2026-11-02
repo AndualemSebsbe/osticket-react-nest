@@ -12,7 +12,7 @@ import type {
   User,
 } from '../types'
 import { seed } from './seed'
-import { banApiTicketEmail, deleteApiTicket, getApiAppState, getApiPublicAppState, listApiAccountTickets, listApiTickets, listApiAssignableStaff, mirrorReply, mirrorTicket, mirrorTicketUpdate, registerApiUser, saveApiAppState, saveApiTicketCollaborators, updateApiTicket, updateApiUserVerification, type ApiClientUser, type ApiPersistedMessage, type ApiPersistedTicket } from './api'
+import { ApiRequestError, banApiTicketEmail, createApiTask, deleteApiTicket, getApiAppState, getApiPublicAppState, getApiStaffTicket, listApiAccountTickets, listApiTasks, listApiTickets, listApiAssignableStaff, lockApiTicket, mergeApiTicket, mirrorReply, mirrorTicket, mirrorTicketUpdate, registerApiUser, saveApiAppState, saveApiTicketCollaborators, unlockApiTicket, updateApiTask, updateApiTicket, updateApiUserVerification, type ApiClientUser, type ApiPersistedMessage, type ApiPersistedTicket } from './api'
 
 const KEY = 'osticket-react-db-v4'
 const SESSION = 'osticket-react-session'
@@ -22,7 +22,7 @@ const id = () => crypto.randomUUID()
 const ticketNumber = () => String(480000 + Math.floor(Math.random() * 19000))
 const taskNumber = () => String(1000 + Math.floor(Math.random() * 8000))
 const ticketAttachmentExtensions = new Set(['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'txt', 'csv', 'doc', 'docx', 'xls', 'xlsx', 'zip'])
-const postgresStateKeys: Array<keyof Database> = ['faqs','categories','teams','roles','slas','filters','emails','banlist','templates','canned','tasks','logs','apiKeys','pages','forms','lists','plugins','schedules','queues','audits','settings']
+const postgresStateKeys: Array<keyof Database> = ['faqs','categories','teams','roles','slas','filters','emails','banlist','templates','canned','logs','apiKeys','pages','forms','lists','plugins','schedules','queues','audits','settings']
 
 function migrate(raw: Partial<Database>): Database {
   const base = seed()
@@ -505,6 +505,35 @@ export async function hydrateTicketsFromApi(token: string) {
   replaceTicketSnapshot(result.tickets, result.messages)
 }
 
+export async function hydrateTicketDetailFromApi(ticketId: string) {
+  const detail = await getApiStaffTicket(ticketId)
+  const ticket = detail.ticket as unknown as ApiPersistedTicket
+  const messages = (detail.messages || []).map((message) => ({ ...message, ticketNumber: ticket.number, kind: (message.kind as string) === 'note' ? 'system' : message.kind }))
+  return hydrateSingleApiTicket(ticket, messages as ApiPersistedMessage[])
+}
+
+export async function hydrateTasksFromApi(_token: string) {
+  const result = await listApiTasks()
+  const db = load()
+  db.tasks = (result.tasks || []).map(mapApiTask)
+  save(db)
+  emit()
+}
+
+function mapApiTask(row: Record<string, any>): Task {
+  return {
+    id: String(row.id),
+    number: String(row.number || ''),
+    title: String(row.title || '(untitled task)'),
+    deptId: String(row.deptId || ''),
+    assigneeId: row.assigneeId ? String(row.assigneeId) : undefined,
+    ticketId: row.ticketId ? String(row.ticketId) : undefined,
+    dueAt: row.dueAt ? String(row.dueAt) : undefined,
+    status: row.status === 'closed' ? 'closed' : 'open',
+    createdAt: String(row.createdAt || now()),
+  }
+}
+
 export async function hydrateAssignableStaffFromApi(token: string) {
   const result = await listApiAssignableStaff(token)
   const db = load()
@@ -591,9 +620,14 @@ function replaceTicketSnapshot(tickets: ApiPersistedTicket[], messages: ApiPersi
       collaboratorIds,
       collaborators: row.collaborators || old?.collaborators || [],
       fromEmail: row.fromEmail,
+      collaboratorNotice: row.collaboratorNotice,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       overdue: row.overdue,
+      parentTicketId: row.parentTicketId,
+      mergedTicketIds: row.mergedTicketIds,
+      dueAt: row.dueAt,
+      lockedBy: row.lockedBy,
     }
     idByNumber.set(row.number, mapped.id)
     return mapped
@@ -681,6 +715,7 @@ export function addReply(input: {
   close?: boolean
   pending?: boolean
   attachments?: string[]
+  files?: File[]
   recipients?: string[]
   fromEmail?: string
   collaboratorResponse?: boolean
@@ -731,7 +766,10 @@ export function addReply(input: {
   save(db)
   emit()
   const owner = db.users.find((u) => u.id === ticket.userId)
-  if (owner) mirrorReply({ ticket, owner, author: input.author, body: input.body, initialMessage: db.messages.find((m) => m.ticketId === ticket.id && !m.internal)?.body ?? '', db, internal: input.internal, status: input.close ? 'closed' : input.pending ? 'pending' : undefined, recipients: input.recipients, fromEmail: input.fromEmail, collaboratorResponse: input.collaboratorResponse })
+  if (owner) {
+    const pending = mirrorReply({ ticket, owner, author: input.author, body: input.body, initialMessage: db.messages.find((m) => m.ticketId === ticket.id && !m.internal)?.body ?? '', db, internal: input.internal, status: input.close ? 'closed' : input.pending ? 'pending' : undefined, recipients: input.recipients, fromEmail: input.fromEmail, collaboratorResponse: input.collaboratorResponse, files: input.files })
+    if (/^\d+$/.test(ticket.id)) void pending.then(() => hydrateTicketDetailFromApi(ticket.id)).catch((error: unknown) => console.warn('[helpdesk reply]', error instanceof Error ? error.message : error))
+  }
 }
 
 export function assignTicket(ticketId: string, assigneeId: string | undefined, actor: User) {
@@ -799,7 +837,21 @@ export function addLog(entry: { type: Database['logs'][number]['type']; title: s
   emit()
 }
 
-export function createTask(input: Omit<Task, 'id' | 'number' | 'createdAt' | 'status'> & { status?: Task['status'] }) {
+export async function createTask(input: Omit<Task, 'id' | 'number' | 'createdAt' | 'status'> & { status?: Task['status'] }) {
+  const serverBacked = [input.deptId, input.assigneeId, input.ticketId].every((value) => !value || /^\d+$/.test(value))
+  if (serverBacked) {
+    try {
+      const result = await createApiTask({ title: input.title, deptId: input.deptId, assigneeId: input.assigneeId, ticketId: input.ticketId, dueAt: input.dueAt })
+      const task = mapApiTask(result.task)
+      const db = load()
+      db.tasks.unshift(task)
+      save(db)
+      emit()
+      return task
+    } catch (error) {
+      if (error instanceof ApiRequestError) throw error
+    }
+  }
   const db = load()
   const task: Task = {
     id: id(),
@@ -814,12 +866,19 @@ export function createTask(input: Omit<Task, 'id' | 'number' | 'createdAt' | 'st
   return task
 }
 
-export function updateTask(taskId: string, patch: Partial<Task>) {
+export async function updateTask(taskId: string, patch: Partial<Task>) {
   const db = load()
   const task = db.tasks.find((t) => t.id === taskId)
   if (!task) return
   Object.assign(task, patch)
   save(db)
+  emit()
+  if (!/^\d+$/.test(taskId)) return
+  const result = await updateApiTask(taskId, patch)
+  const updated = mapApiTask(result.task)
+  const current = load().tasks.find((t) => t.id === taskId)
+  if (current) Object.assign(current, updated)
+  save(load())
   emit()
 }
 
@@ -1196,24 +1255,47 @@ function ticketEvent(ticketId: string, body: string) {
   }
 }
 
-export function acquireTicketLock(ticketId: string, actor: User) {
+export async function acquireTicketLock(ticketId: string, actor: User) {
   const db = load()
   if (!db.settings.autolock) return
   const ticket = db.tickets.find((t) => t.id === ticketId)
   if (!ticket || ticket.lockedBy) return
-  ticket.lockedBy = actor.id
-  db.messages.push(ticketEvent(ticketId, `Ticket locked by ${actor.name}.`))
-  save(db)
+  if (/^\d+$/.test(ticketId)) {
+    try {
+      await lockApiTicket(ticket.number)
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        await hydrateTicketDetailFromApi(ticketId).catch(() => undefined)
+        throw error
+      }
+    }
+  }
+  const currentDb = load()
+  const current = currentDb.tickets.find((t) => t.id === ticketId)
+  if (!current || current.lockedBy) return
+  current.lockedBy = actor.id
+  currentDb.messages.push(ticketEvent(ticketId, `Ticket locked by ${actor.name}.`))
+  save(currentDb)
   emit()
 }
 
-export function releaseTicketLock(ticketId: string, actor: User) {
+export async function releaseTicketLock(ticketId: string, actor: User) {
   const db = load()
   const ticket = db.tickets.find((t) => t.id === ticketId)
-  if (!ticket?.lockedBy) return
-  ticket.lockedBy = undefined
-  db.messages.push(ticketEvent(ticketId, `Lock released by ${actor.name}.`))
-  save(db)
+  if (!ticket?.lockedBy || ticket.lockedBy !== actor.id) return
+  if (/^\d+$/.test(ticketId)) {
+    try {
+      await unlockApiTicket(ticket.number)
+    } catch {
+      // The local snapshot lock is still cleared below so leaving the page is never blocked.
+    }
+  }
+  const currentDb = load()
+  const current = currentDb.tickets.find((t) => t.id === ticketId)
+  if (!current || current.lockedBy !== actor.id) return
+  current.lockedBy = undefined
+  currentDb.messages.push(ticketEvent(ticketId, `Lock released by ${actor.name}.`))
+  save(currentDb)
   emit()
 }
 
@@ -1284,11 +1366,21 @@ export async function banEmailFromTicket(ticketId: string, actor: User) {
   emit()
 }
 
-export function mergeTickets(primaryId: string, secondaryNumber: string, actor: User) {
+export async function mergeTickets(primaryId: string, secondaryNumber: string, actor: User) {
   const db = load()
   const primary = db.tickets.find((t) => t.id === primaryId)
   const secondary = db.tickets.find((t) => t.number === secondaryNumber.trim())
   if (!primary || !secondary || primary.id === secondary.id) throw new Error('Select a different ticket number to merge.')
+  if (/^\d+$/.test(primary.id) && /^\d+$/.test(secondary.id)) {
+    try {
+      await mergeApiTicket(primary.number, secondary.number)
+      await hydrateTicketDetailFromApi(primary.id)
+      await hydrateTicketDetailFromApi(secondary.id)
+      return
+    } catch (error) {
+      if (error instanceof ApiRequestError) throw error
+    }
+  }
   const moved = db.messages.filter((m) => m.ticketId === secondary.id)
   for (const msg of moved) msg.ticketId = primary.id
   primary.mergedTicketIds = [...(primary.mergedTicketIds ?? []), secondary.id]

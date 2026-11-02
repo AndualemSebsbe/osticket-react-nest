@@ -1,7 +1,7 @@
 import type { Ticket, User, Database } from '../types'
 
 export interface ApiHealth { ok: boolean; mailConfigured: boolean; storage: string }
-export interface ApiPersistedTicket { id: string; number: string; subject: string; status: Ticket['status']; priority: Ticket['priority']; source: string; topic: string; department: string; requesterName: string; requesterEmail: string; employeeId?: string; branchId?: string; branchName?: string; assignee?: string; assigneeEmail?: string; collaborators?: Array<{ userId: string; name: string; email: string; active: boolean }>; fromEmail?: string; overdue: boolean; createdAt: string; updatedAt: string }
+export interface ApiPersistedTicket { id: string; number: string; subject: string; status: Ticket['status']; priority: Ticket['priority']; source: string; topic: string; department: string; requesterName: string; requesterEmail: string; employeeId?: string; branchId?: string; branchName?: string; assignee?: string; assigneeEmail?: string; assigneeStaffId?: string; collaborators?: Array<{ userId: string; name: string; email: string; active: boolean }>; fromEmail?: string; collaboratorNotice?: 'all' | 'user' | 'none'; overdue: boolean; createdAt: string; updatedAt: string; parentTicketId?: string; mergedTicketIds?: string[]; dueAt?: string; lockedBy?: string; lockedByName?: string; lockExpires?: string }
 export interface ApiPersistedMessage { id: string; ticketNumber: string; author: string; authorEmail: string; kind: 'client' | 'agent' | 'collaborator' | 'system'; internal: boolean; body: string; attachments: string[]; attachmentFiles?: Array<{ id: string; name: string }>; recipients?: string[]; createdAt: string }
 
 export class ApiRequestError extends Error {
@@ -325,6 +325,28 @@ export function banApiTicketEmail(number: string) { return request<{ banned: boo
 export function updateApiTicketBranch(number: string, branchId: string) {
   return request<{ ticket: { branchId?: string; branchName?: string } }>('/tickets/' + encodeURIComponent(number) + '/branch', { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify({ branchId }) })
 }
+export interface ApiStaffTicketDetail { ticket: Record<string, any>; messages: ApiPersistedMessage[] }
+export async function getApiStaffTicket(number: string) {
+  return request<ApiStaffTicketDetail>('/tickets/' + encodeURIComponent(number) + '/staff', { headers: currentSessionHeaders() })
+}
+export async function mergeApiTicket(number: string, secondaryNumber: string) {
+  return request<{ ticket: Record<string, any>; merged: Record<string, any> }>('/tickets/' + encodeURIComponent(number) + '/merge', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify({ secondaryNumber }) })
+}
+export async function lockApiTicket(number: string) {
+  return request<{ ticket: Record<string, any>; lock: { id: string; code: string; expiresAt: string } }>('/tickets/' + encodeURIComponent(number) + '/lock', { method: 'POST', headers: currentSessionHeaders() })
+}
+export async function unlockApiTicket(number: string) {
+  return request<{ released: boolean; ticket: Record<string, any> }>('/tickets/' + encodeURIComponent(number) + '/lock', { method: 'DELETE', headers: currentSessionHeaders() })
+}
+export async function listApiTasks() {
+  return request<{ tasks: Array<Record<string, any>> }>('/tasks', { headers: currentSessionHeaders() })
+}
+export async function createApiTask(input: any) {
+  return request<{ task: Record<string, any> }>('/tasks', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) })
+}
+export async function updateApiTask(id: string, input: any) {
+  return request<{ task: Record<string, any> }>('/tasks/' + encodeURIComponent(id), { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify(input) })
+}
 export function updateApiClientTicketBranch(number: string, branchId: string) {
   return request<{ ticket: { branchId?: string; branchName?: string } }>('/users/tickets/' + encodeURIComponent(number) + '/branch', { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify({ branchId }) })
 }
@@ -473,19 +495,37 @@ export async function mirrorTicket(ticket: Ticket, requester: User, firstMessage
   if (result.accessToken) localStorage.setItem('osticket-api-access-' + ticket.number, result.accessToken)
   return result
 }
-export function mirrorReply(input: { ticket: Ticket; owner: User; author: User; body: string; initialMessage: string; db: Database; internal?: boolean; status?: Ticket['status']; recipients?: string[]; fromEmail?: string; collaboratorResponse?: boolean }) {
+export function mirrorReply(input: { ticket: Ticket; owner: User; author: User; body: string; initialMessage: string; db: Database; internal?: boolean; status?: Ticket['status']; recipients?: string[]; fromEmail?: string; collaboratorResponse?: boolean; files?: File[] }) {
   const { ticket, owner, author, body, initialMessage, db } = input
-  const create = request<{ accessToken?: string }>('/tickets', { method: 'POST', body: JSON.stringify({ id: ticket.id, number: ticket.number, subject: ticket.subject, priority: ticket.priority, employeeId: ticket.employeeId, branchId: ticket.branchId, department: db.departments.find(d => d.id === ticket.deptId)?.name, topic: db.topics.find(t => t.id === ticket.topicId)?.name, requesterName: owner.name, requesterEmail: owner.email, message: initialMessage || '(Ticket imported from the existing help desk.)', collaborators: ticket.collaborators || [], fromEmail: ticket.fromEmail, suppressNotification: author.role !== 'client' }) })
-  background(create.then((result: { accessToken?: string }) => {
-    if (result.accessToken) localStorage.setItem('osticket-api-access-' + ticket.number, result.accessToken)
-    const token = author.role === 'client' ? localStorage.getItem('osticket-api-access-' + ticket.number) : null
-    let sessionToken: string | undefined
-    try { sessionToken = (JSON.parse(localStorage.getItem('osticket-react-session') || '{}') as { accessToken?: string }).accessToken } catch { sessionToken = undefined }
+  const sessionToken = (() => {
+    try { return (JSON.parse(localStorage.getItem('osticket-react-session') || '{}') as { accessToken?: string }).accessToken } catch { return undefined }
+  })()
+  const sendReply = () => {
+    const payload = { authorName: author.name, authorEmail: author.email, requesterEmail: author.role === 'client' ? author.email : undefined, message: body, internal: input.internal, status: input.status, recipients: input.recipients, fromEmail: input.fromEmail, collaboratorResponse: input.collaboratorResponse }
+    let requestBody: BodyInit = JSON.stringify(payload)
     const headers = new Headers()
-    if (token) headers.set('x-ticket-access', token)
+    const accessToken = author.role === 'client' ? localStorage.getItem('osticket-api-access-' + ticket.number) : null
+    if (accessToken) headers.set('x-ticket-access', accessToken)
     if (sessionToken && author.role !== 'client') headers.set('x-user-session', sessionToken)
-    return request('/tickets/' + encodeURIComponent(ticket.number) + '/replies', { method: 'POST', headers, body: JSON.stringify({ authorName: author.name, authorEmail: author.email, requesterEmail: author.role === 'client' ? author.email : undefined, message: body, internal: input.internal, status: input.status, recipients: input.recipients, fromEmail: input.fromEmail, collaboratorResponse: input.collaboratorResponse }) })
-  }))
+    if (input.files?.length) {
+      const form = new FormData()
+      form.set('reply', JSON.stringify(payload))
+      for (const file of input.files) form.append('files', file, file.name)
+      requestBody = form
+    }
+    return request<{ message?: ApiPersistedMessage; ticket?: Record<string, unknown> }>('/tickets/' + encodeURIComponent(ticket.number) + '/replies', { method: 'POST', headers, body: requestBody })
+  }
+  const run = async () => {
+    try {
+      return await sendReply()
+    } catch (error) {
+      if (!(error instanceof ApiRequestError) || ![401, 403, 404].includes(error.status)) throw error
+      const created = await request<{ accessToken?: string }>('/tickets', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify({ id: ticket.id, number: ticket.number, subject: ticket.subject, priority: ticket.priority, employeeId: ticket.employeeId, branchId: ticket.branchId, department: db.departments.find(d => d.id === ticket.deptId)?.name, topic: db.topics.find(t => t.id === ticket.topicId)?.name, requesterName: owner.name, requesterEmail: owner.email, message: initialMessage || '(Ticket imported from the existing help desk.)', collaborators: ticket.collaborators || [], fromEmail: ticket.fromEmail }) })
+      if (created.accessToken) localStorage.setItem('osticket-api-access-' + ticket.number, created.accessToken)
+      return sendReply()
+    }
+  }
+  return run()
 }
 
 export async function apiLookupTicket(number: string, accessToken: string) {

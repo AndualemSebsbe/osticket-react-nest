@@ -20,6 +20,7 @@ import {
   createTask,
   deleteTicket,
   getTicket,
+  hydrateTicketDetailFromApi,
   markOverdue,
   mergeTickets,
   messagesFor,
@@ -58,12 +59,29 @@ export function StaffTicketPage() {
   }, [ticket?.id, ticket?.overdue])
 
   useEffect(() => {
-    if (!ticket || !user) return
-    acquireTicketLock(ticket.id, user)
-    return () => {
-      releaseTicketLock(ticket.id, user)
+    if (!id || !user) return
+    let active = true
+    const prepare = async () => {
+      if (/^\d+$/.test(id)) {
+        try {
+          await hydrateTicketDetailFromApi(id)
+        } catch (error) {
+          if (active) setToast(error instanceof Error ? error.message : 'Could not refresh the ticket.')
+        }
+      }
+      if (!active) return
+      try {
+        await acquireTicketLock(id, user)
+      } catch (error) {
+        if (active) setToast(error instanceof Error ? error.message : 'Could not lock the ticket.')
+      }
     }
-  }, [ticket?.id, user?.id])
+    void prepare()
+    return () => {
+      active = false
+      void releaseTicketLock(id, user)
+    }
+  }, [id, user?.id])
 
   useEffect(() => {
     let active = true
@@ -109,6 +127,7 @@ export function StaffTicketPage() {
       close: data.get('action') === 'close',
       pending: data.get('action') === 'pending',
       attachments: files.filter((f) => f.name).map((f) => f.name),
+      files: files.filter((f) => f.name),
       recipients: data.getAll('toRecipients').map(String),
       fromEmail: String(data.get('fromEmail') || db.settings.defaultFromEmail),
     })
@@ -127,21 +146,27 @@ export function StaffTicketPage() {
     } finally { setBranchSaving(false) }
   }
 
-  function onMerge() {
+  async function onMerge() {
     try {
-      mergeTickets(current.id, mergeNumber, actor)
+      await mergeTickets(current.id, mergeNumber, actor)
       setMergeNumber('')
       setShowMerge(false)
+      setToast('Ticket merged successfully.')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Merge failed.')
+      setToast(err instanceof Error ? err.message : 'Merge failed.')
     }
   }
 
-  function onAddTask(e: FormEvent) {
+  async function onAddTask(e: FormEvent) {
     e.preventDefault()
     if (!taskTitle.trim() || !db.settings.tasksEnabled) return
-    createTask({ title: taskTitle.trim(), deptId: current.deptId, ticketId: current.id, assigneeId: actor.id })
-    setTaskTitle('')
+    try {
+      await createTask({ title: taskTitle.trim(), deptId: current.deptId, ticketId: current.id, assigneeId: actor.id })
+      setTaskTitle('')
+      setToast('Task created.')
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not create the task.')
+    }
   }
 
   async function onDelete() {

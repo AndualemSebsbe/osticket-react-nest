@@ -1,4 +1,4 @@
-import { Inject, BadRequestException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Inject, BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiSecurityService } from '../common/api-security.service';
@@ -32,11 +32,21 @@ export class TicketsService {
     const collaboratorViews = await Promise.all(collaborators.map(async c => {
       const email = await this.prisma.userEmail.findFirst({ where: { user_id: bi(c.user_id) } });
       const userRow = email ? await this.prisma.user.findUnique({ where: { id: email.user_id } }) : null;
-      return { name: userRow?.name || email?.address || '', email: email?.address || '', active: Boolean(c.flags & 1) };
+      return { name: userRow?.name || email?.address || '', email: email?.address || '', active: Boolean(c.flags & 1), userId: String(c.user_id) };
     }));
     const statusName = (status?.state || status?.name || 'open').toLowerCase();
     const priorityName = (data?.priority || 'normal').toLowerCase();
     const accessHash = parse(thread?.extra).accessHash;
+    let lockInfo: any = null;
+    if (row.lock_id && Number(row.lock_id) > 0) {
+      const lock = await this.prisma.lock.findUnique({ where: { lock_id: Number(row.lock_id) } });
+      if (lock && (!lock.expire || lock.expire.getTime() > Date.now())) {
+        const lockStaff = lock.staff_id ? await this.prisma.staff.findUnique({ where: { staff_id: lock.staff_id } }) : null;
+        lockInfo = { lock_id: lock.lock_id, staff_id: lock.staff_id, staff_name: lockStaff ? [lockStaff.firstname, lockStaff.lastname].filter(Boolean).join(' ') : '', expire: lock.expire?.toISOString() };
+      }
+    }
+    const children = await this.prisma.ticket.findMany({ where: { ticket_pid: row.ticket_id }, select: { ticket_id: true } });
+    const parentId = row.ticket_pid ? String(row.ticket_pid) : null;
     return {
       id: String(row.ticket_id), number: row.number || String(row.ticket_id), subject: data?.subject || '(no subject)',
       requesterName: user?.name || '', requesterEmail: userEmail?.address || '', status: statusName,
@@ -45,7 +55,14 @@ export class TicketsService {
       branchName: branch?.name || '', assignee: staff ? [staff.firstname, staff.lastname].filter(Boolean).join(' ') : '',
       assigneeEmail: staff?.email || '', assigneeStaffId: String(row.staff_id || ''),
       overdue: Boolean(row.isoverdue), createdAt: row.created.toISOString(), updatedAt: row.updated.toISOString(),
-       collaborators: collaboratorViews, accessHash, fromEmail: threadExtra.fromEmail || '', collaboratorNotice: threadExtra.collaboratorNotice || 'all', messages: entries.map(e => { const attached = files.filter(f=>f.entryId===String(e.id)); return { id: String(e.id), author: e.poster, authorEmail: '', kind: e.type === 'R' ? 'agent' : e.type === 'N' ? 'note' : 'client', internal: e.type === 'N', body: e.body, attachments: attached.map(f=>f.name), attachmentFiles: attached.map(f=>({ id: f.id, name: f.name })), recipients: parse(e.recipients).list || [], createdAt: e.created.toISOString() } }),
+      collaborators: collaboratorViews, accessHash, fromEmail: threadExtra.fromEmail || '', collaboratorNotice: threadExtra.collaboratorNotice || 'all',
+      source: row.source || 'WEB', employeeId: data?.employee_id || '',
+      parentTicketId: parentId || undefined,
+      mergedTicketIds: children.map(c => String(c.ticket_id)),
+      lock: lockInfo, lockedBy: lockInfo?.staff_id ? String(lockInfo.staff_id) : undefined, lockedByName: lockInfo?.staff_name || undefined, lockExpires: lockInfo?.expire,
+      dueAt: row.duedate ? row.duedate.toISOString() : row.est_duedate ? row.est_duedate.toISOString() : undefined,
+      duedate: row.duedate ? row.duedate.toISOString() : undefined,
+      messages: entries.map(e => { const attached = files.filter(f=>f.entryId===String(e.id)); return { id: String(e.id), author: e.poster, authorEmail: '', kind: e.type === 'R' ? 'agent' : e.type === 'N' ? 'note' : 'client', internal: e.type === 'N', body: e.body, attachments: attached.map(f=>f.name), attachmentFiles: attached.map(f=>({ id: f.id, name: f.name })), recipients: parse(e.recipients).list || [], createdAt: e.created.toISOString() } }),
     };
   }
 
@@ -141,6 +158,147 @@ export class TicketsService {
     return this.prisma.thread.upsert({ where: { object_id_object_type: { object_id: ticketId, object_type: 'T' } }, create: { object_id: ticketId, object_type: 'T', created: new Date() }, update: {} });
   }
 
+  async getForStaff(number: string) {
+    const { view } = await this.get(number);
+    const { accessHash: _accessHash, ...ticket } = view;
+    return { ticket, messages: ticket.messages.map(message => ({ ...message, ticketNumber: ticket.number })) };
+  }
+
+  async merge(primaryNumber: string, secondaryNumber: string, staffId: number, staffName: string) {
+    const { row: primary } = await this.get(primaryNumber);
+    const { row: secondary } = await this.get(secondaryNumber);
+    if (primary.ticket_id === secondary.ticket_id) throw new BadRequestException('Select a different ticket number to merge.');
+    if (secondary.ticket_pid) throw new ConflictException('Ticket #' + secondary.number + ' is already merged into another ticket.');
+    if (primary.ticket_pid) throw new ConflictException('A merged ticket cannot receive another merge.');
+    const children = await this.prisma.ticket.count({ where: { ticket_pid: secondary.ticket_id } });
+    if (children) throw new ConflictException('Unmerge the child tickets of #' + secondary.number + ' first.');
+    const now = new Date();
+    const closed = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: 'closed', mode: 'insensitive' } } });
+    const primaryThread = await this.threadFor(primary.ticket_id);
+    await this.prisma.$transaction(async tx => {
+      const secondaryThread = await tx.thread.findUnique({ where: { object_id_object_type: { object_id: secondary.ticket_id, object_type: 'T' } } });
+      if (secondaryThread) {
+        await tx.threadEntry.updateMany({ where: { thread_id: secondaryThread.id }, data: { thread_id: primaryThread.id } });
+        await tx.threadEvent.updateMany({ where: { thread_id: secondaryThread.id }, data: { thread_id: primaryThread.id } });
+        const collaborators = await tx.threadCollaborator.findMany({ where: { thread_id: Number(secondaryThread.id) } });
+        for (const collaborator of collaborators) {
+          const existing = await tx.threadCollaborator.findFirst({ where: { thread_id: Number(primaryThread.id), user_id: collaborator.user_id } });
+          if (!existing) await tx.threadCollaborator.create({ data: { thread_id: Number(primaryThread.id), user_id: collaborator.user_id, flags: collaborator.flags, role: collaborator.role, created: collaborator.created, updated: now } });
+        }
+        await tx.threadCollaborator.deleteMany({ where: { thread_id: Number(secondaryThread.id) } });
+        await tx.thread.delete({ where: { id: secondaryThread.id } });
+      }
+      await tx.ticket.update({ where: { ticket_id: secondary.ticket_id }, data: { ticket_pid: primary.ticket_id, ...(closed ? { status_id: closed.id } : {}), closed: now, isoverdue: 0, updated: now } });
+      await tx.ticket.update({ where: { ticket_id: primary.ticket_id }, data: { updated: now } });
+      await tx.threadEvent.create({ data: { thread_id: primaryThread.id, thread_type: 'T', event_id: 13n, staff_id: BigInt(staffId || 0), team_id: primary.team_id, dept_id: primary.dept_id, topic_id: primary.topic_id, username: staffName || 'SYSTEM', uid: BigInt(staffId || 0), uid_type: 'S', timestamp: now } });
+    });
+    const parent = await this.prisma.ticket.findUniqueOrThrow({ where: { ticket_id: primary.ticket_id } });
+    const child = await this.prisma.ticket.findUniqueOrThrow({ where: { ticket_id: secondary.ticket_id } });
+    return { ticket: await this.view(parent), merged: await this.view(child) };
+  }
+
+  async acquireLock(number: string, staffId: number) {
+    const { row } = await this.get(number);
+    const staff = await this.prisma.staff.findUnique({ where: { staff_id: staffId } });
+    if (!staff) throw new ForbiddenException('Active staff account required.');
+    const now = new Date();
+    const existing = row.lock_id ? await this.prisma.lock.findUnique({ where: { lock_id: Number(row.lock_id) } }) : null;
+    if (existing?.expire && existing.expire.getTime() > now.getTime() && existing.staff_id !== staffId) {
+      const owner = existing.staff_id ? await this.prisma.staff.findUnique({ where: { staff_id: existing.staff_id } }) : null;
+      throw new ConflictException('This ticket is locked by ' + ([owner?.firstname, owner?.lastname].filter(Boolean).join(' ') || 'another agent') + '.');
+    }
+    const expire = new Date(now.getTime() + 10 * 60 * 1000);
+    const code = randomBytes(8).toString('hex');
+    const lock = await this.prisma.$transaction(async tx => {
+      const saved = existing
+        ? await tx.lock.update({ where: { lock_id: existing.lock_id }, data: { staff_id: staffId, expire, code } })
+        : await tx.lock.create({ data: { staff_id: staffId, expire, code, created: now } });
+      await tx.ticket.update({ where: { ticket_id: row.ticket_id }, data: { lock_id: BigInt(saved.lock_id), updated: now } });
+      return saved;
+    });
+    const refreshed = await this.prisma.ticket.findUniqueOrThrow({ where: { ticket_id: row.ticket_id } });
+    return { ticket: await this.view(refreshed), lock: { id: String(lock.lock_id), code, expiresAt: expire.toISOString() } };
+  }
+
+  async releaseLock(number: string, staffId: number, isAdmin = false) {
+    const { row } = await this.get(number);
+    if (!row.lock_id) return { released: false, ticket: await this.view(row) };
+    const lock = await this.prisma.lock.findUnique({ where: { lock_id: Number(row.lock_id) } });
+    if (lock && lock.staff_id !== staffId && !isAdmin) throw new ForbiddenException('This ticket is locked by another agent.');
+    await this.prisma.$transaction(async tx => {
+      await tx.ticket.update({ where: { ticket_id: row.ticket_id }, data: { lock_id: 0n } });
+      if (lock) await tx.lock.delete({ where: { lock_id: lock.lock_id } });
+    });
+    const refreshed = await this.prisma.ticket.findUniqueOrThrow({ where: { ticket_id: row.ticket_id } });
+    return { released: true, ticket: await this.view(refreshed) };
+  }
+
+  private taskView(row: any, title: string) {
+    return {
+      id: String(row.id),
+      number: row.number || '',
+      title,
+      deptId: String(row.dept_id || ''),
+      assigneeId: row.staff_id ? String(row.staff_id) : undefined,
+      ticketId: row.object_type === 'T' && row.object_id ? String(row.object_id) : undefined,
+      dueAt: row.duedate ? row.duedate.toISOString() : undefined,
+      status: row.closed ? 'closed' : 'open',
+      createdAt: row.created.toISOString(),
+      updatedAt: row.updated.toISOString(),
+    };
+  }
+
+  async listTasks() {
+    const rows = await this.prisma.task.findMany({ orderBy: { updated: 'desc' } });
+    const data = rows.length ? await this.prisma.taskCdata.findMany({ where: { task_id: { in: rows.map(row => row.id) } } }) : [];
+    const titles = new Map(data.map(item => [String(item.task_id), item.title || '']));
+    return { tasks: rows.map(row => this.taskView(row, titles.get(String(row.id)) || '')) };
+  }
+
+  async createTask(input: any, staffId: number) {
+    const title = this.security.clean(input.title, 255);
+    if (!title) throw new BadRequestException('Task title is required.');
+    const now = new Date();
+    const due = input.dueAt ? new Date(String(input.dueAt)) : null;
+    if (due && Number.isNaN(due.getTime())) throw new BadRequestException('Choose a valid due date.');
+    const number = 'T' + randomBytes(4).toString('hex').toUpperCase();
+    const row = await this.prisma.$transaction(async tx => {
+      const task = await tx.task.create({ data: { object_id: input.ticketId ? bi(input.ticketId) : 0n, object_type: 'T', number, dept_id: input.deptId ? bi(input.deptId) : 0n, staff_id: input.assigneeId ? bi(input.assigneeId) : BigInt(staffId || 0), duedate: due, created: now, updated: now } });
+      await tx.taskCdata.create({ data: { task_id: task.id, title } });
+      return task;
+    });
+    return { task: this.taskView(row, title) };
+  }
+
+  async updateTask(id: string, input: any) {
+    const task = await this.prisma.task.findUnique({ where: { id: bi(id) } });
+    if (!task) throw new NotFoundException('Task not found.');
+    const now = new Date();
+    const data: any = { updated: now };
+    if (input.deptId !== undefined) data.dept_id = input.deptId ? bi(input.deptId) : 0n;
+    if (input.assigneeId !== undefined) data.staff_id = input.assigneeId ? bi(input.assigneeId) : 0n;
+    if (input.ticketId !== undefined) data.object_id = input.ticketId ? bi(input.ticketId) : 0n;
+    if (input.dueAt !== undefined) {
+      const due = input.dueAt ? new Date(String(input.dueAt)) : null;
+      if (due && Number.isNaN(due.getTime())) throw new BadRequestException('Choose a valid due date.');
+      data.duedate = due;
+    }
+    if (input.status !== undefined) {
+      const closed = String(input.status).toLowerCase() === 'closed';
+      data.closed = closed ? (task.closed || now) : null;
+    }
+    const title = input.title !== undefined ? this.security.clean(input.title, 255) : undefined;
+    if (input.title !== undefined && !title) throw new BadRequestException('Task title is required.');
+    await this.prisma.$transaction(async tx => {
+      await tx.task.update({ where: { id: task.id }, data });
+      if (title !== undefined) await tx.taskCdata.upsert({ where: { task_id: task.id }, create: { task_id: task.id, title }, update: { title } });
+    });
+    const refreshed = await this.prisma.task.findUniqueOrThrow({ where: { id: task.id } });
+    const cdata = await this.prisma.taskCdata.findUnique({ where: { task_id: task.id } });
+    return { task: this.taskView(refreshed, cdata?.title || '') };
+  }
+
+
   async create(input: any, ip = '', uploads: Array<{originalname:string;mimetype:string;buffer:Buffer;size:number}> = []) {
     const data = typeof input.ticket === 'string' ? JSON.parse(input.ticket) : input;
     const email = this.security.email(data.email || data.requesterEmail), name = this.security.clean(data.name || data.requesterName, 128);
@@ -200,10 +358,7 @@ export class TicketsService {
           },
         });
       }
-      if (uploads.length > 5 || uploads.some(file => file.size > 8 * 1024 * 1024)) throw new BadRequestException('You can attach up to five files of 8 MB each.');
-      let total = 0;
-      for (const upload of uploads) { const filename=String(upload.originalname||'attachment').replace(/[\\/\x00-\x1f\x7f]/g,'_').slice(0,255); const ext=filename.split('.').pop()?.toLowerCase()||''; if(!['pdf','png','jpg','jpeg','gif','webp','txt','csv','doc','docx','xls','xlsx','zip'].includes(ext)) throw new BadRequestException('Unsupported attachment type.'); total+=upload.size; const file=await tx.file.create({data:{name:filename,type:/^[\w.+-]+\/[\w.+-]+$/.test(upload.mimetype)?upload.mimetype:'application/octet-stream',size:BigInt(upload.size),key:randomBytes(32).toString('hex'),signature:createHash('sha256').update(upload.buffer).digest('hex'),created:timestamp}}); await tx.fileChunk.create({data:{file_id:file.id,chunk_id:0,filedata:Uint8Array.from(upload.buffer)}}); await tx.attachment.create({data:{object_id:entry.id,type:'H',file_id:file.id,name:filename}}); }
-      if(total>15*1024*1024) throw new BadRequestException('Combined attachments are too large.');
+      await this.saveAttachments(tx, entry.id, uploads, timestamp);
       const collaborators=Array.isArray(data.collaborators)?data.collaborators:[];
       for(const person of collaborators){ const collaboratorEmail=this.security.email(person?.email); if(!this.security.validEmail(collaboratorEmail)||collaboratorEmail===email||person?.active===false) continue; const collaboratorId=await this.ensureUser(this.security.clean(person?.name,128)||collaboratorEmail,collaboratorEmail); await tx.threadCollaborator.create({data:{thread_id:Number(th.id),user_id:Number(collaboratorId),flags:1,created:timestamp,updated:timestamp}}); }
       return t;
@@ -226,7 +381,22 @@ export class TicketsService {
     });
   }
 
-  async reply(number: string, body: any, sessionToken: string, accessToken: string) {
+  private async saveAttachments(tx: any, entryId: bigint, uploads: Array<{ originalname: string; mimetype: string; buffer: Buffer; size: number }>, timestamp: Date) {
+    if (uploads.length > 5 || uploads.some(file => file.size > 8 * 1024 * 1024)) throw new BadRequestException('You can attach up to five files of 8 MB each.');
+    let total = 0;
+    for (const upload of uploads) {
+      const filename = String(upload.originalname || 'attachment').replace(/[\\/\x00-\x1f\x7f]/g, '_').slice(0, 255);
+      const ext = filename.split('.').pop()?.toLowerCase() || '';
+      if (!['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'txt', 'csv', 'doc', 'docx', 'xls', 'xlsx', 'zip'].includes(ext)) throw new BadRequestException('Unsupported attachment type.');
+      total += upload.size;
+      const file = await tx.file.create({ data: { name: filename, type: /^[\w.+-]+\/[\w.+-]+$/.test(upload.mimetype) ? upload.mimetype : 'application/octet-stream', size: BigInt(upload.size), key: randomBytes(32).toString('hex'), signature: createHash('sha256').update(upload.buffer).digest('hex'), created: timestamp } });
+      await tx.fileChunk.create({ data: { file_id: file.id, chunk_id: 0, filedata: Uint8Array.from(upload.buffer) } });
+      await tx.attachment.create({ data: { object_id: entryId, type: 'H', file_id: file.id, name: filename } });
+    }
+    if (total > 15 * 1024 * 1024) throw new BadRequestException('Combined attachments are too large.');
+  }
+
+  async reply(number: string, body: any, sessionToken: string, accessToken: string, uploads: Array<{ originalname: string; mimetype: string; buffer: Buffer; size: number }> = []) {
     const { row, view } = await this.get(number);
     const session = this.security.readSession(sessionToken);
     const actor = session ? await this.prisma.userEmail.findFirst({ where: { address: { equals: session.email, mode: 'insensitive' } } }) : null;
@@ -247,7 +417,11 @@ export class TicketsService {
     if (!message) throw new BadRequestException('Reply message is required.');
     const timestamp = new Date(), thread = await this.threadFor(row.ticket_id);
     const internal = staff && body.internal === true;
-    const entry = await this.prisma.threadEntry.create({ data: { thread_id: thread.id, user_id: actor?.user_id || 0n, staff_id: BigInt(staffRow?.staff_id || 0), type: staff ? (internal ? 'N' : 'R') : 'M', poster: staff ? [staffRow?.firstname, staffRow?.lastname].filter(Boolean).join(' ') : collaborator?.name || view.requesterName, title: null, body: message, recipients: JSON.stringify(body.recipients || []), ip_address: '', created: timestamp, updated: timestamp } });
+    const entry = await this.prisma.$transaction(async tx => {
+      const created = await tx.threadEntry.create({ data: { thread_id: thread.id, user_id: actor?.user_id || 0n, staff_id: BigInt(staffRow?.staff_id || 0), type: staff ? (internal ? 'N' : 'R') : 'M', poster: staff ? [staffRow?.firstname, staffRow?.lastname].filter(Boolean).join(' ') : collaborator?.name || view.requesterName, title: null, body: message, recipients: JSON.stringify(body.recipients || []), ip_address: '', created: timestamp, updated: timestamp } });
+      await this.saveAttachments(tx, created.id, uploads, timestamp);
+      return created;
+    });
     const update: any = { updated: timestamp };
     let transitionEventId: bigint | null = null;
     if (!staff && view.status === 'closed') {
@@ -294,7 +468,8 @@ export class TicketsService {
     }
     const recipients = staff ? (Array.isArray(body.recipients) ? body.recipients : [view.requesterEmail]) : [view.requesterEmail];
     if (!internal) void this.mail.sendNotice(recipients, (staff ? 'Reply to' : 'Customer reply on') + ' ticket #' + number, message, number);
-    return { message: { id: String(entry.id), ticketNumber: number, author: entry.poster, authorEmail: staff ? session!.email : email, kind: staff ? 'agent' : collaborator ? 'collaborator' : 'client', internal, body: message, attachments: [], recipients, createdAt: timestamp.toISOString() }, ticket: await this.view(await this.prisma.ticket.findUniqueOrThrow({ where: { ticket_id: row.ticket_id } })) };
+    const attached = await this.prisma.attachment.findMany({ where: { object_id: entry.id, type: 'H' }, orderBy: { id: 'asc' } });
+    return { message: { id: String(entry.id), ticketNumber: number, author: entry.poster, authorEmail: staff ? session!.email : email, kind: staff ? 'agent' : collaborator ? 'collaborator' : 'client', internal, body: message, attachments: attached.map(item => item.name || ''), attachmentFiles: attached.map(item => ({ id: String(item.id), name: item.name || '' })), recipients, createdAt: timestamp.toISOString() }, ticket: await this.view(await this.prisma.ticket.findUniqueOrThrow({ where: { ticket_id: row.ticket_id } })) };
   }
 
   async update(number: string, input: any) {

@@ -32,17 +32,21 @@ export function StaffTasksPage() {
     [db.tasks, status],
   )
 
-  function onAdd(e: FormEvent<HTMLFormElement>) {
+  async function onAdd(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const form = new FormData(e.currentTarget)
-    createTask({
-      title: String(form.get('title')),
-      deptId: String(form.get('deptId')),
-      assigneeId: String(form.get('assigneeId')) || undefined,
-      ticketId: String(form.get('ticketId')) || undefined,
-      dueAt: String(form.get('dueAt')) ? new Date(String(form.get('dueAt'))).toISOString() : undefined,
-    })
-    setAdding(false)
+    try {
+      await createTask({
+        title: String(form.get('title')),
+        deptId: String(form.get('deptId')),
+        assigneeId: String(form.get('assigneeId')) || undefined,
+        ticketId: String(form.get('ticketId')) || undefined,
+        dueAt: String(form.get('dueAt')) ? new Date(String(form.get('dueAt'))).toISOString() : undefined,
+      })
+      setAdding(false)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not create the task.')
+    }
   }
 
   return (
@@ -144,7 +148,7 @@ export function StaffTasksPage() {
                   <button
                     type="button"
                     className={btnGhost}
-                    onClick={() => updateTask(task.id, { status: task.status === 'open' ? 'closed' : 'open' })}
+                    onClick={() => { void updateTask(task.id, { status: task.status === 'open' ? 'closed' : 'open' }).catch((error: unknown) => window.alert(error instanceof Error ? error.message : 'Could not update the task.')) }}
                   >
                     {task.status === 'open' ? 'Close' : 'Reopen'}
                   </button>
@@ -841,18 +845,22 @@ export function StaffTaskPage() {
     )
   }
 
-  function onSave(e: FormEvent<HTMLFormElement>) {
+  async function onSave(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const form = new FormData(e.currentTarget)
-    updateTask(task!.id, {
-      title: String(form.get('title')),
-      deptId: String(form.get('deptId')),
-      assigneeId: String(form.get('assigneeId')) || undefined,
-      ticketId: String(form.get('ticketId')) || undefined,
-      dueAt: String(form.get('dueAt')) ? new Date(String(form.get('dueAt'))).toISOString() : undefined,
-      status: String(form.get('status')) as TaskStatus,
-    })
-    setSaved(true)
+    try {
+      await updateTask(task!.id, {
+        title: String(form.get('title')),
+        deptId: String(form.get('deptId')),
+        assigneeId: String(form.get('assigneeId')) || undefined,
+        ticketId: String(form.get('ticketId')) || undefined,
+        dueAt: String(form.get('dueAt')) ? new Date(String(form.get('dueAt'))).toISOString() : undefined,
+        status: String(form.get('status')) as TaskStatus,
+      })
+      setSaved(true)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not save the task.')
+    }
   }
 
   return (
@@ -909,7 +917,7 @@ export function StaffTaskPage() {
           </Field>
           <div className="flex flex-wrap gap-2 sm:col-span-2">
             <button className={btnPrimary}>Save task</button>
-            <button type="button" className={btnGhost} onClick={() => updateTask(task.id, { status: task.status === 'open' ? 'closed' : 'open' })}>
+            <button type="button" className={btnGhost} onClick={() => { void updateTask(task.id, { status: task.status === 'open' ? 'closed' : 'open' }).catch((error: unknown) => window.alert(error instanceof Error ? error.message : 'Could not update the task.')) }}>
               {task.status === 'open' ? 'Close task' : 'Reopen task'}
             </button>
           </div>
