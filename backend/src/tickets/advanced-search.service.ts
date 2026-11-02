@@ -1,5 +1,12 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  QUEUE_FLAG_DISABLED,
+  QUEUE_FLAG_INHERIT_COLUMNS,
+  QUEUE_FLAG_INHERIT_CRITERIA,
+  QUEUE_FLAG_INHERIT_SORTING,
+  builtinTicketQueue,
+} from './queue-defaults';
 
 type SearchFieldType = 'text' | 'number' | 'date' | 'boolean' | 'select';
 type SearchFieldOption = { value: string; label: string };
@@ -42,6 +49,9 @@ type SearchBundle = {
   topics: any[];
   staff: any[];
   teams: any[];
+  teamMembers: any[];
+  teamIdsByStaff: Map<string, Set<string>>;
+  teamMemberIdsByTeam: Map<string, Set<string>>;
   slas: any[];
   branches: any[];
   priorities: any[];
@@ -249,6 +259,7 @@ export class AdvancedSearchService {
       topics,
       staff,
       teams,
+      teamMembers,
       slas,
       branches,
       priorities,
@@ -277,6 +288,7 @@ export class AdvancedSearchService {
       this.prisma.helpTopic.findMany({ orderBy: { topic: 'asc' } }),
       this.prisma.staff.findMany({ orderBy: [{ firstname: 'asc' }, { lastname: 'asc' }] }),
       this.prisma.team.findMany({ orderBy: { name: 'asc' } }),
+      this.prisma.teamMember.findMany(),
       this.prisma.sla.findMany({ orderBy: { name: 'asc' } }),
       this.prisma.branch.findMany({ orderBy: { name: 'asc' } }),
       this.prisma.ticketPriority.findMany({ orderBy: { priority_urgency: 'asc' } }),
@@ -324,6 +336,16 @@ export class AdvancedSearchService {
     const topicById = new Map(topics.map((row) => [toStr(row.topic_id), row]));
     const staffById = new Map(staff.map((row) => [toStr(row.staff_id), row]));
     const teamById = new Map(teams.map((row) => [toStr(row.team_id), row]));
+    const teamIdsByStaff = new Map<string, Set<string>>();
+    const teamMemberIdsByTeam = new Map<string, Set<string>>();
+    for (const member of teamMembers) {
+      const staffId = toStr(member.staff_id);
+      const teamId = toStr(member.team_id);
+      if (!teamIdsByStaff.has(staffId)) teamIdsByStaff.set(staffId, new Set());
+      teamIdsByStaff.get(staffId)!.add(teamId);
+      if (!teamMemberIdsByTeam.has(teamId)) teamMemberIdsByTeam.set(teamId, new Set());
+      teamMemberIdsByTeam.get(teamId)!.add(staffId);
+    }
     const slaById = new Map(slas.map((row) => [toStr(row.id), row]));
     const branchById = new Map(branches.map((row) => [toStr(row.id), row]));
     const userById = new Map(users.map((row) => [toStr(row.id), row]));
@@ -502,6 +524,9 @@ export class AdvancedSearchService {
       topics,
       staff,
       teams,
+      teamMembers,
+      teamIdsByStaff,
+      teamMemberIdsByTeam,
       slas,
       branches,
       priorities,
@@ -567,7 +592,7 @@ export class AdvancedSearchService {
     return { raw, label };
   }
 
-  private buildRecord(row: any, bundle: SearchBundle, keyword = ''): SearchRecord {
+  private buildRecord(row: any, bundle: SearchBundle, keyword = '', staffId = 0): SearchRecord {
     const maps = this.lookupMaps(bundle);
     const ticketId = toStr(row.ticket_id);
     const cdata = bundle.ticketCdata.get(ticketId) || {};
@@ -627,6 +652,14 @@ export class AdvancedSearchService {
     this.setField(fields, 'thread_count', entries.length, String(entries.length), 'number');
     this.setField(fields, 'attachment_count', bundle.attachmentsByTicket.get(ticketId) || 0, String(bundle.attachmentsByTicket.get(ticketId) || 0), 'number');
     this.setField(fields, 'collaborator_count', bundle.collaboratorsByThread.get(threadId) || 0, String(bundle.collaboratorsByThread.get(threadId) || 0), 'number');
+
+    if (bundle.fieldByPath.has('queue_assignee')) {
+      const scopes: string[] = [];
+      if (staffId && Number(row.staff_id || 0) === staffId) scopes.push('me');
+      const staffTeams = bundle.teamIdsByStaff.get(String(staffId));
+      if (staffTeams && row.team_id && staffTeams.has(toStr(row.team_id))) scopes.push('team');
+      fields.set('queue_assignee', { raw: scopes, label: scopes.length ? scopes.map((scope) => scope === 'me' ? 'Me' : 'One of my teams').join(', ') : 'Other', text: scopes.join(' '), type: 'select' });
+    }
 
     const custom: Record<string, Record<string, unknown>> = { ticket: {}, requester: {}, organization: {} };
     const addCustom = (source: Map<string, Map<string, { values: unknown[]; field: any }>> | undefined, objectId: string, prefix: string, target: Record<string, unknown>) => {
@@ -737,6 +770,13 @@ export class AdvancedSearchService {
     const expected = criterion.value;
     if (!isSet(expected)) return true;
     const expectedText = toLower(expected);
+
+    if (definition.path === 'queue_assignee') {
+      const current = Array.isArray(raw) ? raw.map(toLower) : toLower(raw).split(/[\s,]+/).filter(Boolean);
+      const expectedScopes = valueList(expected).map(toLower);
+      const found = expectedScopes.some((scope) => current.includes(scope));
+      return ['not_in', 'not_equals', 'not_contains'].includes(operator) ? !found : found;
+    }
 
     // Legacy /tickets/advanced-search filters matched every field as a substring.
     if (criterion.legacy) {
@@ -957,7 +997,7 @@ export class AdvancedSearchService {
     const criteria = this.normalizeCriteria(effectiveInput, bundle);
     const sort = this.normalizeSort(effectiveInput.sort, bundle);
 
-    let records = bundle.tickets.map((row) => this.buildRecord(row, bundle, keyword));
+    let records = bundle.tickets.map((row) => this.buildRecord(row, bundle, keyword, staffId));
     if (terms.length) {
       records = records.filter((record) => terms.every((term) => record.searchText.includes(term)));
       if (keyword && records.some((record) => !record.snippet)) {
@@ -1080,6 +1120,408 @@ export class AdvancedSearchService {
       snippet: record.snippet,
       values: record.values,
       custom: record.custom,
+    };
+  }
+
+  private ensureQueueFields(bundle: SearchBundle) {
+    if (bundle.fieldByPath.has('queue_assignee')) return;
+    const field: SearchFieldDef = {
+      path: 'queue_assignee',
+      label: 'Assignee Scope',
+      type: 'select',
+      group: 'Ticket',
+      options: [
+        { value: 'me', label: 'Me' },
+        { value: 'team', label: 'One of my teams' },
+      ],
+    };
+    bundle.fields.push(field);
+    bundle.fieldByPath.set(field.path, field);
+  }
+
+  private queueValueTokens(value: unknown): string[] {
+    if (Array.isArray(value)) return value.map(toStr).filter((item) => item !== '');
+    if (value && typeof value === 'object') return Object.keys(value as Record<string, unknown>);
+    return toStr(value).split(',').map((item) => item.trim()).filter(Boolean);
+  }
+
+  private mapQueueField(path: string): string {
+    const raw = toLower(path).replace(/__/g, '.');
+    const aliases: Record<string, string> = {
+      'status.state': 'status',
+      'status.id': 'status',
+      'status.name': 'status',
+      'status_id': 'status',
+      'status': 'status',
+      'cdata.priority': 'priority',
+      'cdata.subject': 'subject',
+      'cdata.branch_id': 'branch',
+      'cdata.employee_id': 'employee_id',
+      'dept_id': 'department',
+      'department_id': 'department',
+      'topic_id': 'topic',
+      'staff_id': 'assignee',
+      'team_id': 'team',
+      'sla_id': 'sla',
+      'branch_id': 'branch',
+      'ticket_id': 'number',
+      'number': 'number',
+      'user.name': 'requester',
+      'user.emails.address': 'email',
+      'user.email': 'email',
+      'merged': 'ismerged',
+    };
+    if (aliases[raw]) return aliases[raw];
+    if (raw.startsWith('cdata.')) return raw.slice('cdata.'.length);
+    if (raw.startsWith('user.')) {
+      const tail = raw.slice('user.'.length);
+      if (tail.includes('email')) return 'email';
+      if (tail === 'name') return 'requester';
+      if (tail.includes('org')) return tail.endsWith('_id') || tail.endsWith('.id') ? 'org' : 'org_name';
+      return tail;
+    }
+    return raw.split('.').pop() || raw;
+  }
+
+  private mapQueueOperator(method: unknown): string {
+    const raw = toLower(method).replace(/[\s-]+/g, '_');
+    const aliases: Record<string, string> = {
+      includes: 'in',
+      include: 'in',
+      '!_includes': 'not_in',
+      '!includes': 'not_in',
+      nincludes: 'not_in',
+      excludes: 'not_in',
+      set: 'set',
+      nset: 'not_set',
+      not_set: 'not_set',
+      equals: 'equals',
+      equal: 'equals',
+      eq: 'equals',
+      is: 'equals',
+      not: 'not_equals',
+      ne: 'not_equals',
+      neq: 'not_equals',
+      '!equals': 'not_equals',
+      like: 'contains',
+      contains: 'contains',
+      nlike: 'not_contains',
+      not_contains: 'not_contains',
+      starts: 'starts_with',
+      startswith: 'starts_with',
+      ends: 'ends_with',
+      endswith: 'ends_with',
+      gt: 'gt',
+      greater: 'gt',
+      gte: 'gte',
+      lt: 'lt',
+      less: 'lt',
+      lte: 'lte',
+      between: 'between',
+      within: 'between',
+      period: 'period',
+    };
+    return aliases[raw] || raw || 'equals';
+  }
+
+  private queuePeriodRange(value: unknown): [string, string] | null {
+    const period = toLower(value).trim();
+    if (!period) return null;
+    const now = new Date();
+    const startOfDay = (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const addDays = (date: Date, days: number) => {
+      const next = new Date(date);
+      next.setUTCDate(next.getUTCDate() + days);
+      return next;
+    };
+    const addMonths = (date: Date, months: number) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
+    const today = startOfDay(now);
+    const day = (today.getUTCDay() + 6) % 7;
+    const monday = addDays(today, -day);
+    const firstOfMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+    const firstOfYear = new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
+    let start: Date;
+    let end: Date;
+    switch (period) {
+      case 'td': start = today; end = addDays(today, 1); break;
+      case 'yd': start = addDays(today, -1); end = today; break;
+      case 'tw': start = monday; end = addDays(monday, 7); break;
+      case 'lw': start = addDays(monday, -7); end = monday; break;
+      case 'tm': start = firstOfMonth; end = addMonths(firstOfMonth, 1); break;
+      case 'lm': start = addMonths(firstOfMonth, -1); end = firstOfMonth; break;
+      case 'ty': start = firstOfYear; end = new Date(Date.UTC(today.getUTCFullYear() + 1, 0, 1)); break;
+      case 'ly': start = new Date(Date.UTC(today.getUTCFullYear() - 1, 0, 1)); end = firstOfYear; break;
+      default: return null;
+    }
+    return [start.toISOString().slice(0, 10), addDays(end, -1).toISOString().slice(0, 10)];
+  }
+
+  private queueAssigneeCriteria(method: unknown, value: unknown): SearchCriterion[] {
+    const operator = this.mapQueueOperator(method);
+    const tokens = this.queueValueTokens(value).map(toLower).map((token) => token === 'm' ? 'me' : token === 't' ? 'team' : token);
+    const scopes = tokens.filter((token) => token === 'me' || token === 'team');
+    if (scopes.length) return [{ field: 'queue_assignee', operator: operator.startsWith('not') ? 'not_in' : 'in', value: scopes.join(',') }];
+    const ids = tokens.filter((token) => /^\d+$/.test(token));
+    if (!ids.length) return [];
+    return [{ field: 'assignee', operator: operator === 'not_in' || operator === 'not_equals' ? 'not_in' : 'in', value: ids.join(',') }];
+  }
+
+  private queueCriterion(path: string, method: unknown, value: unknown, bundle: SearchBundle): SearchCriterion[] {
+    if (path === ':keywords') return [];
+    if (toLower(path) === 'assignee') return this.queueAssigneeCriteria(method, value);
+    const field = this.mapQueueField(path);
+    const operator = this.mapQueueOperator(method);
+    if (operator === 'period') {
+      const range = this.queuePeriodRange(value);
+      return range ? [{ field, operator: 'between', value: range[0], value2: range[1] }] : [];
+    }
+    let tokens = this.queueValueTokens(value);
+    if (toLower(path).replace(/__/g, '.') === 'status.id') {
+      tokens = tokens.map((id) => toLower(bundle.statusById.get(id)?.state || bundle.statusById.get(id)?.name || '')).filter(Boolean);
+    }
+    if (operator === 'set' || operator === 'not_set') return [{ field, operator }];
+    if (operator === 'in' || operator === 'not_in') return [{ field, operator, value: tokens.join(',') }];
+    if (operator === 'between') return [{ field, operator, value: tokens[0] ?? '', value2: tokens[1] ?? '' }];
+    return [{ field, operator, value: tokens.length > 1 ? tokens.join(',') : (tokens[0] ?? '') }];
+  }
+
+  private queueCriteriaFromItems(items: unknown, bundle: SearchBundle, keyword = ''): { criteria: SearchCriterion[]; keyword: string } {
+    const criteria: SearchCriterion[] = [];
+    let searchKeyword = keyword;
+    if (!Array.isArray(items)) return { criteria, keyword: searchKeyword };
+    for (const item of items) {
+      if (Array.isArray(item)) {
+        const [path, method, value] = item;
+        const field = toStr(path);
+        if (!field) continue;
+        if (field === ':keywords') {
+          searchKeyword = [searchKeyword, toStr(value)].filter(Boolean).join(' ');
+          continue;
+        }
+        criteria.push(...this.queueCriterion(field, method, value, bundle));
+      } else if (item && typeof item === 'object') {
+        const field = toStr((item as any).field || (item as any).path || (item as any).name);
+        if (!field) continue;
+        const method = (item as any).operator || (item as any).method || (item as any).op || 'equals';
+        const value = (item as any).value ?? (item as any).search ?? '';
+        const converted = this.queueCriterion(field, method, value, bundle);
+        if ((item as any).value2 !== undefined) converted.forEach((criterion) => { criterion.value2 = (item as any).value2; });
+        criteria.push(...converted);
+      }
+    }
+    return { criteria, keyword: searchKeyword };
+  }
+
+  private queueConfigFromRow(queue: any, bundle: SearchBundle): { criteria: SearchCriterion[]; keyword: string; columns: any[]; sort: { field: string; direction: 'asc' | 'desc' } | null; pageSize?: number } {
+    const parsed = parseJson(queue.config, null);
+    let items: unknown[] = [];
+    let keyword = '';
+    let columns: any[] = [];
+    let sort: { field: string; direction: 'asc' | 'desc' } | null = null;
+    let pageSize: number | undefined;
+    if (Array.isArray(parsed)) {
+      items = parsed;
+    } else if (parsed && typeof parsed === 'object') {
+      if (Array.isArray((parsed as any).criteria)) items = (parsed as any).criteria;
+      keyword = toStr((parsed as any).q ?? (parsed as any).keyword ?? '');
+      if (Array.isArray((parsed as any).columns)) columns = this.normalizeColumnInput((parsed as any).columns);
+      if ((parsed as any).sort && typeof (parsed as any).sort === 'object') {
+        const field = toStr((parsed as any).sort.field || (parsed as any).sort.path);
+        if (field) sort = { field, direction: toLower((parsed as any).sort.direction || (parsed as any).sort.dir) === 'asc' ? 'asc' : 'desc' };
+      }
+      if (Number((parsed as any).pageSize) > 0) pageSize = Number((parsed as any).pageSize);
+    }
+    const converted = this.queueCriteriaFromItems(items, bundle, keyword);
+
+    if (!columns.length) {
+      for (const link of bundle.queueColumnLinks.filter((row) => toStr(row.queue_id) === toStr(queue.id))) {
+        const column = bundle.queueColumns.find((row) => toStr(row.id) === toStr(link.column_id));
+        if (!column) continue;
+        const path = this.mapQueueField(toStr(column.name));
+        if (!path) continue;
+        columns.push({ path, label: toStr(column.heading || column.name), width: Number(column.width) || undefined, sortable: true });
+      }
+    }
+
+    if (!sort) {
+      const link = bundle.queueSortLinks.find((row) => toStr(row.queue_id) === toStr(queue.id));
+      const row = link ? bundle.queueSorts.find((item) => toStr(item.id) === toStr(link.sort_id)) : null;
+      const field = row ? this.mapQueueField(toStr(row.field)) : '';
+      if (field) sort = { field, direction: 'desc' };
+    }
+
+    return { ...converted, columns, sort, pageSize };
+  }
+
+  private queueConfigChain(queue: any, bundle: SearchBundle, seen = new Set<string>()): { criteria: SearchCriterion[]; keyword: string; columns: any[]; sort: { field: string; direction: 'asc' | 'desc' } | null; pageSize?: number } {
+    const id = toStr(queue.id);
+    if (seen.has(id)) return { criteria: [], keyword: '', columns: [], sort: null };
+    seen.add(id);
+    const own = this.queueConfigFromRow(queue, bundle);
+    const flags = Number(queue.flags || 0);
+    const inherits = Boolean(flags & (QUEUE_FLAG_INHERIT_CRITERIA | QUEUE_FLAG_INHERIT_COLUMNS | QUEUE_FLAG_INHERIT_SORTING));
+    const parent = inherits && queue.parent_id ? bundle.queues.find((row) => toStr(row.id) === toStr(queue.parent_id)) : null;
+    const parentConfig = parent ? this.queueConfigChain(parent, bundle, seen) : null;
+    return {
+      criteria: [...((flags & QUEUE_FLAG_INHERIT_CRITERIA && parentConfig) ? parentConfig.criteria : []), ...own.criteria],
+      keyword: [parentConfig && (flags & QUEUE_FLAG_INHERIT_CRITERIA) ? parentConfig.keyword : '', own.keyword].filter(Boolean).join(' '),
+      columns: (flags & QUEUE_FLAG_INHERIT_COLUMNS && parentConfig?.columns.length) ? parentConfig.columns : own.columns,
+      sort: (flags & QUEUE_FLAG_INHERIT_SORTING && parentConfig?.sort) ? parentConfig.sort : own.sort,
+      pageSize: own.pageSize || parentConfig?.pageSize,
+    };
+  }
+
+  private queueCriteriaFromAppQueue(items: unknown): SearchCriterion[] {
+    const criteria: SearchCriterion[] = [];
+    if (!Array.isArray(items)) return criteria;
+    const fieldMap: Record<string, string> = {
+      status: 'status',
+      priority: 'priority',
+      deptId: 'department',
+      topicId: 'topic',
+      source: 'source',
+      overdue: 'isoverdue',
+    };
+    const operatorMap: Record<string, string> = { eq: 'equals', neq: 'not_equals', in: 'in', empty: 'empty', notempty: 'not_empty' };
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      const sourceField = toStr((item as any).field);
+      const field = fieldMap[sourceField] || sourceField;
+      const operator = operatorMap[toStr((item as any).op)] || 'equals';
+      const value = (item as any).value ?? '';
+      if (sourceField === 'assignee') {
+        const tokens = this.queueValueTokens(value);
+        if (tokens.some((token) => toLower(token) === 'mine')) criteria.push({ field: 'queue_assignee', operator: operator === 'not_equals' ? 'not_in' : 'in', value: 'me' });
+        else if (tokens.some((token) => toLower(token) === 'unassigned')) criteria.push({ field: 'assignee', operator: 'equals', value: '0' });
+        else criteria.push({ field: 'assignee', operator, value: tokens.join(',') });
+        continue;
+      }
+      if (sourceField === 'overdue') {
+        criteria.push({ field: 'isoverdue', operator: operator === 'not_equals' ? 'not_equals' : 'equals', value: toLower(value) === 'false' ? 'false' : 'true' });
+        continue;
+      }
+      criteria.push({ field, operator, value: Array.isArray(value) ? value.join(',') : toStr(value) });
+    }
+    return criteria;
+  }
+
+  private queueAppSort(value: unknown): { field: string; direction: 'asc' | 'desc' } | null {
+    const sorts: Record<string, { field: string; direction: 'asc' | 'desc' }> = {
+      updatedDesc: { field: 'updated', direction: 'desc' },
+      updatedAsc: { field: 'updated', direction: 'asc' },
+      createdDesc: { field: 'created', direction: 'desc' },
+      priorityDesc: { field: 'priority', direction: 'desc' },
+      numberAsc: { field: 'number', direction: 'asc' },
+    };
+    return sorts[toStr(value)] || null;
+  }
+
+  private async resolveTicketQueue(queueId: string, bundle: SearchBundle, staffId: number) {
+    const builtin = builtinTicketQueue(queueId);
+    if (builtin) {
+      return {
+        id: builtin.id,
+        title: builtin.title,
+        parentId: builtin.parentId,
+        filter: builtin.filter,
+        root: builtin.root,
+        flags: builtin.flags,
+        sort: builtin.sort,
+        builtin: true,
+        criteria: builtin.criteria as SearchCriterion[],
+        keyword: '',
+        columns: builtin.columns.map((column) => ({ path: column.path, label: column.label, width: column.width, sortable: true })),
+        sortBy: builtin.sortBy,
+        pageSize: undefined,
+      };
+    }
+
+    const row = bundle.queues.find((queue) => toStr(queue.id) === queueId);
+    if (row) {
+      const flags = Number(row.flags || 0);
+      if (flags & QUEUE_FLAG_DISABLED && Number(row.staff_id || 0) !== staffId) throw new NotFoundException('Ticket queue not found.');
+      if (Number(row.staff_id || 0) !== 0 && Number(row.staff_id || 0) !== staffId) throw new ForbiddenException('This ticket queue is private.');
+      const root = toLower(row.root || 'T');
+      if (root && !['t', 'ticket', 'tickets'].includes(root)) throw new NotFoundException('Ticket queue not found.');
+      const config = this.queueConfigChain(row, bundle);
+      return {
+        id: toStr(row.id),
+        title: row.title || 'Untitled queue',
+        parentId: toStr(row.parent_id || ''),
+        filter: toStr(row.filter || ''),
+        root: row.root || 'T',
+        flags,
+        sort: Number(row.sort || 0),
+        builtin: false,
+        criteria: config.criteria,
+        keyword: config.keyword,
+        columns: config.columns,
+        sortBy: config.sort,
+        pageSize: config.pageSize,
+      };
+    }
+
+    const saved = await this.prisma.config.findUnique({ where: { namespace_key: { namespace: 'react_app_state', key: 'queues' } } });
+    const appQueues = parseJson(saved?.value, []);
+    const appQueue = Array.isArray(appQueues) ? appQueues.find((queue: any) => toStr(queue.id) === queueId) : null;
+    if (appQueue && appQueue.enabled !== false) {
+      return {
+        id: toStr(appQueue.id),
+        title: toStr(appQueue.title || 'Untitled queue'),
+        parentId: toStr(appQueue.parentId || ''),
+        filter: '',
+        root: 'T',
+        flags: 0x03,
+        sort: Number(appQueue.sort || 0),
+        builtin: false,
+        criteria: this.queueCriteriaFromAppQueue(appQueue.criteria),
+        keyword: '',
+        columns: [],
+        sortBy: this.queueAppSort(appQueue.sortBy),
+        pageSize: undefined,
+      };
+    }
+
+    throw new NotFoundException('Ticket queue not found.');
+  }
+
+  async queueSearch(queueId: string, input: any, staffId: number) {
+    const requestedKeyword = toStr(input?.q || input?.keyword || '').trim();
+    let bundle = await this.loadBundle(requestedKeyword);
+    this.ensureQueueFields(bundle);
+    const queue = await this.resolveTicketQueue(queueId, bundle, staffId);
+
+    const keyword = [queue.keyword, requestedKeyword].filter(Boolean).join(' ');
+    if (keyword && keyword !== requestedKeyword) {
+      bundle = await this.loadBundle(keyword);
+      this.ensureQueueFields(bundle);
+    }
+
+    const inputCriteria = Array.isArray(input?.criteria) ? input.criteria : [];
+    const result = await this.searchWithBundle({
+      ...input,
+      q: keyword,
+      criteria: [...queue.criteria, ...inputCriteria],
+      columns: Array.isArray(input?.columns) && input.columns.length ? input.columns : queue.columns,
+      sort: input?.sort ?? queue.sortBy ?? undefined,
+      pageSize: input?.pageSize ?? queue.pageSize,
+      savedSearchId: '',
+    }, bundle, staffId);
+
+    return {
+      queue: {
+        id: queue.id,
+        title: queue.title,
+        parentId: queue.parentId,
+        filter: queue.filter,
+        root: queue.root,
+        flags: queue.flags,
+        sort: queue.sort,
+        builtin: queue.builtin,
+        columns: result.columns,
+        sortBy: result.sort,
+      },
+      ...result,
     };
   }
 

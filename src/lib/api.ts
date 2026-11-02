@@ -30,7 +30,7 @@ function currentSessionHeaders(): Record<string, string> {
 }
 export function apiHealth() { return request<ApiHealth>('/health') }
 export function listApiTickets(token?: string) { return request<{ tickets: Array<Record<string, any>> }>('/tickets', { headers: token ? { 'x-user-session': token } : currentSessionHeaders() }) }
-export interface ApiQueueDefinition { id: string; title: string; parentId: string; filter: string; root: string; sort: number; columns: Array<{ id: string; heading: string; field: string; width: string; sort: number }>; sorting: Array<{ id: string; name: string; field: string; sort: number }> }
+export interface ApiQueueDefinition { id: string; title: string; parentId: string; filter: string; root: string; sort: number; flags?: number; staffId?: string; builtin?: boolean; columns: Array<{ id: string; heading: string; field: string; width: string; sort: number }>; sorting: Array<{ id: string; name: string; field: string; sort: number; direction?: 'asc' | 'desc' }> }
 export function listApiQueues() { return request<{ queues: ApiQueueDefinition[]; customQueues: import('../types').TicketQueue[] }>('/tickets/queues', { headers: currentSessionHeaders() }) }
 
 export type ApiSearchFieldType = 'text' | 'number' | 'date' | 'boolean' | 'select'
@@ -110,6 +110,22 @@ export interface ApiAdvancedSearchResult {
   savedSearchId: string
   tookMs: number
 }
+export type ApiQueueTicketsInput = Omit<ApiAdvancedSearchInput, 'savedSearchId'>
+export interface ApiQueueInfo {
+  id: string
+  title: string
+  parentId: string
+  filter: string
+  root: string
+  flags: number
+  sort: number
+  builtin: boolean
+  columns: ApiSearchField[]
+  sortBy: ApiSearchSort
+}
+export interface ApiQueueTicketsResult extends ApiAdvancedSearchResult {
+  queue: ApiQueueInfo
+}
 export interface ApiSavedSearchConfig {
   q: string
   criteria: ApiSearchCriterion[]
@@ -173,6 +189,7 @@ export interface ApiSavedSearchInput {
 
 export function advancedSearchApiTickets(input: ApiAdvancedSearchInput) { return request<ApiAdvancedSearchResult>('/tickets/advanced-search', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }) }
 export function searchApiTickets(input: ApiAdvancedSearchInput) { return request<ApiAdvancedSearchResult>('/tickets/search', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }) }
+export function listApiQueueTickets(queueId: string, input: ApiQueueTicketsInput = {}) { return request<ApiQueueTicketsResult>('/tickets/queues/' + encodeURIComponent(queueId) + '/tickets', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }) }
 export function getApiAdvancedSearchOptions() { return request<ApiAdvancedSearchOptions>('/tickets/search/options', { headers: currentSessionHeaders() }) }
 export function listApiSavedSearches() { return request<{ searches: ApiSavedSearch[] }>('/tickets/search/saved', { headers: currentSessionHeaders() }).then((result) => result.searches) }
 export function createApiSavedSearch(input: ApiSavedSearchInput) { return request<{ search: ApiSavedSearch }>('/tickets/search/saved', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }).then((result) => result.search) }

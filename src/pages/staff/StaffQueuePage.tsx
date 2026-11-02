@@ -1,227 +1,487 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { PriorityBadge, StatusBadge } from '../../components/Badges'
-import { btnGhost, btnPrimary, PageHeader, inputClass} from '../../components/ui'
+import { btnGhost, btnPrimary, inputClass, PageHeader } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
 import { useAgents } from '../../hooks/useAgents'
 import { useDb } from '../../hooks/useDb'
 import { ticketQueues } from '../../layouts/staffNav'
-import { relativeTime } from '../../lib/format'
-import { bulkTickets, matchQueue, ticketsToCsv } from '../../lib/store'
-import { listApiQueues } from '../../lib/api'
-import type { TicketQueue } from '../../types'
+import {
+  getApiAdvancedSearchOptions,
+  listApiQueueTickets,
+  listApiQueues,
+  type ApiAdvancedSearchOptions,
+  type ApiQueueTicketsInput,
+  type ApiQueueTicketsResult,
+  type ApiSearchCriterion,
+  type ApiSearchField,
+  type ApiSearchTicket,
+} from '../../lib/api'
+import { formatDate } from '../../lib/format'
+import { bulkTickets } from '../../lib/store'
+import type { Priority, TicketStatus } from '../../types'
+
+type QueueTab = { id: string; title: string; sort: number }
+
+const PAGE_SIZES = [10, 25, 50, 100, 200]
+const QUEUE_FLAG_DISABLED = 0x0004
+
+const FALLBACK_COLUMNS: ApiSearchField[] = [
+  { path: 'number', label: 'Ticket', type: 'text', group: 'Ticket' },
+  { path: 'subject', label: 'Subject', type: 'text', group: 'Ticket' },
+  { path: 'priority', label: 'Priority', type: 'select', group: 'Ticket' },
+  { path: 'status', label: 'Status', type: 'select', group: 'Ticket' },
+  { path: 'department', label: 'Department', type: 'select', group: 'Ticket' },
+  { path: 'assignee', label: 'Assigned To', type: 'select', group: 'Ticket' },
+  { path: 'updated', label: 'Last Updated', type: 'date', group: 'Dates' },
+]
+
+function formatCellValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—'
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (Array.isArray(value)) return value.join(', ')
+  return String(value)
+}
+
+function formatDateTime(value: unknown): string {
+  const text = String(value ?? '')
+  if (!text) return '—'
+  const parsed = new Date(text)
+  return Number.isFinite(parsed.getTime()) ? formatDate(text) : text
+}
+
+function escapeCsv(value: string) {
+  const text = value.replace(/\r?\n/g, ' ')
+  return /[",]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text
+}
+
+function lastSegment(value: unknown): string {
+  const text = String(value ?? '').trim()
+  if (!text) return ''
+  return text.split(/[\s,]+/).pop() || text
+}
 
 export function StaffQueuePage() {
   const [params, setParams] = useSearchParams()
-  const queue = params.get('queue') || 'open'
+  const queueId = params.get('queue') || 'open'
   const dept = params.get('dept') ?? 'all'
-  const q = params.get('q') ?? ''
+  const qParam = params.get('q') ?? ''
+  const sortParam = params.get('sort') ?? ''
+  const dirParam: 'asc' | 'desc' = params.get('dir') === 'asc' ? 'asc' : 'desc'
+  const requestedPageSize = Number(params.get('pageSize') || 25)
+  const pageSize = PAGE_SIZES.includes(requestedPageSize) ? requestedPageSize : 25
+  const page = Math.max(1, Number(params.get('page') || 1) || 1)
+
   const db = useDb()
   const { user } = useAuth()
   const agents = useAgents()
+
+  const [search, setSearch] = useState(qParam)
+  const [catalog, setCatalog] = useState<QueueTab[]>(() => ticketQueues.map((queue, index) => ({ id: queue.id, title: queue.label, sort: index + 1 })))
+  const [options, setOptions] = useState<ApiAdvancedSearchOptions | null>(null)
+  const [result, setResult] = useState<ApiQueueTicketsResult | null>(null)
   const [selected, setSelected] = useState<string[]>([])
-  const [serverQueues, setServerQueues] = useState<TicketQueue[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     let active = true
-    listApiQueues().then(result => { if (active) setServerQueues(result.customQueues) }).catch(() => { if (active) setServerQueues(null) })
-    return () => { active = false }
-  }, [])
-  const queueDefinitions = serverQueues ?? db.queues
-
-  const tickets = useMemo(() => {
-    return matchQueue(db.tickets, queue, user?.id, queueDefinitions).filter((t) => {
-      if (dept !== 'all' && t.deptId !== dept) return false
-      if (q && !`${t.number} ${t.subject}`.toLowerCase().includes(q.toLowerCase())) return false
-      return true
+    Promise.allSettled([listApiQueues(), getApiAdvancedSearchOptions()]).then(([queuesResult, optionsResult]) => {
+      if (!active) return
+      if (queuesResult.status === 'fulfilled') {
+        const serverQueues = queuesResult.value.queues
+          .filter((queue) => {
+            const flags = Number(queue.flags || 0)
+            if (!queue.builtin && (flags & QUEUE_FLAG_DISABLED)) return false
+            const owner = queue.staffId || '0'
+            return owner === '0' || owner === String(user?.id || '')
+          })
+          .map((queue) => ({ id: queue.id, title: queue.title, sort: Number(queue.sort) || 0 }))
+        const appQueues = queuesResult.value.customQueues
+          .filter((queue) => queue.enabled)
+          .map((queue) => ({ id: queue.id, title: queue.title, sort: Number(queue.sort) || 0 }))
+        const seen = new Set<string>()
+        const merged = [...serverQueues, ...appQueues].filter((queue) => {
+          if (seen.has(queue.id)) return false
+          seen.add(queue.id)
+          return true
+        })
+        merged.sort((left, right) => left.sort - right.sort || left.title.localeCompare(right.title))
+        setCatalog(merged)
+      }
+      if (optionsResult.status === 'fulfilled') setOptions(optionsResult.value)
     })
-  }, [db, queue, q, dept, user?.id, queueDefinitions])
+    return () => { active = false }
+  }, [user?.id])
+
+  useEffect(() => {
+    setSearch(qParam)
+  }, [qParam])
+
+  useEffect(() => {
+    if (search === qParam) return
+    const timer = window.setTimeout(() => {
+      setParams((current) => {
+        const copy = new URLSearchParams(current)
+        const value = search.trim()
+        if (value) copy.set('q', value)
+        else copy.delete('q')
+        copy.set('page', '1')
+        return copy
+      })
+    }, 350)
+    return () => window.clearTimeout(timer)
+  }, [search, qParam, setParams])
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError('')
+    const criteria: ApiSearchCriterion[] = dept !== 'all' ? [{ field: 'department', operator: 'equals', value: dept }] : []
+    const input: ApiQueueTicketsInput = { q: qParam, criteria, page, pageSize }
+    if (sortParam) input.sort = { field: sortParam, direction: dirParam }
+    listApiQueueTickets(queueId, input)
+      .then((queueResult) => {
+        if (!active) return
+        setResult(queueResult)
+        setSelected([])
+      })
+      .catch((err: unknown) => {
+        if (!active) return
+        setResult(null)
+        setError(err instanceof Error ? err.message : 'Could not load this queue.')
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => { active = false }
+  }, [queueId, dept, qParam, sortParam, dirParam, page, pageSize, refreshKey])
+
+  const columns = useMemo(() => (result?.columns.length ? result.columns : FALLBACK_COLUMNS), [result])
+  const departments = options?.departments ?? db.departments.map((department) => ({ id: department.id, name: department.name }))
+  const assignableAgents = options?.agents ?? agents.map((agent) => ({ id: agent.id, name: agent.name, email: agent.email }))
+  const activeQueue = catalog.find((queue) => queue.id === queueId)
+  const activeSort = sortParam ? { field: sortParam, direction: dirParam } : result?.sort
+  const tickets = result?.tickets ?? []
+  const allSelected = tickets.length > 0 && selected.length === tickets.length
 
   function patch(key: string, value: string) {
-    const copy = new URLSearchParams(params)
-    if (!value || value === 'all' && key !== 'queue') copy.delete(key)
-    else copy.set(key, value)
-    setParams(copy)
     setSelected([])
+    setNotice('')
+    setParams((current) => {
+      const copy = new URLSearchParams(current)
+      if (!value || (value === 'all' && key !== 'queue')) copy.delete(key)
+      else copy.set(key, value)
+      if (key !== 'page') copy.set('page', '1')
+      return copy
+    })
+  }
+
+  function changeSort(column: ApiSearchField) {
+    const direction: 'asc' | 'desc' = activeSort?.field === column.path && activeSort.direction === 'desc' ? 'asc' : 'desc'
+    setSelected([])
+    setParams((current) => {
+      const copy = new URLSearchParams(current)
+      copy.set('sort', column.path)
+      copy.set('dir', direction)
+      copy.set('page', '1')
+      return copy
+    })
   }
 
   function toggle(id: string) {
-    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+    setSelected((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
+  }
+
+  async function applyBulk(patchValues: { status?: TicketStatus; assigneeId?: string | null }) {
+    if (!user || selected.length === 0) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await bulkTickets(selected, patchValues, user)
+      setSelected([])
+      setRefreshKey((key) => key + 1)
+      setNotice(patchValues.status === 'closed' ? 'Tickets closed.' : patchValues.status === 'open' ? 'Tickets reopened.' : 'Ticket assignment updated.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update the selected tickets.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   function exportCsv() {
-    const blob = new Blob([ticketsToCsv(tickets)], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `tickets-${queue}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    if (!result) return
+    setExporting(true)
+    setError('')
+    void (async () => {
+      try {
+        const exportColumns = result.columns.length ? result.columns : FALLBACK_COLUMNS
+        const criteria: ApiSearchCriterion[] = dept !== 'all' ? [{ field: 'department', operator: 'equals', value: dept }] : []
+        const sort = sortParam ? { field: sortParam, direction: dirParam } : result.sort
+        let rows = result.tickets
+        if (result.pages > 1) {
+          const collected: ApiSearchTicket[] = []
+          const lastPage = Math.min(result.pages, 50)
+          for (let index = 1; index <= lastPage; index += 1) {
+            const pageResult = await listApiQueueTickets(queueId, { q: qParam, criteria, sort, page: index, pageSize: 200 })
+            collected.push(...pageResult.tickets)
+          }
+          rows = collected
+        }
+        const header = exportColumns.map((column) => escapeCsv(column.label)).join(',')
+        const body = rows
+          .map((ticket) => exportColumns.map((column) => escapeCsv(formatCellValue(ticket.values[column.path]))).join(','))
+          .join('\r\n')
+        const blob = new Blob([header + '\r\n' + body], { type: 'text/csv;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `tickets-${queueId}-${new Date().toISOString().slice(0, 10)}.csv`
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not export this queue.')
+      } finally {
+        setExporting(false)
+      }
+    })()
+  }
+
+  function renderCell(ticket: ApiSearchTicket, column: ApiSearchField) {
+    const value = ticket.values[column.path]
+    if (column.path === 'number') {
+      return (
+        <Link to={`/scp/tickets/${ticket.id}`} className="font-medium text-brand-600">
+          {formatCellValue(value) === '—' ? ticket.number : formatCellValue(value)}
+        </Link>
+      )
+    }
+    if (column.path === 'subject') {
+      return (
+        <div>
+          <Link to={`/scp/tickets/${ticket.id}`} className="hover:underline">
+            {formatCellValue(value) === '—' ? ticket.subject : formatCellValue(value)}
+          </Link>
+          {ticket.snippet ? <p className="mt-1 max-w-xl text-xs text-ink-500">{ticket.snippet}</p> : null}
+        </div>
+      )
+    }
+    if (column.path === 'status') {
+      return <StatusBadge status={String(ticket.status || lastSegment(value)).toLowerCase() as TicketStatus} />
+    }
+    if (column.path === 'priority') {
+      return <PriorityBadge priority={String(value || ticket.priority).toLowerCase() as Priority} />
+    }
+    if (column.type === 'date') return formatDateTime(value)
+    if (column.type === 'boolean') return value === true ? 'Yes' : value === false ? 'No' : '—'
+    return formatCellValue(value)
   }
 
   return (
     <div>
       <PageHeader
         title="Ticket queues"
-        subtitle="Open, mine, unassigned, overdue, and closed — matching osTicket staff queues."
+        subtitle="Open, answered, mine, overdue, unassigned, and closed tickets."
         actions={
           <>
             <Link to="/scp/tickets/new" className={btnPrimary}>
               Open ticket
             </Link>
-            <button type="button" className={btnGhost} onClick={exportCsv}>
-              Export CSV
+            <button type="button" className={btnGhost} onClick={exportCsv} disabled={!result || result.tickets.length === 0 || exporting}>
+              {exporting ? 'Exporting…' : 'Export CSV'}
             </button>
             {user?.role === 'admin' ? <Link to="/scp/admin/queues" className={btnGhost}>Manage queues</Link> : null}
           </>
         }
       />
+
       <div className="flex gap-2 overflow-x-auto pb-2">
-        {[...ticketQueues, ...queueDefinitions.filter((item) => item.enabled).map((item) => ({ id: item.id, label: item.title }))].map((item) => (
+        {catalog.map((queue) => (
           <button
-            key={item.id}
+            key={queue.id}
             type="button"
-            onClick={() => patch('queue', item.id)}
-            className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${queue === item.id ? 'bg-brand-600 text-white' : 'bg-surface ring-1 ring-line'}`}
+            onClick={() => patch('queue', queue.id)}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${queueId === queue.id ? 'bg-brand-600 text-white' : 'bg-surface ring-1 ring-line'}`}
           >
-            {item.label}
+            {queue.title}
           </button>
         ))}
       </div>
-      <div className="mt-2">
-        <Link to="/scp/search" className={btnGhost}>Advanced Search</Link>
-      </div>
-      <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
+
+      <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center">
         <input
-          value={q}
-          onChange={(e) => patch('q', e.target.value)}
-          placeholder="Search number or subject"
-          className={inputClass + " flex-1"}
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search number, subject, requester, or message body"
+          className={inputClass + ' flex-1'}
+          aria-label="Search this queue"
         />
-        <select value={dept} onChange={(e) => patch('dept', e.target.value)} className={inputClass}>
+        <select value={dept} onChange={(event) => patch('dept', event.target.value)} className={inputClass + ' lg:w-56'} aria-label="Filter by department">
           <option value="all">All departments</option>
-          {db.departments.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
+          {departments.map((department) => (
+            <option key={department.id} value={department.id}>
+              {department.name}
             </option>
           ))}
         </select>
+        <select value={pageSize} onChange={(event) => patch('pageSize', event.target.value)} className={inputClass + ' lg:w-36'} aria-label="Tickets per page">
+          {PAGE_SIZES.map((size) => (
+            <option key={size} value={size}>
+              {size} / page
+            </option>
+          ))}
+        </select>
+        <Link to="/scp/search" className={btnGhost}>Advanced search</Link>
       </div>
+
+      {error ? <p className="mt-4 text-sm text-rose-600">{error}</p> : null}
+      {notice ? <p className="mt-4 text-sm text-emerald-700">{notice}</p> : null}
+
       {selected.length > 0 && user ? (
         <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface p-3 text-sm">
-          <span>{selected.length} selected</span>
-          <button type="button" className={btnGhost} onClick={() => bulkTickets(selected, { status: 'closed' }, user)}>
+          <span className="font-medium">{selected.length} selected</span>
+          <button type="button" className={btnGhost} disabled={busy} onClick={() => void applyBulk({ status: 'closed' })}>
             Close
           </button>
-          <button type="button" className={btnGhost} onClick={() => bulkTickets(selected, { status: 'open' }, user)}>
+          <button type="button" className={btnGhost} disabled={busy} onClick={() => void applyBulk({ status: 'open' })}>
             Reopen
           </button>
           <select
-            className={inputClass}
+            className={inputClass + ' w-auto'}
             defaultValue=""
-            onChange={(e) => {
-              if (!e.target.value) return
-              bulkTickets(selected, { assigneeId: e.target.value === 'none' ? null : e.target.value }, user)
-              e.target.value = ''
+            disabled={busy}
+            onChange={(event) => {
+              const value = event.target.value
+              event.target.value = ''
+              if (!value) return
+              void applyBulk({ assigneeId: value === 'none' ? null : value })
             }}
+            aria-label="Assign selected tickets"
           >
             <option value="">Assign…</option>
             <option value="none">Unassigned</option>
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
+            {assignableAgents.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name}
               </option>
             ))}
           </select>
+          <button type="button" className={btnGhost} disabled={busy} onClick={() => setSelected([])}>
+            Clear selection
+          </button>
         </div>
       ) : null}
 
-      <ul className="mt-6 grid gap-3 lg:hidden">
-        {tickets.map((t) => {
-          const assignee = db.users.find((u) => u.id === t.assigneeId)
-          return (
-            <li key={t.id} className="rounded-2xl border border-line bg-surface p-4">
-              <label className="mb-2 flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={selected.includes(t.id)} onChange={() => toggle(t.id)} />
-                Select
-              </label>
-              <Link to={`/scp/tickets/${t.id}`} className="block">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="font-medium">
-                    #{t.number} {t.subject}
-                  </p>
-                  <StatusBadge status={t.status} />
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-ink-600">
-                  <PriorityBadge priority={t.priority} />
-                  {t.branchName ? <span>Branch: {t.branchName}</span> : null}
-                  <span>{assignee?.name ?? 'Unassigned'}</span>
-                  <span>{relativeTime(t.updatedAt)}</span>
-                  {t.overdue ? <span className="text-rose-600">overdue</span> : null}
-                </div>
-              </Link>
-            </li>
-          )
-        })}
+      <div className="mt-6 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-ink-800">{activeQueue?.title ?? queueId}</h2>
+          <p className="text-sm text-ink-600">
+            {loading && !result ? 'Loading tickets…' : result ? `${result.total.toLocaleString()} ticket${result.total === 1 ? '' : 's'}` : 'No queue loaded'}
+            {result && result.total > 0 ? ` · page ${result.page} of ${Math.max(1, result.pages)}` : ''}
+            {result?.keyword ? ` · keyword “${result.keyword}”` : ''}
+          </p>
+        </div>
+        {loading && result ? <span className="text-sm text-ink-500">Refreshing…</span> : null}
+      </div>
+
+      <ul className="mt-4 grid gap-3 lg:hidden">
+        {tickets.map((ticket) => (
+          <li key={ticket.id} className="rounded-2xl border border-line bg-surface p-4">
+            <label className="mb-2 flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={selected.includes(ticket.id)} onChange={() => toggle(ticket.id)} />
+              Select
+            </label>
+            <Link to={`/scp/tickets/${ticket.id}`} className="block">
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-medium">
+                  #{ticket.number} {ticket.subject}
+                </p>
+                <StatusBadge status={String(ticket.status).toLowerCase() as TicketStatus} />
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-ink-600">
+                <PriorityBadge priority={String(ticket.priority).toLowerCase() as Priority} />
+                {ticket.department ? <span>{ticket.department}</span> : null}
+                <span>{ticket.assignee || 'Unassigned'}</span>
+                <span>{formatDateTime(ticket.updatedAt)}</span>
+                {ticket.overdue ? <span className="text-rose-600">overdue</span> : null}
+              </div>
+            </Link>
+          </li>
+        ))}
       </ul>
 
-      <div className="-mx-3 mt-6 hidden overflow-x-auto px-3 lg:mx-0 lg:block lg:px-0">
-        <div className="overflow-hidden rounded-2xl border border-line bg-surface">
-          <table className="w-full min-w-[48rem] text-left text-sm">
+      <div className="-mx-3 hidden overflow-x-auto px-3 lg:mx-0 lg:block lg:px-0">
+        <div className="mt-4 overflow-hidden rounded-2xl border border-line bg-surface">
+          <table className="w-full min-w-[52rem] text-left text-sm">
             <thead className="bg-paper text-ink-600">
               <tr>
-                <th className="px-4 py-3">
+                <th className="w-10 px-4 py-3">
                   <input
                     type="checkbox"
-                    checked={tickets.length > 0 && selected.length === tickets.length}
-                    onChange={(e) => setSelected(e.target.checked ? tickets.map((t) => t.id) : [])}
+                    checked={allSelected}
+                    onChange={(event) => setSelected(event.target.checked ? tickets.map((ticket) => ticket.id) : [])}
+                    aria-label="Select all tickets on this page"
                   />
                 </th>
-                <th className="px-4 py-3 font-medium">Number</th>
-                <th className="px-4 py-3 font-medium">Subject</th>
-                <th className="px-4 py-3 font-medium">Priority</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Branch</th>
-                <th className="px-4 py-3 font-medium">Assignee</th>
-                <th className="px-4 py-3 font-medium">Updated</th>
+                {columns.map((column) => {
+                  const active = activeSort?.field === column.path
+                  return (
+                    <th key={column.path} className="whitespace-nowrap px-4 py-3 font-medium">
+                      <button type="button" className={active ? 'text-brand-700' : undefined} onClick={() => changeSort(column)}>
+                        {column.label}{active ? (activeSort?.direction === 'asc' ? ' ↑' : ' ↓') : ''}
+                      </button>
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
-              {tickets.map((t) => {
-                const assignee = db.users.find((u) => u.id === t.assigneeId)
-                return (
-                  <tr key={t.id} className="border-t border-line">
-                    <td className="px-4 py-3">
-                      <input type="checkbox" checked={selected.includes(t.id)} onChange={() => toggle(t.id)} />
+              {tickets.map((ticket) => (
+                <tr key={ticket.id} className="border-t border-line align-top">
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(ticket.id)}
+                      onChange={() => toggle(ticket.id)}
+                      aria-label={`Select ticket ${ticket.number}`}
+                    />
+                  </td>
+                  {columns.map((column) => (
+                    <td key={column.path} className="max-w-[22rem] break-words px-4 py-3">
+                      {renderCell(ticket, column)}
                     </td>
-                    <td className="px-4 py-3 font-medium">
-                      <Link to={`/scp/tickets/${t.id}`} className="text-brand-600">
-                        {t.number}
-                      </Link>
-                      {t.overdue ? <span className="ml-2 text-xs text-rose-600">overdue</span> : null}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link to={`/scp/tickets/${t.id}`} className="hover:underline">
-                        {t.subject}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3">
-                      <PriorityBadge priority={t.priority} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={t.status} />
-                    </td>
-                    <td className="px-4 py-3">{t.branchName || '—'}</td>
-                    <td className="px-4 py-3">{assignee?.name ?? 'Unassigned'}</td>
-                    <td className="px-4 py-3 text-ink-600">{relativeTime(t.updatedAt)}</td>
-                  </tr>
-                )
-              })}
+                  ))}
+                </tr>
+              ))}
             </tbody>
           </table>
+          {loading && tickets.length === 0 ? <p className="px-4 py-6 text-sm text-ink-600">Loading tickets…</p> : null}
+          {!loading && tickets.length === 0 ? <p className="px-4 py-6 text-sm text-ink-600">No tickets in this queue.</p> : null}
         </div>
       </div>
-      {tickets.length === 0 ? <p className="mt-6 text-sm text-ink-600">No tickets in this queue.</p> : null}
+
+      {!loading && tickets.length === 0 ? <p className="mt-4 text-sm text-ink-600 lg:hidden">No tickets in this queue.</p> : null}
+
+      {result && result.pages > 1 ? (
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <button type="button" className={btnGhost} disabled={result.page <= 1 || loading} onClick={() => patch('page', String(result.page - 1))}>
+            Previous
+          </button>
+          <span className="text-sm text-ink-600">
+            Page {result.page} of {result.pages}
+          </span>
+          <button type="button" className={btnGhost} disabled={result.page >= result.pages || loading} onClick={() => patch('page', String(result.page + 1))}>
+            Next
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }

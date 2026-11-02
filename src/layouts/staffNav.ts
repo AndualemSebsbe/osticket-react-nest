@@ -24,12 +24,13 @@ export const agentTabs: { id: string; label: string; to: string }[] = [
 
 export const ticketQueues = [
   { id: 'open', label: 'Open' },
-  { id: 'mine', label: 'My tickets' },
-  { id: 'unassigned', label: 'Unassigned' },
-  { id: 'pending', label: 'Pending' },
+  { id: 'answered', label: 'Answered' },
+  { id: 'mine', label: 'My Tickets' },
   { id: 'overdue', label: 'Overdue' },
   { id: 'closed', label: 'Closed' },
-  { id: 'all', label: 'All' },
+  { id: 'unassigned', label: 'Unassigned' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'all', label: 'All Tickets' },
 ] as const
 
 /** Mirrors osTicket AdminNav tabs + submenus from class.nav.php */

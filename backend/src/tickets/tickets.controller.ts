@@ -18,6 +18,10 @@ export class TicketsController {
   @Get('users/tickets') async userTickets(@Headers('x-user-session') token:string) { const session=this.security.readSession(token); const account=session?await this.auth.validateClient(session.email):null; if(!this.auth.sessionAccount(account,session,'client')) throw new UnauthorizedException('Session expired.'); const tickets=await this.tickets.listForClient(account!.user.email,account!.user.id); return { tickets, messages:tickets.flatMap((ticket:any)=>(ticket.messages||[]).map((message:any)=>({...message,ticketNumber:ticket.number}))) }; }
   @Get('tickets') async list(@Headers('x-user-session') token:string) { const session=this.security.readSession(token); const account=session?await this.auth.validateStaff(session.email):null; if(!this.auth.sessionAccount(account,session,'staff')) throw new UnauthorizedException('Active staff session required.'); return this.tickets.listApi().then(tickets=>({tickets})); }
   @Get('tickets/queues') async queues(@Headers('x-user-session') token:string) { const session=this.security.readSession(token); const account=session?await this.auth.validateStaff(session.email):null; if(!this.auth.sessionAccount(account,session,'staff')) throw new UnauthorizedException('Active staff session required.'); return this.tickets.queueDefinitions(); }
+  @Post('tickets/queues/:id/tickets') async queueTickets(@Param('id') id:string,@Body() body:any,@Headers('x-user-session') token:string) {
+    const account = await this.staffAccount(token);
+    return this.advancedSearch.queueSearch(id, body || {}, account.staffId);
+  }
   @Post('tickets/advanced-search') async advancedSearchTickets(@Body() body:any,@Headers('x-user-session') token:string) {
     const account = await this.staffAccount(token);
     return this.advancedSearch.search(body || {}, account.staffId);

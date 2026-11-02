@@ -1064,7 +1064,7 @@ export async function setTicketCollaborators(ticketId: string, collaborators: Ar
   await saveApiTicketCollaborators(ticket.number, ticket.collaborators)
 }
 
-export function bulkTickets(ids: string[], patch: { status?: TicketStatus; assigneeId?: string | null }, actor: User) {
+export async function bulkTickets(ids: string[], patch: { status?: TicketStatus; assigneeId?: string | null }, actor: User) {
   const db = load()
   const updated: Ticket[] = []
   for (const ticketId of ids) {
@@ -1087,13 +1087,13 @@ export function bulkTickets(ids: string[], patch: { status?: TicketStatus; assig
   })
   save(db)
   emit()
-  for (const ticket of updated) {
+  await Promise.allSettled(updated.map((ticket) => {
     const assignee = ticket.assigneeId ? db.users.find((person) => person.id === ticket.assigneeId) : undefined
-    mirrorTicketUpdate(ticket.number, {
+    return updateApiTicket(ticket.number, {
       ...(patch.status ? { status: patch.status } : {}),
       ...(patch.assigneeId !== undefined ? { assignee: assignee?.name ?? '', assigneeEmail: assignee?.email ?? '' } : {}),
     })
-  }
+  }))
 }
 
 export function searchHelpdesk(query: string) {

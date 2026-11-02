@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiSecurityService } from '../common/api-security.service';
 import { MailService } from '../mail/mail.service';
+import { BUILTIN_TICKET_QUEUES } from './queue-defaults';
 
 const bi = (v: unknown) => BigInt(String(v || 0));
 const parse = (s?: string | null) => { try { return JSON.parse(s || '{}'); } catch { return {}; } };
@@ -64,8 +65,24 @@ export class TicketsService {
     ]);
     let custom: any[] = [];
     try { custom = JSON.parse(saved[0]?.value || '[]'); } catch { /* Ignore malformed optional app queue settings. */ }
+    const builtinQueues = BUILTIN_TICKET_QUEUES.map(queue => ({
+      id: queue.id,
+      title: queue.title,
+      parentId: queue.parentId,
+      filter: queue.filter,
+      root: queue.root,
+      sort: queue.sort,
+      flags: queue.flags,
+      staffId: '0',
+      builtin: true,
+      columns: queue.columns.map((column, index) => ({ id: `${queue.id}-${column.path}`, heading: column.label, field: column.path, width: String(column.width || ''), sort: index + 1 })),
+      sorting: [{ id: `${queue.id}-sort`, name: queue.sortBy.field, field: queue.sortBy.field, sort: 0, direction: queue.sortBy.direction }],
+    }));
     return {
-      queues: queues.map(queue => ({ id: String(queue.id), title: queue.title || 'Untitled queue', parentId: String(queue.parent_id || ''), filter: queue.filter || '', root: queue.root || '', sort: Number(queue.sort), columns: links.filter(link => link.queue_id === queue.id).map(link => { const column = columns.find(item => item.id === link.column_id); return column && { id: String(column.id), heading: column.heading || column.name || '', field: column.name || '', width: column.width || '', sort: Number(link.sort) }; }).filter(Boolean), sorting: sortLinks.filter(link => link.queue_id === queue.id).map(link => { const sort = sorts.find(item => item.id === link.sort_id); return sort && { id: String(sort.id), name: sort.name || '', field: sort.field || '', sort: Number(link.sort) }; }).filter(Boolean) })),
+      queues: [
+        ...builtinQueues,
+        ...queues.map(queue => ({ id: String(queue.id), title: queue.title || 'Untitled queue', parentId: String(queue.parent_id || ''), filter: queue.filter || '', root: queue.root || '', sort: Number(queue.sort), flags: Number(queue.flags || 0), staffId: String(queue.staff_id || 0), columns: links.filter(link => link.queue_id === queue.id).map(link => { const column = columns.find(item => item.id === link.column_id); return column && { id: String(column.id), heading: column.heading || column.name || '', field: column.name || '', width: column.width || '', sort: Number(link.sort) }; }).filter(Boolean), sorting: sortLinks.filter(link => link.queue_id === queue.id).map(link => { const sort = sorts.find(item => item.id === link.sort_id); return sort && { id: String(sort.id), name: sort.name || '', field: sort.field || '', sort: Number(link.sort) }; }).filter(Boolean) })),
+      ],
       customQueues: Array.isArray(custom) ? custom : [],
     };
   }
