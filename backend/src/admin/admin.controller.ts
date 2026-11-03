@@ -5,6 +5,7 @@ import { MailService } from '../mail/mail.service';
 import { UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../common/admin.guard';
 import { SchedulesService } from './schedules.service';
+import { RolesService } from './roles.service';
 
 @Controller()
 @UseGuards(AdminGuard)
@@ -14,6 +15,7 @@ export class AdminController {
     @Inject(MailService) private mail: MailService,
     @Inject(AgentsService) private agents: AgentsService,
     @Inject(SchedulesService) private schedules: SchedulesService,
+    @Inject(RolesService) private roles: RolesService,
   ) {}
   private check(_req:any) { }
   @Get('health') health() { return { ok: true, mailConfigured: this.mail.isConfigured(), storage: 'postgresql' }; }
@@ -105,4 +107,23 @@ export class AdminController {
 
   @Post('admin/agents/:id/set-password')
   async setAgentPassword(@Param('id') id: string, @Body() body: any) { return await this.agents.setAgentPassword(Number(id), String(body.password || ''), Boolean(body.forceChange)); }
+
+  // ========== ROLES (osTicket role permissions) ==========
+  @Get('admin/roles')
+  async listRoles() { return await this.roles.list(); }
+
+  @Get('admin/roles/:id')
+  async getRole(@Param('id') id: string) { return await this.roles.get(Number(id)); }
+
+  @Post('admin/roles')
+  async createRole(@Body() body: any) { return await this.roles.create(body); }
+
+  @Post('admin/roles/mass-action')
+  async massRoleAction(@Body() body: any) { return await this.roles.massAction(String(body.action || ''), (body.ids || []).map(Number)); }
+
+  @Put('admin/roles/:id')
+  async updateRole(@Param('id') id: string, @Body() body: any) { return await this.roles.update(Number(id), body); }
+
+  @Delete('admin/roles/:id')
+  async removeRole(@Param('id') id: string) { return await this.roles.remove(Number(id)); }
 }

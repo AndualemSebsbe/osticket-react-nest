@@ -16,7 +16,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!(init?.body instanceof FormData)) headers.set('content-type', 'application/json')
   const response = await fetch('/api/v1' + path, { ...init, headers })
   const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new ApiRequestError(data.error || 'API request failed (' + response.status + ').', response.status)
+  if (!response.ok) {
+    const message = typeof data.message === 'string' ? data.message : data.error
+    throw new ApiRequestError(message || 'API request failed (' + response.status + ').', response.status)
+  }
   return data as T
 }
 function background(promise: Promise<unknown>) {
@@ -754,6 +757,90 @@ export function setApiAgentPassword(id: string, password: string, forceChange: b
     method: 'POST',
     headers: { 'x-user-session': token },
     body: JSON.stringify({ password, forceChange }),
+  })
+}
+
+// --- Role Management -------------------------------------------------------
+
+export interface ApiRolePermission {
+  key: string
+  title: string
+  description: string
+}
+
+export interface ApiRolePermissionGroup {
+  id: string
+  label: string
+  permissions: ApiRolePermission[]
+}
+
+export interface ApiRole {
+  id: string
+  name: string
+  notes: string
+  enabled: boolean
+  flags: number
+  permissions: string[]
+  permissionCount: number
+  primaryAgentCount: number
+  deptAccessCount: number
+  assignedAgents: string[]
+  assignedDepartments: string[]
+  canDelete: boolean
+  created: string
+  updated: string
+}
+
+export interface ApiRolesResponse {
+  roles: ApiRole[]
+  permissionGroups: ApiRolePermissionGroup[]
+}
+
+export interface ApiRoleInput {
+  name: string
+  notes?: string
+  enabled?: boolean
+  permissions: string[]
+}
+
+export function listApiRoles(token: string) {
+  return request<ApiRolesResponse>('/admin/roles', { headers: { 'x-user-session': token } })
+}
+
+export function getApiRole(id: string, token: string) {
+  return request<{ role: ApiRole; permissionGroups: ApiRolePermissionGroup[] }>('/admin/roles/' + id, {
+    headers: { 'x-user-session': token },
+  })
+}
+
+export function createApiRole(data: ApiRoleInput, token: string) {
+  return request<{ saved: boolean; id: string; role: ApiRole }>('/admin/roles', {
+    method: 'POST',
+    headers: { 'x-user-session': token },
+    body: JSON.stringify(data),
+  })
+}
+
+export function updateApiRole(id: string, data: ApiRoleInput, token: string) {
+  return request<{ saved: boolean; id: string; role: ApiRole }>('/admin/roles/' + id, {
+    method: 'PUT',
+    headers: { 'x-user-session': token },
+    body: JSON.stringify(data),
+  })
+}
+
+export function deleteApiRole(id: string, token: string) {
+  return request<{ deleted: boolean }>('/admin/roles/' + id, {
+    method: 'DELETE',
+    headers: { 'x-user-session': token },
+  })
+}
+
+export function massApiRoleAction(action: 'enable' | 'disable' | 'delete', ids: string[], token: string) {
+  return request<{ updated?: number; deleted?: number; skipped?: number }>('/admin/roles/mass-action', {
+    method: 'POST',
+    headers: { 'x-user-session': token },
+    body: JSON.stringify({ action, ids }),
   })
 }
 

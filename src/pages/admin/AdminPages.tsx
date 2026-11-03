@@ -10,9 +10,10 @@ import { accountSessionToken, addLog, newId, removeRecord, saveSettings, syncUse
 import type { LogLevel, SystemSettings } from '../../types'
 import { EntityManager } from './EntityManager'
 import { AdminDepartmentsPage } from './AdminDepartmentsPage'
+import { AdminRolesPage } from './AdminRolesPage'
 import { AdminCompanySettings } from './AdminCompanySettings'
 import { AdminSystemSettings } from './AdminSystemSettings'
-export { AdminDepartmentsPage }
+export { AdminDepartmentsPage, AdminRolesPage }
 
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
   const { user, ready } = useAuth()
@@ -43,7 +44,7 @@ export function AdminDashboardPage() {
     { to: '/scp/admin/diagnostic', title: 'Email diagnostic', body: 'Send a demo test message.' },
     { to: '/scp/admin/staff', title: 'Agents', body: `${db.users.filter((u) => u.role !== 'client').length} staff accounts.` },
     { to: '/scp/admin/teams', title: 'Teams', body: `${db.teams.length} assignment groups.` },
-    { to: '/scp/admin/roles', title: 'Roles', body: `${db.roles.length} permission packs.` },
+    { to: '/scp/admin/roles', title: 'Roles', body: 'Role-based permissions for agents.' },
     { to: '/scp/admin/departments', title: 'Departments', body: `${db.departments.length} routing groups.` },
     { to: '/scp/admin/logs', title: 'System logs', body: `${db.logs.length} recorded events.` },
     { to: '/scp/admin/audits', title: 'Audit logs', body: `${db.audits.length} staff actions.` },
@@ -759,27 +760,6 @@ export function AdminTeamsPage() {
         { name: 'enabled', label: 'Enabled', type: 'checkbox' },
       ]}
       defaults={{ name: '', memberIds: [], enabled: true, notes: '' }}
-    />
-  )
-}
-
-export function AdminRolesPage() {
-  const db = useDb()
-  return (
-    <EntityManager
-      title="Roles"
-      subtitle="Permission packs assigned to agents."
-      collection="roles"
-      rows={db.roles}
-      columns={[
-        { key: 'name', label: 'Role' },
-        { key: 'permissions', label: 'Permissions', render: (r) => (Array.isArray(r.permissions) ? r.permissions.join(', ') : String(r.permissions ?? '')) },
-      ]}
-      fields={[
-        { name: 'name', label: 'Name', type: 'text', required: true },
-        { name: 'permissions', label: 'Permissions (comma separated)', type: 'textarea', span2: true },
-      ]}
-      defaults={{ name: '', permissions: 'tickets' }}
     />
   )
 }
