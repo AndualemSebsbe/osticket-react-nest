@@ -29,7 +29,7 @@ export class AuthService {
 
   async listAssignableStaff() {
     const rows = await this.prisma.staff.findMany({ where: { isactive: 1 }, orderBy: [{ firstname: 'asc' }, { lastname: 'asc' }] });
-    return rows.map(row => ({ id: String(row.staff_id), name: [row.firstname, row.lastname].filter(Boolean).join(' ') || row.username, email: row.email || '', staffId: row.staff_id, role: row.isadmin ? 'admin' : 'agent' }));
+    return rows.map(row => ({ id: String(row.staff_id), name: [row.firstname, row.lastname].filter(Boolean).join(' ') || row.username, email: row.email || '', staffId: row.staff_id, role: row.isadmin ? 'admin' : 'agent', active: Boolean(row.isactive) }));
   }
 
   async listStaffDepartments() {

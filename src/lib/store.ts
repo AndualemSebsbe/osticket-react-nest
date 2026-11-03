@@ -1396,22 +1396,28 @@ export async function markOverdue(ticketId: string, actor: User, overdue = true)
   emit()
 }
 
+export function setTicketDepartment(ticketId: string, deptId: string, deptName: string, actor: User) {
+  const db = load()
+  const ticket = db.tickets.find((item) => item.id === ticketId)
+  const name = deptName || db.departments.find((d) => d.id === deptId)?.name || deptId
+  if (!ticket) return
+  const previous = db.departments.find((d) => d.id === ticket.deptId)?.name ?? ticket.deptId
+  ticket.deptId = deptId
+  ticket.assigneeId = undefined
+  ticket.updatedAt = now()
+  db.messages.push(ticketEvent(ticketId, `${actor.name} transferred ticket from ${previous} to ${name}.`))
+  db.audits.unshift({ id: id(), createdAt: now(), actorId: actor.id, actorName: actor.name, objectType: 'ticket', objectId: ticketId, action: 'transfer', details: `${previous} → ${name}` })
+  save(db)
+  emit()
+}
+
 export async function transferTicket(ticketId: string, deptId: string, actor: User) {
   const db = load()
   const ticket = db.tickets.find((t) => t.id === ticketId)
   const dept = db.departments.find((d) => d.id === deptId)
   if (!ticket || !dept) return
   if (/^\d+$/.test(ticket.id)) await updateApiTicket(ticket.number, { department: dept.name, assigneeEmail: '' })
-  const currentDb = load()
-  const current = currentDb.tickets.find((item) => item.id === ticketId)
-  if (!current) return
-  const previous = currentDb.departments.find((d) => d.id === current.deptId)?.name ?? current.deptId
-  current.deptId = deptId
-  current.assigneeId = undefined
-  current.updatedAt = now()
-  currentDb.messages.push(ticketEvent(ticketId, `${actor.name} transferred ticket from ${previous} to ${dept.name}.`))
-  save(currentDb)
-  emit()
+  setTicketDepartment(ticketId, deptId, dept.name, actor)
 }
 
 export async function deleteTicket(ticketId: string, actor: User) {

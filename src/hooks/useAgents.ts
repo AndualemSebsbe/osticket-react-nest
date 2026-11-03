@@ -15,7 +15,7 @@ export function useAgents() {
 
     void listApiAssignableStaff(token)
       .then(({ staff }) => {
-        if (active) setAgents(staff.filter((person) => person.role === 'agent' && person.active))
+        if (active) setAgents(staff.filter((person) => person.active))
       })
       .catch((error: unknown) => {
         if (active) setAgents([])

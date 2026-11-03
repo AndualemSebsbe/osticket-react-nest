@@ -28,10 +28,10 @@ import {
   releaseTicketLock,
   setTicketBranch,
   setTicketCollaborators,
+  setTicketDepartment,
   reopenTicket,
   setTicketStatus,
   tasksForTicket,
-  transferTicket,
   updateTicket,
 } from '../../lib/store'
 
@@ -54,6 +54,7 @@ export function StaffTicketPage() {
   const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([])
   const [branchSaving, setBranchSaving] = useState(false)
   const [statusSaving, setStatusSaving] = useState(false)
+  const [deptSaving, setDeptSaving] = useState(false)
 
   useEffect(() => {
     setIsOverdue(Boolean(ticket?.overdue))
@@ -179,6 +180,19 @@ export function StaffTicketPage() {
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not update the ticket status.')
     } finally { setStatusSaving(false) }
+  }
+
+  async function onDepartmentChange(deptId: string) {
+    const dept = departments.find((item) => item.id === deptId) ?? db.departments.find((item) => item.id === deptId)
+    if (!dept) return
+    setDeptSaving(true)
+    try {
+      if (/^\d+$/.test(current.id)) await updateApiTicket(current.number, { department: dept.name, assigneeEmail: '' })
+      setTicketDepartment(current.id, dept.id, dept.name, actor)
+      setToast('Ticket transferred.')
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not transfer the ticket.')
+    } finally { setDeptSaving(false) }
   }
 
   async function onMerge() {
@@ -420,7 +434,8 @@ export function StaffTicketPage() {
               <select
                 className={inputClass + " mt-1"}
                 value={current.deptId}
-                onChange={(e) => { void runAction(() => transferTicket(current.id, e.target.value, actor), 'Could not transfer the ticket.') }}
+                disabled={deptSaving}
+                onChange={(e) => void onDepartmentChange(e.target.value)}
               >
                 {current.deptId && !departments.some((department) => department.id === current.deptId) ? (
                   <option value={current.deptId}>{currentDepartment?.name || current.deptId} (current)</option>
@@ -431,6 +446,7 @@ export function StaffTicketPage() {
                   </option>
                 ))}
               </select>
+              {deptSaving ? <span className="mt-1 block text-xs text-ink-400">Saving department…</span> : null}
             </label>
             <label className="mt-3 block text-sm font-medium">
               Status
