@@ -1,7 +1,7 @@
-import type { Ticket, User, Database } from '../types'
+import type { Ticket, TicketStatusOption, User, Database } from '../types'
 
 export interface ApiHealth { ok: boolean; mailConfigured: boolean; storage: string }
-export interface ApiPersistedTicket { id: string; number: string; subject: string; status: Ticket['status']; priority: Ticket['priority']; source: string; topic: string; department: string; requesterName: string; requesterEmail: string; employeeId?: string; branchId?: string; branchName?: string; assignee?: string; assigneeEmail?: string; assigneeStaffId?: string; collaborators?: Array<{ userId: string; name: string; email: string; active: boolean }>; fromEmail?: string; collaboratorNotice?: 'all' | 'user' | 'none'; overdue: boolean; createdAt: string; updatedAt: string; parentTicketId?: string; mergedTicketIds?: string[]; dueAt?: string; lockedBy?: string; lockedByName?: string; lockExpires?: string }
+export interface ApiPersistedTicket { id: string; number: string; subject: string; status: Ticket['status']; statusId?: string; statusName?: string; priority: Ticket['priority']; source: string; topic: string; department: string; requesterName: string; requesterEmail: string; employeeId?: string; branchId?: string; branchName?: string; assignee?: string; assigneeEmail?: string; assigneeStaffId?: string; collaborators?: Array<{ userId: string; name: string; email: string; active: boolean }>; fromEmail?: string; collaboratorNotice?: 'all' | 'user' | 'none'; overdue: boolean; createdAt: string; updatedAt: string; parentTicketId?: string; mergedTicketIds?: string[]; dueAt?: string; lockedBy?: string; lockedByName?: string; lockExpires?: string }
 export interface ApiPersistedMessage { id: string; ticketNumber: string; author: string; authorEmail: string; kind: 'client' | 'agent' | 'collaborator' | 'system'; internal: boolean; body: string; attachments: string[]; attachmentFiles?: Array<{ id: string; name: string }>; recipients?: string[]; createdAt: string }
 
 export class ApiRequestError extends Error {
@@ -312,14 +312,14 @@ export function deleteApiHelpTopic(id: string, token: string) {
   return request<{ deleted: boolean }>('/admin/help-topics', { method: 'DELETE', headers: { 'x-user-session': token }, body: JSON.stringify({ id }) })
 }
 export interface ApiStaffTicketOptions {
-  statuses: Ticket['status'][]
+  statuses: TicketStatusOption[]
   topics: Array<{ id: string; name: string }>
   priorities: Ticket['priority'][]
 }
 export function getApiStaffTicketOptions(token: string) {
   return request<ApiStaffTicketOptions>('/staff/ticket-options', { headers: { 'x-user-session': token } })
 }
-export function updateApiTicket(number: string, patch: { status?: Ticket['status']; priority?: Ticket['priority']; assignee?: string; assigneeEmail?: string; department?: string; topic?: string; overdue?: boolean; subject?: string }) { return request('/tickets/' + encodeURIComponent(number), { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify(patch) }) }
+export function updateApiTicket(number: string, patch: { status?: Ticket['status'] | string; statusId?: string; priority?: Ticket['priority']; assignee?: string; assigneeEmail?: string; department?: string; topic?: string; overdue?: boolean; subject?: string }) { return request<{ ticket?: { status?: string; statusId?: string; statusName?: string } }>('/tickets/' + encodeURIComponent(number), { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify(patch) }) }
 export function deleteApiTicket(number: string) { return request<{ deleted: boolean }>('/tickets/' + encodeURIComponent(number), { method: 'DELETE', headers: currentSessionHeaders() }) }
 export function banApiTicketEmail(number: string) { return request<{ banned: boolean; email: string; reason: string }>('/tickets/' + encodeURIComponent(number) + '/ban-email', { method: 'POST', headers: currentSessionHeaders() }) }
 export function updateApiTicketBranch(number: string, branchId: string) {

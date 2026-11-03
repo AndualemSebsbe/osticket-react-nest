@@ -1,4 +1,10 @@
 export type TicketStatus = 'open' | 'pending' | 'closed'
+export interface TicketStatusOption {
+  id: string
+  name: string
+  state: string
+  sort?: number
+}
 export type Priority = 'low' | 'normal' | 'high' | 'emergency'
 export type Source = 'web' | 'email' | 'phone'
 export type UserRole = 'client' | 'agent' | 'admin'
@@ -50,6 +56,8 @@ export interface Ticket {
   number: string
   subject: string
   status: TicketStatus
+  statusId?: string
+  statusName?: string
   priority: Priority
   source: Source
   topicId: string

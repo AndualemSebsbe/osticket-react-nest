@@ -9,6 +9,7 @@ import type {
   Ticket,
   TicketQueue,
   TicketStatus,
+  TicketStatusOption,
   User,
 } from '../types'
 import { seed } from './seed'
@@ -628,6 +629,8 @@ function replaceTicketSnapshot(tickets: ApiPersistedTicket[], messages: ApiPersi
       number: row.number,
       subject: row.subject,
       status: row.status,
+      statusId: row.statusId ? String(row.statusId) : old?.statusId,
+      statusName: row.statusName || old?.statusName,
       priority: row.priority,
       source: (['web', 'email', 'phone'].includes(String(row.source || 'web').toLowerCase()) ? String(row.source || 'web').toLowerCase() : 'web') as Ticket['source'],
       topicId: topic.id,
@@ -759,6 +762,8 @@ export async function addReply(input: {
   ticket.updatedAt = now()
   if (ticket.status === 'closed' && kind === 'client' && db.settings.allowClientReopen) {
     ticket.status = 'open'
+    ticket.statusId = undefined
+    ticket.statusName = undefined
     db.messages.push({
       id: id(),
       ticketId: ticket.id,
@@ -771,6 +776,8 @@ export async function addReply(input: {
   }
   if (input.close) {
     ticket.status = 'closed'
+    ticket.statusId = undefined
+    ticket.statusName = undefined
     db.messages.push({
       id: id(),
       ticketId: ticket.id,
@@ -782,6 +789,8 @@ export async function addReply(input: {
     })
   } else if (input.pending) {
     ticket.status = 'pending'
+    ticket.statusId = undefined
+    ticket.statusName = undefined
   }
   save(db)
   emit()
@@ -821,27 +830,40 @@ export async function assignTicket(ticketId: string, assigneeId: string | undefi
   emit()
 }
 
-export async function setStatus(ticketId: string, status: Ticket['status'], actor: User) {
+export function setTicketStatus(ticketId: string, status: TicketStatusOption, actor: User) {
   const db = load()
-  const ticket = db.tickets.find((t) => t.id === ticketId)
+  const ticket = db.tickets.find((item) => item.id === ticketId)
   if (!ticket) return
-  if (/^\d+$/.test(ticket.id)) await updateApiTicket(ticket.number, { status })
-  const currentDb = load()
-  const current = currentDb.tickets.find((item) => item.id === ticketId)
-  if (!current) return
-  current.status = status
-  current.updatedAt = now()
-  currentDb.messages.push({
+  const state = String(status.state || status.name || '').toLowerCase()
+  const nextStatus: Ticket['status'] = state === 'closed' ? 'closed' : state === 'pending' ? 'pending' : 'open'
+  const previousName = ticket.statusName || ticket.status
+  ticket.status = nextStatus
+  ticket.statusId = status.id || undefined
+  ticket.statusName = status.name
+  ticket.updatedAt = now()
+  db.messages.push({
     id: id(),
     ticketId,
     authorId: 'system',
     authorName: 'System',
     kind: 'system',
-    body: `Status set to ${status} by ${actor.name}.`,
+    body: `Status set to ${status.name} by ${actor.name}.`,
     createdAt: now(),
   })
-  save(currentDb)
+  db.audits.unshift({ id: id(), createdAt: now(), actorId: actor.id, actorName: actor.name, objectType: 'ticket', objectId: ticketId, action: 'status', details: `${previousName} → ${status.name}` })
+  save(db)
   emit()
+}
+
+export async function setStatus(ticketId: string, status: Ticket['status'] | TicketStatusOption, actor: User) {
+  const db = load()
+  const ticket = db.tickets.find((t) => t.id === ticketId)
+  if (!ticket) return
+  const change: TicketStatusOption = typeof status === 'string' ? { id: '', name: status, state: status } : status
+  if (/^\d+$/.test(ticket.id)) {
+    await updateApiTicket(ticket.number, change.id && /^\d+$/.test(change.id) ? { statusId: change.id } : { status: change.name })
+  }
+  setTicketStatus(ticketId, change, actor)
 }
 
 export function searchFaqs(q: string) {
@@ -1184,7 +1206,11 @@ export async function bulkTickets(ids: string[], patch: { status?: TicketStatus;
   for (const ticketId of ids) {
     const ticket = db.tickets.find((t) => t.id === ticketId)
     if (!ticket) continue
-    if (patch.status) ticket.status = patch.status
+    if (patch.status) {
+      ticket.status = patch.status
+      ticket.statusId = undefined
+      ticket.statusName = undefined
+    }
     if (patch.assigneeId !== undefined) ticket.assigneeId = patch.assigneeId || undefined
     ticket.updatedAt = now()
     updated.push(ticket)

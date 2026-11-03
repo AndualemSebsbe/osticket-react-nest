@@ -13,12 +13,12 @@ const priorityClass: Record<Priority, string> = {
   emergency: "bg-rose-100 text-rose-800",
 };
 
-export function StatusBadge({ status }: { status: TicketStatus }) {
+export function StatusBadge({ status, label }: { status: TicketStatus; label?: string }) {
   return (
     <span
       className={`text-slate-700 inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${statusClass[status]}`}
     >
-      {status}
+      {label || status}
     </span>
   );
 }

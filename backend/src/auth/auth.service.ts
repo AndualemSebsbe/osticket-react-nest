@@ -41,10 +41,23 @@ export class AuthService {
     const [departments, topics, statuses, priorities] = await Promise.all([
       this.prisma.department.findMany({ orderBy: { name: 'asc' } }),
       this.prisma.helpTopic.findMany({ where: { ispublic: 1 }, orderBy: { topic: 'asc' } }),
-      this.prisma.ticketStatus.findMany({ orderBy: { sort: 'asc' } }),
+      this.prisma.ticketStatus.findMany({ orderBy: [{ sort: 'asc' }, { id: 'asc' }] }),
       this.prisma.ticketPriority.findMany({ orderBy: { priority_urgency: 'asc' } }),
     ]);
-    return { statuses: [...new Set(statuses.map(s => String(s.state || s.name).toLowerCase()).filter(s => ['open','pending','closed'].includes(s)))], topics: topics.map(t => ({ id: String(t.topic_id), name: t.topic })), priorities: priorities.map(p => p.priority.toLowerCase()), departments: departments.map(d => ({ id: String(d.id), name: d.name })) };
+    return {
+      statuses: statuses.map(status => {
+        const rawState = String(status.state || status.name || 'open').toLowerCase();
+        return {
+          id: String(status.id),
+          name: status.name || status.state || 'Open',
+          state: ['open', 'pending', 'closed'].includes(rawState) ? rawState : 'open',
+          sort: Number(status.sort || 0),
+        };
+      }),
+      topics: topics.map(t => ({ id: String(t.topic_id), name: t.topic })),
+      priorities: priorities.map(p => p.priority.toLowerCase()),
+      departments: departments.map(d => ({ id: String(d.id), name: d.name })),
+    };
   }
 
   async findClient(email: string): Promise<Account | null> {

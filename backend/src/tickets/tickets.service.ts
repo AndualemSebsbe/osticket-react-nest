@@ -35,7 +35,9 @@ export class TicketsService {
       const userRow = email ? await this.prisma.user.findUnique({ where: { id: email.user_id } }) : null;
       return { name: userRow?.name || email?.address || '', email: email?.address || '', active: Boolean(c.flags & 1), userId: String(c.user_id) };
     }));
-    const statusName = (status?.state || status?.name || 'open').toLowerCase();
+    const statusName = status?.name || status?.state || 'Open';
+    const rawState = String(status?.state || status?.name || 'open').toLowerCase();
+    const statusState = ['open', 'pending', 'closed'].includes(rawState) ? rawState : 'open';
     const priorityName = (data?.priority || 'normal').toLowerCase();
     const accessHash = parse(thread?.extra).accessHash;
     let lockInfo: any = null;
@@ -50,7 +52,7 @@ export class TicketsService {
     const parentId = row.ticket_pid ? String(row.ticket_pid) : null;
     return {
       id: String(row.ticket_id), number: row.number || String(row.ticket_id), subject: data?.subject || '(no subject)',
-      requesterName: user?.name || '', requesterEmail: userEmail?.address || '', status: statusName,
+      requesterName: user?.name || '', requesterEmail: userEmail?.address || '', status: statusState, statusId: status ? String(status.id) : '', statusName,
       priority: priorityName, department: dept?.name || '', departmentId: String(row.dept_id),
       topic: topic?.topic || '', topicId: String(row.topic_id), branchId: String(data?.branch_id || ''),
       branchName: branch?.name || '', assignee: staff ? [staff.firstname, staff.lastname].filter(Boolean).join(' ') : '',
@@ -159,6 +161,22 @@ export class TicketsService {
     return this.prisma.thread.upsert({ where: { object_id_object_type: { object_id: ticketId, object_type: 'T' } }, create: { object_id: ticketId, object_type: 'T', created: new Date() }, update: {} });
   }
 
+  private async resolveStatus(statusId: unknown, statusValue: unknown) {
+    const rawId = statusId !== undefined && statusId !== null ? String(statusId) : '';
+    if (rawId && /^\d+$/.test(rawId)) {
+      const status = await this.prisma.ticketStatus.findUnique({ where: { id: BigInt(rawId) } });
+      if (!status) throw new BadRequestException('Choose a valid ticket status.');
+      return status;
+    }
+    const value = String(statusValue ?? '').trim();
+    if (!value) throw new BadRequestException('Choose a valid ticket status.');
+    const byName = await this.prisma.ticketStatus.findFirst({ where: { name: { equals: value, mode: 'insensitive' } } });
+    if (byName) return byName;
+    const byState = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: value, mode: 'insensitive' } }, orderBy: [{ sort: 'asc' }, { id: 'asc' }] });
+    if (!byState) throw new BadRequestException('Choose a valid ticket status.');
+    return byState;
+  }
+
   async getForStaff(number: string) {
     const { view } = await this.get(number);
     const { accessHash: _accessHash, ...ticket } = view;
@@ -174,7 +192,7 @@ export class TicketsService {
     const children = await this.prisma.ticket.count({ where: { ticket_pid: secondary.ticket_id } });
     if (children) throw new ConflictException('Unmerge the child tickets of #' + secondary.number + ' first.');
     const now = new Date();
-    const closed = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: 'closed', mode: 'insensitive' } } });
+    const closed = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: 'closed', mode: 'insensitive' } }, orderBy: [{ sort: 'asc' }, { id: 'asc' }] });
     const primaryThread = await this.threadFor(primary.ticket_id);
     await this.prisma.$transaction(async tx => {
       const secondaryThread = await tx.thread.findUnique({ where: { object_id_object_type: { object_id: secondary.ticket_id, object_type: 'T' } } });
@@ -343,7 +361,7 @@ export class TicketsService {
     if (Array.isArray(banlist) && banlist.some((item: any) => String(item.email || '').toLowerCase() === email.toLowerCase())) throw new ForbiddenException('This email address is on the ban list.');
     const userId = await this.ensureUser(name, email);
     const address = await this.prisma.userEmail.findUnique({ where: { address: email } });
-    const status = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: 'open', mode: 'insensitive' } } }) || await this.prisma.ticketStatus.findFirst({ orderBy: { sort: 'asc' } });
+    const status = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: 'open', mode: 'insensitive' } }, orderBy: [{ sort: 'asc' }, { id: 'asc' }] }) || await this.prisma.ticketStatus.findFirst({ orderBy: [{ sort: 'asc' }, { id: 'asc' }] });
     if (!address || !status) throw new BadRequestException('Ticket system is missing the requester email or an initial status.');
     const timestamp = new Date(), number = this.security.clean(data.number,32) || randomBytes(6).toString('hex').toUpperCase();
     const duplicate = await this.prisma.ticket.findUnique({ where: { number } });
@@ -459,7 +477,7 @@ export class TicketsService {
     const update: any = { updated: timestamp };
     let transitionEventId: bigint | null = null;
     if (!staff && view.status === 'closed') {
-      const open = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: 'open', mode: 'insensitive' } } });
+      const open = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: 'open', mode: 'insensitive' } }, orderBy: [{ sort: 'asc' }, { id: 'asc' }] });
       if (open) {
         update.status_id = open.id;
         update.reopened = timestamp;
@@ -468,14 +486,14 @@ export class TicketsService {
       }
     }
     if (staff && ['open','pending','closed'].includes(String(body.status))) {
-      const next = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: String(body.status), mode: 'insensitive' } } });
+      const next = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: String(body.status), mode: 'insensitive' } }, orderBy: [{ sort: 'asc' }, { id: 'asc' }] });
       if (next) {
         update.status_id = next.id;
         if (String(body.status) === 'closed' && view.status !== 'closed') {
           update.closed = timestamp;
           update.isoverdue = 0;
           transitionEventId = 2n; // closed
-        } else if (String(body.status) === 'open' && view.status === 'closed') {
+        } else if (String(body.status) !== 'closed' && view.status === 'closed') {
           update.reopened = timestamp;
           update.closed = null;
           transitionEventId = 3n; // reopened
@@ -518,18 +536,17 @@ export class TicketsService {
       topic_id?: bigint;
     }> = [];
 
-    if (input.status) {
-      const status = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: String(input.status), mode: 'insensitive' } } });
-      if (!status) throw new BadRequestException('Choose a valid ticket status.');
+    if (input.statusId !== undefined || input.status !== undefined) {
+      const status = await this.resolveStatus(input.statusId, input.status);
       ticketUpdate.status_id = status.id;
-      const nextState = (status.state || status.name).toLowerCase();
+      const nextState = String(status.state || status.name || '').toLowerCase();
       const currentStatusRow = await this.prisma.ticketStatus.findUnique({ where: { id: row.status_id } });
-      const currentState = (currentStatusRow?.state || currentStatusRow?.name || 'open').toLowerCase();
+      const currentState = String(currentStatusRow?.state || currentStatusRow?.name || 'open').toLowerCase();
       if (nextState === 'closed' && currentState !== 'closed') {
         ticketUpdate.closed = now;
         ticketUpdate.isoverdue = 0;
         eventsToCreate.push({ event_id: 2n });
-      } else if (nextState === 'open' && currentState === 'closed') {
+      } else if (nextState !== 'closed' && currentState === 'closed') {
         ticketUpdate.reopened = now;
         ticketUpdate.closed = null;
         eventsToCreate.push({ event_id: 3n });

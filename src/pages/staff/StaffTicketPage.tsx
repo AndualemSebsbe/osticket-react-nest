@@ -9,7 +9,7 @@ import { useAgents } from '../../hooks/useAgents'
 import { useStaffDepartments } from '../../hooks/useStaffDepartments'
 import { useStaffTicketOptions } from '../../hooks/useStaffTicketOptions'
 import { useDb } from '../../hooks/useDb'
-import { listApiBranches, updateApiTicketBranch } from '../../lib/api'
+import { listApiBranches, updateApiTicket, updateApiTicketBranch } from '../../lib/api'
 import { formatDate } from '../../lib/format'
 import { printTicket } from '../../lib/printTicket'
 import {
@@ -29,7 +29,7 @@ import {
   setTicketBranch,
   setTicketCollaborators,
   reopenTicket,
-  setStatus,
+  setTicketStatus,
   tasksForTicket,
   transferTicket,
   updateTicket,
@@ -53,6 +53,7 @@ export function StaffTicketPage() {
   const [taskTitle, setTaskTitle] = useState('')
   const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([])
   const [branchSaving, setBranchSaving] = useState(false)
+  const [statusSaving, setStatusSaving] = useState(false)
 
   useEffect(() => {
     setIsOverdue(Boolean(ticket?.overdue))
@@ -110,6 +111,13 @@ export function StaffTicketPage() {
   const selectedTopic = ticketOptions.topics.find((topic) =>
     topic.id === current.topicId || topic.name.toLowerCase() === currentTopicName?.toLowerCase(),
   )
+  const statusChoices = ticketOptions.statuses.length
+    ? ticketOptions.statuses
+    : (['open', 'pending', 'closed'] as const).map((state) => ({ id: state, name: state[0].toUpperCase() + state.slice(1), state, sort: 0 }))
+  const selectedStatus = statusChoices.find((status) => status.id === current.statusId)
+    ?? statusChoices.find((status) => status.name.toLowerCase() === (current.statusName || '').toLowerCase())
+    ?? statusChoices.find((status) => status.state.toLowerCase() === current.status)
+  const currentStatusValue = selectedStatus?.id ?? current.statusId ?? current.status
   const owner = db.users.find((u) => u.id === current.userId)
   const collaboratorEntries = current.collaborators || (current.collaboratorIds || []).map((cid) => db.users.find((u) => u.id === cid)).filter((person) => Boolean(person)).map((person) => ({ userId: person!.id, name: person!.name, email: person!.email, active: true }))
   const thread = messagesFor(current.id, true)
@@ -151,6 +159,26 @@ export function StaffTicketPage() {
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not update the ticket branch.')
     } finally { setBranchSaving(false) }
+  }
+
+  async function onStatusChange(statusId: string) {
+    const status = statusChoices.find((item) => item.id === statusId)
+    if (!status) return
+    setStatusSaving(true)
+    try {
+      const updated = /^\d+$/.test(current.id)
+        ? await updateApiTicket(current.number, status.id && /^\d+$/.test(status.id) ? { statusId: status.id } : { status: status.name })
+        : undefined
+      setTicketStatus(current.id, {
+        ...status,
+        id: updated?.ticket?.statusId || status.id,
+        name: updated?.ticket?.statusName || status.name,
+        state: updated?.ticket?.status || status.state,
+      }, actor)
+      setToast('Ticket status updated.')
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not update the ticket status.')
+    } finally { setStatusSaving(false) }
   }
 
   async function onMerge() {
@@ -215,7 +243,7 @@ export function StaffTicketPage() {
           {current.subject} <span className="text-ink-400">#{current.number}</span>
         </h1>
         <div className="flex flex-wrap gap-2">
-          <StatusBadge status={current.status} />
+          <StatusBadge status={current.status} label={current.statusName} />
           <PriorityBadge priority={current.priority} />
           {isOverdue ? <span className="rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-800">Overdue</span> : null}
           {locker ? (
@@ -406,12 +434,18 @@ export function StaffTicketPage() {
             </label>
             <label className="mt-3 block text-sm font-medium">
               Status
-              <select className={inputClass + " mt-1"} value={current.status} onChange={(e) => { void runAction(() => setStatus(current.id, e.target.value as typeof current.status, actor), 'Could not update the ticket status.') }}>
-                {!ticketOptions.statuses.includes(current.status) ? <option value={current.status}>{current.status}</option> : null}
-                {ticketOptions.statuses.map((status) => (
-                  <option key={status} value={status}>{status[0].toUpperCase() + status.slice(1)}</option>
+              <select
+                className={inputClass + " mt-1"}
+                value={currentStatusValue}
+                disabled={statusSaving}
+                onChange={(e) => void onStatusChange(e.target.value)}
+              >
+                {!selectedStatus ? <option value={currentStatusValue}>{current.statusName || current.status}</option> : null}
+                {statusChoices.map((status) => (
+                  <option key={status.id} value={status.id}>{status.name}</option>
                 ))}
               </select>
+              {statusSaving ? <span className="mt-1 block text-xs text-ink-400">Saving status…</span> : null}
             </label>
             <label className="mt-3 block text-sm font-medium">
               Help topic
