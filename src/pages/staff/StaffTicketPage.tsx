@@ -15,7 +15,6 @@ import { printTicket } from '../../lib/printTicket'
 import {
   acquireTicketLock,
   addReply,
-  assignTicket,
   banEmailFromTicket,
   createTask,
   deleteTicket,
@@ -26,9 +25,11 @@ import {
   messagesFor,
   releaseTicket,
   releaseTicketLock,
+  setTicketAssignee,
   setTicketBranch,
   setTicketCollaborators,
   setTicketDepartment,
+  setTicketPriority,
   reopenTicket,
   setTicketStatus,
   tasksForTicket,
@@ -55,6 +56,8 @@ export function StaffTicketPage() {
   const [branchSaving, setBranchSaving] = useState(false)
   const [statusSaving, setStatusSaving] = useState(false)
   const [deptSaving, setDeptSaving] = useState(false)
+  const [assigneeSaving, setAssigneeSaving] = useState(false)
+  const [prioritySaving, setPrioritySaving] = useState(false)
 
   useEffect(() => {
     setIsOverdue(Boolean(ticket?.overdue))
@@ -193,6 +196,31 @@ export function StaffTicketPage() {
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not transfer the ticket.')
     } finally { setDeptSaving(false) }
+  }
+
+  async function onAssigneeChange(assigneeId: string) {
+    const assignee = assigneeId
+      ? agents.find((person) => person.id === assigneeId) ?? db.users.find((person) => person.id === assigneeId)
+      : undefined
+    setAssigneeSaving(true)
+    try {
+      if (/^\d+$/.test(current.id)) await updateApiTicket(current.number, { assigneeEmail: assignee?.email ?? '' })
+      setTicketAssignee(current.id, assigneeId || undefined, assignee?.name, actor)
+      setToast(assignee ? 'Ticket assigned.' : 'Ticket released.')
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not assign the ticket.')
+    } finally { setAssigneeSaving(false) }
+  }
+
+  async function onPriorityChange(priority: typeof current.priority) {
+    setPrioritySaving(true)
+    try {
+      if (/^\d+$/.test(current.id)) await updateApiTicket(current.number, { priority })
+      setTicketPriority(current.id, priority, actor)
+      setToast('Ticket priority updated.')
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not update the ticket priority.')
+    } finally { setPrioritySaving(false) }
   }
 
   async function onMerge() {
@@ -412,12 +440,17 @@ export function StaffTicketPage() {
               </select>
               {branchSaving ? <span className="mt-1 block text-xs text-ink-400">Saving branch…</span> : null}
             </label>
-            <button type="button" className="mt-4 w-full rounded-xl border border-line px-3 py-2 text-sm" onClick={() => { void runAction(() => assignTicket(current.id, actor.id, actor), 'Could not assign the ticket.') }}>
+            <button type="button" className="mt-4 w-full rounded-xl border border-line px-3 py-2 text-sm" disabled={assigneeSaving} onClick={() => void onAssigneeChange(actor.id)}>
               Claim ticket
             </button>
             <label className="mt-4 block text-sm font-medium">
               Assign
-              <select className={inputClass + " mt-1"} value={current.assigneeId ?? ''} onChange={(e) => { void runAction(() => assignTicket(current.id, e.target.value || undefined, actor), 'Could not assign the ticket.') }}>
+              <select
+                className={inputClass + " mt-1"}
+                value={current.assigneeId ?? ''}
+                disabled={assigneeSaving}
+                onChange={(e) => void onAssigneeChange(e.target.value)}
+              >
                 <option value="">Unassigned</option>
                 {current.assigneeId && !agents.some((agent) => agent.id === current.assigneeId) ? (
                   <option value={current.assigneeId}>{currentAssignee?.name || current.assigneeId} (current)</option>
@@ -428,6 +461,7 @@ export function StaffTicketPage() {
                   </option>
                 ))}
               </select>
+              {assigneeSaving ? <span className="mt-1 block text-xs text-ink-400">Saving assignee…</span> : null}
             </label>
             <label className="mt-3 block text-sm font-medium">
               Transfer to department
@@ -479,7 +513,12 @@ export function StaffTicketPage() {
             </label>
             <label className="mt-3 block text-sm font-medium">
               Priority
-              <select className={inputClass + " mt-1"} value={current.priority} onChange={(e) => { void runAction(() => updateTicket(current.id, { priority: e.target.value as typeof current.priority }, actor), 'Could not update the ticket priority.') }}>
+              <select
+                className={inputClass + " mt-1"}
+                value={current.priority}
+                disabled={prioritySaving}
+                onChange={(e) => void onPriorityChange(e.target.value as typeof current.priority)}
+              >
                 {!ticketOptions.priorities.includes(current.priority) ? <option value={current.priority}>{current.priority}</option> : null}
                 {ticketOptions.priorities.map((p) => (
                   <option key={p} value={p}>
@@ -487,6 +526,7 @@ export function StaffTicketPage() {
                   </option>
                 ))}
               </select>
+              {prioritySaving ? <span className="mt-1 block text-xs text-ink-400">Saving priority…</span> : null}
             </label>
             <label className="mt-3 block text-sm font-medium">
               Subject

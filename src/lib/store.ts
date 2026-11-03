@@ -806,28 +806,35 @@ export async function addReply(input: {
   }
 }
 
+export function setTicketAssignee(ticketId: string, assigneeId: string | undefined, assigneeName: string | undefined, actor: User) {
+  const db = load()
+  const current = db.tickets.find((item) => item.id === ticketId)
+  if (!current) return
+  const name = assigneeId ? assigneeName || db.users.find((u) => u.id === assigneeId)?.name || assigneeId : undefined
+  const previous = current.assigneeId ? db.users.find((u) => u.id === current.assigneeId)?.name ?? current.assigneeId : 'Unassigned'
+  current.assigneeId = assigneeId || undefined
+  current.updatedAt = now()
+  db.messages.push({
+    id: id(),
+    ticketId,
+    authorId: 'system',
+    authorName: 'System',
+    kind: 'system',
+    body: name ? `Assigned to ${name} by ${actor.name}.` : `Released by ${actor.name}.`,
+    createdAt: now(),
+  })
+  db.audits.unshift({ id: id(), createdAt: now(), actorId: actor.id, actorName: actor.name, objectType: 'ticket', objectId: ticketId, action: 'assign', details: `${previous} → ${name ?? 'Unassigned'}` })
+  save(db)
+  emit()
+}
+
 export async function assignTicket(ticketId: string, assigneeId: string | undefined, actor: User) {
   const db = load()
   const ticket = db.tickets.find((t) => t.id === ticketId)
   if (!ticket) return
   const assignee = assigneeId ? db.users.find((u) => u.id === assigneeId) : undefined
   if (/^\d+$/.test(ticket.id)) await updateApiTicket(ticket.number, { assigneeEmail: assignee?.email ?? '' })
-  const currentDb = load()
-  const current = currentDb.tickets.find((item) => item.id === ticketId)
-  if (!current) return
-  current.assigneeId = assigneeId
-  current.updatedAt = now()
-  currentDb.messages.push({
-    id: id(),
-    ticketId,
-    authorId: 'system',
-    authorName: 'System',
-    kind: 'system',
-    body: assignee ? `Assigned to ${assignee.name} by ${actor.name}.` : `Released by ${actor.name}.`,
-    createdAt: now(),
-  })
-  save(currentDb)
-  emit()
+  setTicketAssignee(ticketId, assigneeId, assignee?.name, actor)
 }
 
 export function setTicketStatus(ticketId: string, status: TicketStatusOption, actor: User) {
@@ -1073,6 +1080,27 @@ export function removeRecord<K extends keyof Database>(collection: K, recordId: 
 
 export function newId() {
   return id()
+}
+
+export function setTicketPriority(ticketId: string, priority: Ticket['priority'], actor: User) {
+  const db = load()
+  const current = db.tickets.find((item) => item.id === ticketId)
+  if (!current) return
+  const previous = current.priority
+  current.priority = priority
+  current.updatedAt = now()
+  db.messages.push({
+    id: id(),
+    ticketId,
+    authorId: 'system',
+    authorName: 'System',
+    kind: 'system',
+    body: `${actor.name} changed the ticket priority: ${previous} → ${priority}.`,
+    createdAt: now(),
+  })
+  db.audits.unshift({ id: id(), createdAt: now(), actorId: actor.id, actorName: actor.name, objectType: 'ticket', objectId: ticketId, action: 'priority', details: `${previous} → ${priority}` })
+  save(db)
+  emit()
 }
 
 export async function updateTicket(
