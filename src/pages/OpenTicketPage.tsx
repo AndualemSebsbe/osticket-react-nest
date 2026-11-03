@@ -34,7 +34,7 @@ export function OpenTicketPage() {
     const form = new FormData(e.currentTarget);
     setSaving(true);
     try {
-      const ticket = await createTicket({
+      const { ticket, thankYouPage } = await createTicket({
         userId: user?.id ?? "",
         name: String(form.get("name") || user?.name || ""),
         email: String(form.get("email") || user?.email || ""),
@@ -50,7 +50,8 @@ export function OpenTicketPage() {
       if (user?.role === "client") navigate(`/tickets/${ticket.id}`);
       else
         navigate(
-          `/thanks?email=${encodeURIComponent(String(form.get("email") || user?.email || ""))}&number=${ticket.number}`,
+          `/thanks?email=${encodeURIComponent(String(form.get("email") || user?.email || ""))}&number=${encodeURIComponent(ticket.number)}`,
+          { state: { thankYouPage } },
         );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create ticket.");

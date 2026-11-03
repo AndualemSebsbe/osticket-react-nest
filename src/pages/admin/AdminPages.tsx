@@ -4,7 +4,7 @@ import { btnGhost, btnPrimary, Card, DataTable, Field, inputClass, PageHeader } 
 import { useAuth } from '../../context/AuthContext'
 import { useDb } from '../../hooks/useDb'
 import { adminGroups } from '../../layouts/staffNav'
-import { createApiBranch, listApiSlaPlans, createApiSlaPlan, updateApiSlaPlan, deleteApiSlaPlan, createApiFaqCategory, createApiHelpTopic, createApiAgent, updateApiAgent, deleteApiBranch, deleteApiFaqCategory, deleteApiHelpTopic, deleteApiAgent, listApiAdminBranches, listApiHelpTopics, listApiUsers, listApiAgents, getApiAgentOptions, saveApiTicketVisibility, sendMailTest, updateApiBranch, updateApiFaqCategory, updateApiHelpTopic, updateApiUserVerification, massAgentAction, listApiSchedules, createApiSchedule, updateApiSchedule, cloneApiSchedule, deleteApiSchedule, setApiDefaultSchedule, type ApiBranch, type ApiHelpTopic, type ApiSlaPlan, type ApiSchedule, type ApiScheduleEntry, type ApiSchedulesResponse, type ApiAgent, type ApiAgentOptions, type ApiDeptAccess, type ApiTeamMembership } from '../../lib/api'
+import { createApiBranch, listApiSlaPlans, createApiSlaPlan, updateApiSlaPlan, deleteApiSlaPlan, createApiFaqCategory, createApiAgent, updateApiAgent, deleteApiBranch, deleteApiFaqCategory, deleteApiAgent, listApiAdminBranches, listApiUsers, listApiAgents, getApiAgentOptions, saveApiTicketVisibility, sendMailTest, updateApiBranch, updateApiFaqCategory, updateApiUserVerification, massAgentAction, listApiSchedules, createApiSchedule, updateApiSchedule, cloneApiSchedule, deleteApiSchedule, setApiDefaultSchedule, type ApiBranch, type ApiSlaPlan, type ApiSchedule, type ApiScheduleEntry, type ApiSchedulesResponse, type ApiAgent, type ApiAgentOptions, type ApiDeptAccess, type ApiTeamMembership } from '../../lib/api'
 import { formatDate } from '../../lib/format'
 import { accountSessionToken, addLog, newId, removeRecord, saveSettings, syncUserVerification } from '../../lib/store'
 import type { LogLevel, SystemSettings } from '../../types'
@@ -281,85 +281,6 @@ export function AdminCategoriesPage() {
       onUpdate={async (record) => ({ ...await updateApiFaqCategory(String(record.id), categoryPayload(record)) })}
       onDelete={async (id) => { await deleteApiFaqCategory(id) }}
     />
-  )
-}
-
-export function AdminTopicsPage() {
-  const [topics, setTopics] = useState<ApiHelpTopic[]>([])
-  const [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([])
-  const [slas, setSlas] = useState<Array<{ id: string; name: string }>>([])
-  const [priorities, setPriorities] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    let active = true
-    const token = accountSessionToken()
-    if (!token) {
-      setError('Administrator session expired. Sign in again.')
-      setLoading(false)
-      return
-    }
-    void listApiHelpTopics(token)
-      .then((result) => {
-        if (!active) return
-        setTopics(result.topics)
-        setDepartments(result.departments)
-        setSlas(result.slas)
-        setPriorities(result.priorities)
-        setError('')
-      })
-      .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : 'Could not load help topics from PostgreSQL.') })
-      .finally(() => { if (active) setLoading(false) })
-    return () => { active = false }
-  }, [])
-
-  return (
-    <>
-      {loading ? <p className="mb-4 text-sm text-ink-500">Loading help topics from PostgreSQL…</p> : null}
-      {error ? <p role="alert" className="mb-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
-      <EntityManager
-        title="Help topics"
-        subtitle="Route new tickets to a department."
-        collection="topics"
-        rows={topics}
-        columns={[
-          { key: 'name', label: 'Topic' },
-          { key: 'deptId', label: 'Department', render: (r) => departments.find((department) => department.id === r.deptId)?.name ?? '—' },
-          { key: 'priority', label: 'Priority' },
-          { key: 'active', label: 'Status', render: (r) => (r.active ? 'Active' : 'Disabled') },
-        ]}
-        fields={[
-          { name: 'name', label: 'Topic', type: 'text', required: true },
-          { name: 'deptId', label: 'Department', type: 'select', options: departments.map((department) => ({ value: department.id, label: department.name })) },
-          { name: 'priority', label: 'Priority', type: 'select', options: priorities.map((priority) => ({ value: priority, label: priority })) },
-          { name: 'slaId', label: 'SLA', type: 'select', options: [{ value: '', label: 'None' }, ...slas.map((sla) => ({ value: sla.id, label: sla.name }))] },
-          { name: 'hint', label: 'Help text', type: 'textarea', span2: true },
-          { name: 'active', label: 'Active', type: 'checkbox' },
-        ]}
-        defaults={{ name: '', deptId: departments[0]?.id, hint: '', priority: priorities.includes('normal') ? 'normal' : priorities[0], active: true }}
-        onCreate={async (record) => {
-          const token = accountSessionToken()
-          if (!token) throw new Error('Administrator session expired. Sign in again.')
-          const topic = (await createApiHelpTopic(record as unknown as ApiHelpTopic, token)).topic
-          setTopics((current) => [...current.filter((item) => item.id !== topic.id), topic])
-          return topic as unknown as Record<string, unknown>
-        }}
-        onUpdate={async (record) => {
-          const token = accountSessionToken()
-          if (!token) throw new Error('Administrator session expired. Sign in again.')
-          const topic = (await updateApiHelpTopic(record as unknown as ApiHelpTopic, token)).topic
-          setTopics((current) => current.map((item) => item.id === topic.id ? topic : item))
-          return topic as unknown as Record<string, unknown>
-        }}
-        onDelete={async (id) => {
-          const token = accountSessionToken()
-          if (!token) throw new Error('Administrator session expired. Sign in again.')
-          await deleteApiHelpTopic(id, token)
-          setTopics((current) => current.filter((item) => item.id !== id))
-        }}
-      />
-    </>
   )
 }
 

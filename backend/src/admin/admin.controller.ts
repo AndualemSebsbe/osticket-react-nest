@@ -6,6 +6,7 @@ import { UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../common/admin.guard';
 import { SchedulesService } from './schedules.service';
 import { RolesService } from './roles.service';
+import { HelpTopicsService } from './help-topics.service';
 
 @Controller()
 @UseGuards(AdminGuard)
@@ -16,6 +17,7 @@ export class AdminController {
     @Inject(AgentsService) private agents: AgentsService,
     @Inject(SchedulesService) private schedules: SchedulesService,
     @Inject(RolesService) private roles: RolesService,
+    @Inject(HelpTopicsService) private helpTopics: HelpTopicsService,
   ) {}
   private check(_req:any) { }
   @Get('health') health() { return { ok: true, mailConfigured: this.mail.isConfigured(), storage: 'postgresql' }; }
@@ -23,7 +25,7 @@ export class AdminController {
   @Get('app-state') async appState() { return { state: await this.admin.publicState() }; }
   @Put('app-state') async saveState(@Body() body:any) { await this.admin.saveState(body.state || body); return { saved: true }; }
   @Get('branches') async branches() { return { branches: await this.admin.list('branches') }; }
-  @Get('help-topics') async helpTopics() { return { topics: await this.admin.list('help-topics'), departments: await this.admin.list('departments') }; }
+  @Get('help-topics') async publicHelpTopics() { return await this.helpTopics.publicList(); }
   @Get('admin/mail-log') async mailLog(@Req() req:any) { this.check(req); return { messages: await this.mail.listLog() }; }
   @Post('admin/mail-test') async mailTest(@Req() req:any,@Body() body:any) { this.check(req); const to=String(body.to || process.env.MAIL_TEST_TO || process.env.SUPPORT_EMAIL || ''); const result=await this.mail.sendNotice(to,'osTicket React SMTP test','SMTP delivery test completed at '+new Date().toISOString()); return { sent:result.status==='sent',to }; }
   @Patch('admin/ticket-settings') async ticketSettings(@Body() body:any) { await this.admin.saveState({ ticketSettings:body }); return { saved:true }; }
@@ -67,12 +69,14 @@ export class AdminController {
   @Put('admin/branches/:id') async updateBranch(@Param('id') id:string,@Body() body:any) { return { branch:await this.admin.update('branches',id,body) }; }
   @Delete('admin/branches/:id') removeBranch(@Param('id') id:string) { return this.admin.remove('branches',id); }
 
-  @Get('admin/help-topics') async adminTopics() { return { ...(await this.admin.options()), topics:await this.admin.list('help-topics') }; }
-  @Post('admin/help-topics') async createTopic(@Body() body:any) { return { topic:await this.admin.create('help-topics',body) }; }
-  @Put('admin/help-topics') async updateTopicBody(@Body() body:any) { return { topic:await this.admin.update('help-topics',String(body.id),body) }; }
-  @Put('admin/help-topics/:id') async updateTopic(@Param('id') id:string,@Body() body:any) { return { topic:await this.admin.update('help-topics',id,body) }; }
-  @Delete('admin/help-topics') removeTopicBody(@Body() body:any) { return this.admin.remove('help-topics',String(body.id)); }
-  @Delete('admin/help-topics/:id') removeTopic(@Param('id') id:string) { return this.admin.remove('help-topics',id); }
+  @Get('admin/help-topics') async adminTopics() { return await this.helpTopics.list(); }
+  @Post('admin/help-topics/mass-action') async massTopicAction(@Body() body:any) { return await this.helpTopics.massAction(String(body.action || ''), body.ids || []); }
+  @Get('admin/help-topics/:id') async adminTopic(@Param('id') id:string) { return await this.helpTopics.get(id); }
+  @Post('admin/help-topics') async createTopic(@Body() body:any) { return await this.helpTopics.save(body); }
+  @Put('admin/help-topics') async updateTopicBody(@Body() body:any) { return await this.helpTopics.save(body, String(body.id)); }
+  @Put('admin/help-topics/:id') async updateTopic(@Param('id') id:string,@Body() body:any) { return await this.helpTopics.save(body, id); }
+  @Delete('admin/help-topics') async removeTopicBody(@Body() body:any) { return await this.helpTopics.remove(String(body.id)); }
+  @Delete('admin/help-topics/:id') async removeTopic(@Param('id') id:string) { return await this.helpTopics.remove(id); }
 
   @Get('admin/faq-categories') async faqCategories() { return { categories:await this.admin.list('faq-categories') }; }
   @Post('admin/faq-categories') async createFaqCategory(@Body() body:any) { return { category:await this.admin.create('faq-categories',body) }; }

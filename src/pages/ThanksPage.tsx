@@ -1,12 +1,14 @@
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useDb } from '../hooks/useDb'
 
 export function ThanksPage() {
   const db = useDb()
+  const location = useLocation()
   const [params] = useSearchParams()
   const number = params.get('number')
   const email = params.get('email')
-  const page = db.pages.find((p) => p.type === 'thank-you' && p.active)
+  const topicPage = (location.state as { thankYouPage?: { id: string; name: string; body: string } | null } | null)?.thankYouPage
+  const page = topicPage ?? db.pages.find((p) => p.type === 'thank-you' && p.active)
 
   return (
     <div className="mx-auto max-w-xl rounded-2xl border border-line bg-surface p-6 text-center sm:p-10">

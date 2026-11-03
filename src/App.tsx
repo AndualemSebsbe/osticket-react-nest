@@ -41,10 +41,10 @@ import {
   AdminStaffPage,
   AdminTeamsPage,
   AdminTemplatesPage,
-  AdminTopicsPage,
   AdminUserVerificationPage,
   RequireAdmin,
 } from './pages/admin/AdminPages'
+import { AdminHelpTopicsPage } from './pages/admin/AdminHelpTopicsPage'
 import { StaffDashboardPage } from './pages/staff/StaffDashboardPage'
 import { AdminQueuesPage } from './pages/admin/AdminQueuesPage'
 import { StaffDirectoryPage } from './pages/staff/StaffDirectoryPage'
@@ -148,7 +148,7 @@ export default function App() {
               <Route path="audits" element={<AdminAuditsPage />} />
               <Route path="info" element={<AdminInfoPage />} />
               <Route path="settings" element={<AdminSettingsPage />} />
-              <Route path="topics" element={<AdminTopicsPage />} />
+              <Route path="topics" element={<AdminHelpTopicsPage />} />
               <Route path="filters" element={<AdminFiltersPage />} />
               <Route path="queues" element={<AdminQueuesPage />} />
               <Route path="slas" element={<AdminSlasPage />} />

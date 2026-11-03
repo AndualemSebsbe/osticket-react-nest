@@ -9,6 +9,48 @@ const bi = (v: unknown) => BigInt(String(v || 0));
 const idOrZero = (v: unknown) => /^\d+$/.test(String(v ?? '')) ? BigInt(String(v)) : 0n;
 const parse = (s?: string | null) => { try { return JSON.parse(s || '{}'); } catch { return {}; } };
 
+const TOPIC_FLAG_CUSTOM_NUMBERS = 0x0001;
+
+function sequenceDigitCount(format: string) {
+  return (format.match(/(?<!\\)#/g) || []).length;
+}
+
+/**
+ * Mirrors osTicket's Sequence::format(). Hash groups are replaced with digits
+ * from the (left-padded) sequence value. Escaped hashes (\#) are literal.
+ */
+function formatSequenceNumber(format: string, value: string, padding = '0') {
+  const source = format || '######';
+  const groups = Array.from(source.matchAll(/(?<!\\)(#+)/g));
+  const total = groups.reduce((sum, match) => sum + match[1].length, 0);
+  const pad = padding || '0';
+  let padded = String(value);
+  while (padded.length < total) padded = pad + padded;
+
+  let output = '';
+  let start = 0;
+  let offset = 0;
+  for (const group of groups) {
+    const index = group.index ?? 0;
+    const size = group[1].length;
+    output += source.slice(start, index).replace(/\\#/g, '#');
+    output += padded.slice(offset, offset + size);
+    start = index + size;
+    offset += size;
+  }
+  if (padded.length > offset) output += padded.slice(offset);
+  output += source.slice(start).replace(/\\#/g, '#');
+  return output;
+}
+
+function randomSequenceNumber(digits: number) {
+  let value = '';
+  for (let index = 0; index < digits; index++) {
+    value += String(index === 0 ? 1 + Math.floor(Math.random() * 9) : Math.floor(Math.random() * 10));
+  }
+  return BigInt(value || '0');
+}
+
 @Injectable()
 export class TicketsService {
   constructor(@Inject(PrismaService) private prisma: PrismaService, @Inject(ApiSecurityService) private security: ApiSecurityService, @Inject(MailService) private mail: MailService) {}
@@ -351,6 +393,34 @@ export class TicketsService {
   }
 
 
+  private async topicTicketNumber(topic: any) {
+    if (!topic || !(Number(topic.flags || 0) & TOPIC_FLAG_CUSTOM_NUMBERS)) return null;
+    const format = String(topic.number_format || '######');
+    const digits = Math.max(6, sequenceDigitCount(format));
+    let sequence: any = null;
+    if (Number(topic.sequence_id || 0) > 0) {
+      sequence = await this.prisma.sequence.findUnique({ where: { id: BigInt(String(topic.sequence_id)) } });
+    }
+    for (let attempt = 0; attempt < 50; attempt++) {
+      let value: bigint;
+      let padding = '0';
+      if (sequence) {
+        value = sequence.next;
+        const increment = BigInt(sequence.increment || 1);
+        await this.prisma.sequence.update({ where: { id: sequence.id }, data: { next: value + increment, updated: new Date() } });
+        padding = sequence.padding || '0';
+        sequence = { ...sequence, next: value + increment };
+      } else {
+        value = randomSequenceNumber(digits);
+      }
+      const candidate = formatSequenceNumber(format, value.toString(), padding);
+      if (candidate.length > 20) throw new BadRequestException('The generated ticket number is longer than the 20 character limit.');
+      const duplicate = await this.prisma.ticket.findUnique({ where: { number: candidate }, select: { ticket_id: true } });
+      if (!duplicate) return candidate;
+    }
+    return randomBytes(6).toString('hex').toUpperCase();
+  }
+
   async create(input: any, ip = '', uploads: Array<{originalname:string;mimetype:string;buffer:Buffer;size:number}> = []) {
     const data = typeof input.ticket === 'string' ? JSON.parse(input.ticket) : input;
     const email = this.security.email(data.email || data.requesterEmail), name = this.security.clean(data.name || data.requesterName, 128);
@@ -361,21 +431,57 @@ export class TicketsService {
     if (Array.isArray(banlist) && banlist.some((item: any) => String(item.email || '').toLowerCase() === email.toLowerCase())) throw new ForbiddenException('This email address is on the ban list.');
     const userId = await this.ensureUser(name, email);
     const address = await this.prisma.userEmail.findUnique({ where: { address: email } });
-    const status = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: 'open', mode: 'insensitive' } }, orderBy: [{ sort: 'asc' }, { id: 'asc' }] }) || await this.prisma.ticketStatus.findFirst({ orderBy: [{ sort: 'asc' }, { id: 'asc' }] });
-    if (!address || !status) throw new BadRequestException('Ticket system is missing the requester email or an initial status.');
-    const timestamp = new Date(), number = this.security.clean(data.number,32) || randomBytes(6).toString('hex').toUpperCase();
-    const duplicate = await this.prisma.ticket.findUnique({ where: { number } });
-    if (duplicate) { const owner=await this.prisma.userEmail.findUnique({where:{id:duplicate.user_email_id}}); if(owner?.address.toLowerCase()!==email) throw new BadRequestException('Ticket number is already in use.'); return {duplicate:true}; }
+    const defaultStatus = await this.prisma.ticketStatus.findFirst({ where: { state: { equals: 'open', mode: 'insensitive' } }, orderBy: [{ sort: 'asc' }, { id: 'asc' }] }) || await this.prisma.ticketStatus.findFirst({ orderBy: [{ sort: 'asc' }, { id: 'asc' }] });
+    if (!address || !defaultStatus) throw new BadRequestException('Ticket system is missing the requester email or an initial status.');
+
+    const helpTopic = data.topicId
+      ? await this.prisma.helpTopic.findUnique({ where: { topic_id: bi(data.topicId) } })
+      : data.topic
+        ? await this.prisma.helpTopic.findFirst({ where: { topic: { equals: String(data.topic), mode: 'insensitive' } } })
+        : null;
+    if ((data.topicId || data.topic) && !helpTopic) throw new BadRequestException('Choose a valid help topic.');
+    const topicStatus = helpTopic && Number(helpTopic.status_id) > 0
+      ? await this.prisma.ticketStatus.findUnique({ where: { id: helpTopic.status_id } })
+      : null;
+    const status = topicStatus || defaultStatus;
+
     const dept = data.departmentId ? await this.prisma.department.findUnique({where:{id:bi(data.departmentId)}}) : data.department ? await this.prisma.department.findFirst({where:{name:{equals:String(data.department),mode:'insensitive'}}}) : null;
-    const helpTopic = data.topicId ? await this.prisma.helpTopic.findUnique({where:{topic_id:bi(data.topicId)}}) : data.topic ? await this.prisma.helpTopic.findFirst({where:{topic:{equals:String(data.topic),mode:'insensitive'}}}) : null;
+    const topicDept = helpTopic && Number(helpTopic.dept_id) > 0
+      ? await this.prisma.department.findUnique({ where: { id: helpTopic.dept_id } })
+      : null;
+    const effectiveDept = dept || topicDept;
+    const topicPriority = helpTopic && Number(helpTopic.priority_id) > 0
+      ? await this.prisma.ticketPriority.findUnique({ where: { priority_id: Number(helpTopic.priority_id) } })
+      : null;
+    const priority = this.security.clean(data.priority, 32) || topicPriority?.priority || 'normal';
     const branch = data.branchId ? await this.prisma.branch.findFirst({where:{id:bi(data.branchId),active:1}}) : null;
     if(data.branchId && !branch) throw new BadRequestException('Selected branch is unavailable.');
     const assigneeEmail=this.security.email(data.assigneeEmail); const assignee=assigneeEmail?await this.prisma.staff.findFirst({where:{email:{equals:assigneeEmail,mode:'insensitive'},isactive:1}}):null;
     if(assigneeEmail&&!assignee) throw new BadRequestException('Choose an active agent or administrator.');
+    const topicStaff = helpTopic && Number(helpTopic.staff_id) > 0
+      ? await this.prisma.staff.findFirst({ where: { staff_id: Number(helpTopic.staff_id), isactive: 1 } })
+      : null;
+    const topicTeam = helpTopic && Number(helpTopic.team_id) > 0
+      ? await this.prisma.team.findUnique({ where: { team_id: helpTopic.team_id } })
+      : null;
+    const staffId = assignee?.staff_id ? BigInt(assignee.staff_id) : topicStaff?.staff_id ? BigInt(topicStaff.staff_id) : 0n;
+    const teamId = !staffId && topicTeam ? topicTeam.team_id : 0n;
+    const rawSlaId = String(data.slaId ?? '');
+    const slaId = /^\d+$/.test(rawSlaId) && rawSlaId !== '0'
+      ? BigInt(rawSlaId)
+      : helpTopic && Number(helpTopic.sla_id) > 0 ? helpTopic.sla_id : 0n;
+
+    const timestamp = new Date();
+    const requestedNumber = this.security.clean(data.number, 20);
+    const number = requestedNumber
+      || (await this.topicTicketNumber(helpTopic))
+      || randomBytes(6).toString('hex').toUpperCase();
+    const duplicate = await this.prisma.ticket.findUnique({ where: { number } });
+    if (duplicate) { const owner=await this.prisma.userEmail.findUnique({where:{id:duplicate.user_email_id}}); if(owner?.address.toLowerCase()!==email) throw new BadRequestException('Ticket number is already in use.'); return {duplicate:true}; }
     const accessToken = randomBytes(32).toString('base64url');
     const ticket = await this.prisma.$transaction(async tx => {
-      const t = await tx.ticket.create({ data: { number, user_id: userId, user_email_id: address.id, status_id: status.id, dept_id: dept?.id || 0n, topic_id: helpTopic?.topic_id || 0n, staff_id: BigInt(assignee?.staff_id || 0), source: data.source === 'email' ? 'EMAIL' : data.source === 'phone' ? 'PHONE' : 'WEB', ip_address: ip, created: timestamp, updated: timestamp } });
-      await tx.ticketCdata.create({ data: { ticket_id: t.ticket_id, subject, priority: String(data.priority || 'normal'), employee_id: String(data.employeeId || ''), branch_id: bi(data.branchId) } });
+      const t = await tx.ticket.create({ data: { number, user_id: userId, user_email_id: address.id, status_id: status.id, dept_id: effectiveDept?.id || 0n, topic_id: helpTopic?.topic_id || 0n, staff_id: staffId, team_id: teamId, sla_id: slaId, source: data.source === 'email' ? 'EMAIL' : data.source === 'phone' ? 'PHONE' : 'WEB', ip_address: ip, created: timestamp, updated: timestamp } });
+      await tx.ticketCdata.create({ data: { ticket_id: t.ticket_id, subject, priority, employee_id: String(data.employeeId || ''), branch_id: bi(data.branchId) } });
       const th = await tx.thread.create({ data: { object_id: t.ticket_id, object_type: 'T', extra: JSON.stringify({ accessHash: createHash('sha256').update(accessToken).digest('hex'), fromEmail: this.security.clean(data.fromEmail,254), collaboratorNotice: ['all','user','none'].includes(data.collaboratorNotice)?data.collaboratorNotice:'all' }), created: timestamp } });
       const entry = await tx.threadEntry.create({ data: { thread_id: th.id, user_id: userId, type: 'M', poster: name, title: subject, body: message, ip_address: ip, created: timestamp, updated: timestamp } });
       await tx.threadEvent.create({
@@ -383,9 +489,9 @@ export class TicketsService {
           thread_id: th.id,
           thread_type: 'T',
           event_id: 1n,
-          staff_id: BigInt(assignee?.staff_id || 0),
-          team_id: 0n,
-          dept_id: dept?.id || 0n,
+          staff_id: staffId,
+          team_id: teamId,
+          dept_id: effectiveDept?.id || 0n,
           topic_id: helpTopic?.topic_id || 0n,
           username: name || 'SYSTEM',
           uid: userId,
@@ -393,15 +499,15 @@ export class TicketsService {
           timestamp,
         },
       });
-      if (assignee?.staff_id) {
+      if (staffId) {
         await tx.threadEvent.create({
           data: {
             thread_id: th.id,
             thread_type: 'T',
             event_id: 4n,
-            staff_id: BigInt(assignee.staff_id),
-            team_id: 0n,
-            dept_id: dept?.id || 0n,
+            staff_id: staffId,
+            team_id: teamId,
+            dept_id: effectiveDept?.id || 0n,
             topic_id: helpTopic?.topic_id || 0n,
             username: name || 'SYSTEM',
             uid: userId,
@@ -416,9 +522,18 @@ export class TicketsService {
       return t;
     });
     const view = await this.view(ticket);
-    void this.mail.sendNotice(email, 'Ticket #' + number + ' received', 'Your ticket has been created: ' + subject + '\n\n' + message, number);
+    if (!helpTopic?.noautoresp) {
+      void this.mail.sendNotice(email, 'Ticket #' + number + ' received', 'Your ticket has been created: ' + subject + '\n\n' + message, number);
+    }
+    const thankYouPage = helpTopic && Number(helpTopic.page_id) > 0
+      ? await this.prisma.content.findUnique({ where: { id: helpTopic.page_id } })
+      : null;
     const { accessHash, requesterEmail, ...safeTicket } = view;
-    return { ticket: safeTicket, accessToken };
+    return {
+      ticket: safeTicket,
+      accessToken,
+      thankYouPage: thankYouPage ? { id: String(thankYouPage.id), name: thankYouPage.name, body: thankYouPage.body } : null,
+    };
   }
 
   private async ensureUser(name: string, email: string) {

@@ -7,7 +7,7 @@ export class AdminGuard implements CanActivate {
   constructor(@Inject(AuthService) private auth: AuthService, @Inject(ApiSecurityService) private security: ApiSecurityService) {}
   async canActivate(context:ExecutionContext) {
     const req=context.switchToHttp().getRequest();
-    const path=String(req.route?.path||req.path||'');
+    const path=String(req.route?.path||req.path||'').replace(/^\/api\/v\d+(?=\/|$)/,'');
     if(path==='/health'||path==='/public-state'||path==='/branches'||path==='/help-topics') return true;
     if(this.security.authorized(req.headers['x-api-key'])) return true;
     const session=this.security.readSession(req.headers['x-user-session']);

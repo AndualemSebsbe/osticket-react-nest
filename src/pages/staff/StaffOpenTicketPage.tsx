@@ -36,7 +36,7 @@ export function StaffOpenTicketPage() {
     const form = new FormData(e.currentTarget)
     setSaving(true)
     try {
-      const ticket = await createTicket({
+      const { ticket } = await createTicket({
         userId: String(form.get('userId')),
         name: String(form.get('name')),
         email: String(form.get('email')),

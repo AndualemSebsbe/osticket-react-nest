@@ -478,8 +478,16 @@ export async function createTicket(input: {
   db.messages.push(initialMessage)
   save(db)
   emit()
+  let thankYouPage: { id: string; name: string; body: string } | null = null
   try {
-    await mirrorTicket(ticket, user, input.body, db, input.attachments)
+    const mirrored = await mirrorTicket(ticket, user, input.body, db, input.attachments)
+    thankYouPage = mirrored.thankYouPage ?? null
+    const serverNumber = mirrored.ticket?.number
+    if (serverNumber && serverNumber !== ticket.number) {
+      ticket.number = serverNumber
+      save(db)
+      emit()
+    }
   } catch (error) {
     db.tickets = db.tickets.filter((item) => item.id !== ticket.id)
     db.messages = db.messages.filter((item) => item.id !== initialMessage.id)
@@ -487,7 +495,7 @@ export async function createTicket(input: {
     emit()
     throw error
   }
-  return ticket
+  return { ticket, thankYouPage }
 }
 
 export async function hydrateTicketsFromApi(token: string) {

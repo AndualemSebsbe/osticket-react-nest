@@ -267,15 +267,133 @@ export function updateApiSchedule(id: string, input: Partial<ApiSchedule>, token
 export function cloneApiSchedule(id: string, input: Pick<ApiSchedule, 'name'>, token: string) { return request<ApiSchedule>('/admin/schedules/' + encodeURIComponent(id) + '/clone', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) }) }
 export function deleteApiSchedule(id: string, token: string) { return request<{ deleted: boolean }>('/admin/schedules/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'x-user-session': token } }) }
 export function setApiDefaultSchedule(id: string, token: string) { return request<{ saved: boolean }>('/admin/schedules/default/' + encodeURIComponent(id), { method: 'PUT', headers: { 'x-user-session': token } }) }
-export interface ApiHelpTopic { id: string; name: string; deptId: string; departmentName?: string; priority: string; slaId?: string; slaName?: string; hint?: string; active: boolean }
+export interface ApiHelpTopicOption { id: string; name: string }
+export interface ApiHelpTopicDepartmentOption extends ApiHelpTopicOption { parentId?: string; public?: boolean; active?: boolean; archived?: boolean }
+export interface ApiHelpTopicStatusOption extends ApiHelpTopicOption { state: string; enabled: boolean }
+export interface ApiHelpTopicPriorityOption extends ApiHelpTopicOption { urgency?: number }
+export interface ApiHelpTopicPageOption extends ApiHelpTopicOption { type?: string }
+export interface ApiHelpTopicSequenceOption extends ApiHelpTopicOption { next: string; increment: number; padding: string }
+export interface ApiHelpTopicStaffOption extends ApiHelpTopicOption { email: string; departmentId: string }
+export interface ApiHelpTopicFormField {
+  id: string
+  label: string
+  name: string
+  type: string
+  sort: number
+  flags: string
+  enabled: boolean
+  disabled?: boolean
+}
+export interface ApiHelpTopicFormOption {
+  id: string
+  title: string
+  instructions: string
+  name: string
+  type: string
+  flags: string
+  deleted: boolean
+  fields: ApiHelpTopicFormField[]
+}
+export interface ApiHelpTopicFormLink {
+  id?: string
+  formId: string
+  sort: number
+  title: string
+  instructions: string
+  type: string
+  disabledFieldIds: string[]
+  fields: ApiHelpTopicFormField[]
+}
+export interface ApiPublicHelpTopic {
+  id: string
+  name: string
+  topic?: string
+  parentId?: string
+  deptId: string
+  departmentName?: string
+  priorityId?: string
+  priority: string
+  slaId?: string
+  slaName?: string
+  hint: string
+  active: boolean
+  status?: string
+  isPublic?: boolean
+  public?: boolean
+  forms?: ApiHelpTopicFormLink[]
+}
+export interface ApiHelpTopic {
+  id: string
+  topicId: string
+  name: string
+  topic: string
+  status: 'active' | 'disabled' | 'archived'
+  active: boolean
+  isPublic: boolean
+  public: boolean
+  parentId: string
+  departmentId: string
+  deptId: string
+  departmentName: string
+  statusId: string
+  statusName: string
+  priorityId: string
+  priority: string
+  priorityName: string
+  slaId: string
+  slaName: string
+  pageId: string
+  pageName: string
+  sequenceId: string
+  sequenceName: string
+  numberFormat: string
+  customNumbers: boolean
+  staffId: string
+  teamId: string
+  assign: string
+  assignName: string
+  noautoresp: boolean
+  disableAutoResponse: boolean
+  notes: string
+  hint: string
+  sort: number
+  forms: ApiHelpTopicFormLink[]
+  created?: string
+  updated?: string
+}
 export interface ApiHelpTopicOptions {
   topics: ApiHelpTopic[]
-  departments: Array<{ id: string; name: string }>
-  slas: Array<{ id: string; name: string }>
-  priorities: string[]
+  departments: ApiHelpTopicDepartmentOption[]
+  statuses: ApiHelpTopicStatusOption[]
+  priorities: ApiHelpTopicPriorityOption[]
+  slas: ApiHelpTopicOption[]
+  pages: ApiHelpTopicPageOption[]
+  sequences: ApiHelpTopicSequenceOption[]
+  staff: ApiHelpTopicStaffOption[]
+  teams: ApiHelpTopicOption[]
+  forms: ApiHelpTopicFormOption[]
+}
+export interface ApiHelpTopicInput {
+  name: string
+  parentId?: string
+  departmentId?: string
+  status?: 'active' | 'disabled' | 'archived'
+  isPublic?: boolean
+  statusId?: string
+  priorityId?: string
+  slaId?: string
+  pageId?: string
+  sequenceId?: string
+  numberFormat?: string
+  customNumbers?: boolean
+  staffId?: string
+  teamId?: string
+  noautoresp?: boolean
+  notes?: string
+  forms?: Array<{ formId: string; disabledFieldIds: string[] }>
 }
 export function listApiPublicHelpTopics() {
-  return request<{ topics: ApiHelpTopic[]; departments: Array<{ id: string; name: string }> }>('/help-topics')
+  return request<{ topics: ApiPublicHelpTopic[]; departments: Array<{ id: string; name: string }> }>('/help-topics')
 }
 export interface ApiBranch { id: string; name: string; active?: boolean }
 export function listApiBranches() {
@@ -305,14 +423,20 @@ export function saveApiAppState(state: Partial<Database>, token: string) {
 export function listApiHelpTopics(token: string) {
   return request<ApiHelpTopicOptions>('/admin/help-topics', { headers: { 'x-user-session': token } })
 }
-export function createApiHelpTopic(input: Partial<ApiHelpTopic> & Pick<ApiHelpTopic, 'name'>, token: string) {
-  return request<{ topic: ApiHelpTopic }>('/admin/help-topics', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+export function getApiHelpTopic(id: string, token: string) {
+  return request<{ topic: ApiHelpTopic }>('/admin/help-topics/' + encodeURIComponent(id), { headers: { 'x-user-session': token } })
 }
-export function updateApiHelpTopic(input: ApiHelpTopic, token: string) {
-  return request<{ topic: ApiHelpTopic }>('/admin/help-topics', { method: 'PUT', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+export function createApiHelpTopic(input: ApiHelpTopicInput, token: string) {
+  return request<{ saved: boolean; id: string; topic: ApiHelpTopic }>('/admin/help-topics', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+}
+export function updateApiHelpTopic(id: string, input: ApiHelpTopicInput, token: string) {
+  return request<{ saved: boolean; id: string; topic: ApiHelpTopic }>('/admin/help-topics/' + encodeURIComponent(id), { method: 'PUT', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
 }
 export function deleteApiHelpTopic(id: string, token: string) {
-  return request<{ deleted: boolean }>('/admin/help-topics', { method: 'DELETE', headers: { 'x-user-session': token }, body: JSON.stringify({ id }) })
+  return request<{ deleted: boolean }>('/admin/help-topics/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'x-user-session': token } })
+}
+export function massActionApiHelpTopics(action: 'enable' | 'disable' | 'archive' | 'delete', ids: string[], token: string) {
+  return request<{ updated?: number; deleted?: number; skipped?: number }>('/admin/help-topics/mass-action', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify({ action, ids }) })
 }
 export interface ApiStaffTicketOptions {
   statuses: TicketStatusOption[]
@@ -484,9 +608,18 @@ export function updateApiUserVerification(user: Pick<User, 'name' | 'email'>, st
 export function saveApiStaff(input: { staffId?: string; name: string; email: string; phone?: string; password?: string; role: 'agent' | 'admin'; active: boolean; title?: string; deptId?: string; roleId?: string; deptName?: string; roleName?: string; departmentAccess?: string[] }, token: string) {
   return request<{ saved: boolean; id: string }>('/admin/staff', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
 }
+export type MirrorTicketResult = {
+  accessToken?: string
+  duplicate?: boolean
+  ticket?: { number?: string }
+  thankYouPage?: { id: string; name: string; body: string } | null
+}
+
 export async function mirrorTicket(ticket: Ticket, requester: User, firstMessage: string, db: Database, attachments: File[] = []) {
   const assignee = db.users.find(u => u.id === ticket.assigneeId)
-  const payload = { id: ticket.id, number: ticket.number, subject: ticket.subject, priority: ticket.priority, source: ticket.source, employeeId: ticket.employeeId, branchId: ticket.branchId, assignee: assignee?.name || '', assigneeEmail: assignee?.email || '', department: db.departments.find(d => d.id === ticket.deptId)?.name, topic: db.topics.find(t => t.id === ticket.topicId)?.name, requesterName: requester.name, requesterEmail: requester.email, message: firstMessage, collaborators: ticket.collaborators || [], fromEmail: ticket.fromEmail, collaboratorNotice: ticket.collaboratorNotice }
+  // Let the API generate the number when the selected help topic has a custom
+  // number format; the returned number replaces the local placeholder.
+  const payload = { id: ticket.id, subject: ticket.subject, priority: ticket.priority, source: ticket.source, employeeId: ticket.employeeId, branchId: ticket.branchId, assignee: assignee?.name || '', assigneeEmail: assignee?.email || '', department: db.departments.find(d => d.id === ticket.deptId)?.name, topic: db.topics.find(t => t.id === ticket.topicId)?.name, requesterName: requester.name, requesterEmail: requester.email, message: firstMessage, collaborators: ticket.collaborators || [], fromEmail: ticket.fromEmail, collaboratorNotice: ticket.collaboratorNotice }
   let body: BodyInit = JSON.stringify(payload)
   if (attachments.length) {
     const form = new FormData()
@@ -494,8 +627,9 @@ export async function mirrorTicket(ticket: Ticket, requester: User, firstMessage
     for (const file of attachments) form.append('files', file, file.name)
     body = form
   }
-  const result = await request<{ accessToken?: string }>('/tickets', { method: 'POST', headers: currentSessionHeaders(), body })
-  if (result.accessToken) localStorage.setItem('osticket-api-access-' + ticket.number, result.accessToken)
+  const result = await request<MirrorTicketResult>('/tickets', { method: 'POST', headers: currentSessionHeaders(), body })
+  const finalNumber = result.ticket?.number || ticket.number
+  if (result.accessToken) localStorage.setItem('osticket-api-access-' + finalNumber, result.accessToken)
   return result
 }
 export function mirrorReply(input: { ticket: Ticket; owner: User; author: User; body: string; initialMessage: string; db: Database; internal?: boolean; status?: Ticket['status']; recipients?: string[]; fromEmail?: string; collaboratorResponse?: boolean; files?: File[] }) {
