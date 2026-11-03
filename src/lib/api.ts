@@ -519,7 +519,9 @@ export function mirrorReply(input: { ticket: Ticket; owner: User; author: User; 
     try {
       return await sendReply()
     } catch (error) {
-      if (!(error instanceof ApiRequestError) || ![401, 403, 404].includes(error.status)) throw error
+      // Only recreate the server-side ticket when it is genuinely missing. Auth
+      // failures should surface to the caller instead of creating a second ticket.
+      if (!(error instanceof ApiRequestError) || error.status !== 404) throw error
       const created = await request<{ accessToken?: string }>('/tickets', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify({ id: ticket.id, number: ticket.number, subject: ticket.subject, priority: ticket.priority, employeeId: ticket.employeeId, branchId: ticket.branchId, department: db.departments.find(d => d.id === ticket.deptId)?.name, topic: db.topics.find(t => t.id === ticket.topicId)?.name, requesterName: owner.name, requesterEmail: owner.email, message: initialMessage || '(Ticket imported from the existing help desk.)', collaborators: ticket.collaborators || [], fromEmail: ticket.fromEmail }) })
       if (created.accessToken) localStorage.setItem('osticket-api-access-' + ticket.number, created.accessToken)
       return sendReply()

@@ -12,7 +12,7 @@ import type {
   User,
 } from '../types'
 import { seed } from './seed'
-import { ApiRequestError, banApiTicketEmail, createApiTask, deleteApiTicket, getApiAppState, getApiPublicAppState, getApiStaffTicket, listApiAccountTickets, listApiTasks, listApiTickets, listApiAssignableStaff, lockApiTicket, mergeApiTicket, mirrorReply, mirrorTicket, mirrorTicketUpdate, registerApiUser, saveApiAppState, saveApiTicketCollaborators, unlockApiTicket, updateApiTask, updateApiTicket, updateApiUserVerification, type ApiClientUser, type ApiPersistedMessage, type ApiPersistedTicket } from './api'
+import { ApiRequestError, banApiTicketEmail, createApiTask, deleteApiTicket, getApiAppState, getApiPublicAppState, getApiStaffTicket, listApiAccountTickets, listApiTasks, listApiTickets, listApiAssignableStaff, lockApiTicket, mergeApiTicket, mirrorReply, mirrorTicket, registerApiUser, saveApiAppState, saveApiTicketCollaborators, unlockApiTicket, updateApiTask, updateApiTicket, updateApiUserVerification, type ApiClientUser, type ApiPersistedMessage, type ApiPersistedTicket } from './api'
 
 const KEY = 'osticket-react-db-v4'
 const SESSION = 'osticket-react-session'
@@ -515,7 +515,8 @@ export async function hydrateTicketDetailFromApi(ticketId: string) {
 export async function hydrateTasksFromApi(_token: string) {
   const result = await listApiTasks()
   const db = load()
-  db.tasks = (result.tasks || []).map(mapApiTask)
+  const localOnly = db.tasks.filter((task) => !/^\d+$/.test(task.id))
+  db.tasks = [...(result.tasks || []).map((row) => mapApiTaskForDb(row, db)), ...localOnly]
   save(db)
   emit()
 }
@@ -532,6 +533,25 @@ function mapApiTask(row: Record<string, any>): Task {
     status: row.status === 'closed' ? 'closed' : 'open',
     createdAt: String(row.createdAt || now()),
   }
+}
+
+function mapApiTaskForDb(row: Record<string, any>, db: Database): Task {
+  const task = mapApiTask(row)
+  const departmentName = String(row.departmentName || '').trim()
+  if (departmentName) {
+    let department = db.departments.find((item) => item.name.toLowerCase() === departmentName.toLowerCase() || (row.deptId && item.id === String(row.deptId)))
+    if (!department) {
+      department = { id: row.deptId ? String(row.deptId) : `api-dept-${departmentName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, name: departmentName, active: true }
+      db.departments.push(department)
+    }
+    task.deptId = department.id
+  }
+  return task
+}
+
+function staffTaskSession() {
+  const role = currentUser()?.role
+  return Boolean(accountSessionToken()) && (role === 'agent' || role === 'admin')
 }
 
 export async function hydrateAssignableStaffFromApi(token: string) {
@@ -707,7 +727,7 @@ export function messagesFor(ticketId: string, includeInternal: boolean) {
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 }
 
-export function addReply(input: {
+export async function addReply(input: {
   ticketId: string
   author: User
   body: string
@@ -768,18 +788,27 @@ export function addReply(input: {
   const owner = db.users.find((u) => u.id === ticket.userId)
   if (owner) {
     const pending = mirrorReply({ ticket, owner, author: input.author, body: input.body, initialMessage: db.messages.find((m) => m.ticketId === ticket.id && !m.internal)?.body ?? '', db, internal: input.internal, status: input.close ? 'closed' : input.pending ? 'pending' : undefined, recipients: input.recipients, fromEmail: input.fromEmail, collaboratorResponse: input.collaboratorResponse, files: input.files })
-    if (/^\d+$/.test(ticket.id)) void pending.then(() => hydrateTicketDetailFromApi(ticket.id)).catch((error: unknown) => console.warn('[helpdesk reply]', error instanceof Error ? error.message : error))
+    if (/^\d+$/.test(ticket.id)) {
+      await pending
+      await hydrateTicketDetailFromApi(ticket.id).catch((error: unknown) => console.warn('[helpdesk reply]', error instanceof Error ? error.message : error))
+    } else {
+      void pending.catch((error: unknown) => console.warn('[helpdesk reply]', error instanceof Error ? error.message : error))
+    }
   }
 }
 
-export function assignTicket(ticketId: string, assigneeId: string | undefined, actor: User) {
+export async function assignTicket(ticketId: string, assigneeId: string | undefined, actor: User) {
   const db = load()
   const ticket = db.tickets.find((t) => t.id === ticketId)
   if (!ticket) return
-  ticket.assigneeId = assigneeId
-  ticket.updatedAt = now()
   const assignee = assigneeId ? db.users.find((u) => u.id === assigneeId) : undefined
-  db.messages.push({
+  if (/^\d+$/.test(ticket.id)) await updateApiTicket(ticket.number, { assigneeEmail: assignee?.email ?? '' })
+  const currentDb = load()
+  const current = currentDb.tickets.find((item) => item.id === ticketId)
+  if (!current) return
+  current.assigneeId = assigneeId
+  current.updatedAt = now()
+  currentDb.messages.push({
     id: id(),
     ticketId,
     authorId: 'system',
@@ -788,18 +817,21 @@ export function assignTicket(ticketId: string, assigneeId: string | undefined, a
     body: assignee ? `Assigned to ${assignee.name} by ${actor.name}.` : `Released by ${actor.name}.`,
     createdAt: now(),
   })
-  save(db)
+  save(currentDb)
   emit()
-  mirrorTicketUpdate(ticket.number, { assignee: assignee?.name ?? '', assigneeEmail: assignee?.email ?? '' })
 }
 
-export function setStatus(ticketId: string, status: Ticket['status'], actor: User) {
+export async function setStatus(ticketId: string, status: Ticket['status'], actor: User) {
   const db = load()
   const ticket = db.tickets.find((t) => t.id === ticketId)
   if (!ticket) return
-  ticket.status = status
-  ticket.updatedAt = now()
-  db.messages.push({
+  if (/^\d+$/.test(ticket.id)) await updateApiTicket(ticket.number, { status })
+  const currentDb = load()
+  const current = currentDb.tickets.find((item) => item.id === ticketId)
+  if (!current) return
+  current.status = status
+  current.updatedAt = now()
+  currentDb.messages.push({
     id: id(),
     ticketId,
     authorId: 'system',
@@ -808,9 +840,8 @@ export function setStatus(ticketId: string, status: Ticket['status'], actor: Use
     body: `Status set to ${status} by ${actor.name}.`,
     createdAt: now(),
   })
-  save(db)
+  save(currentDb)
   emit()
-  mirrorTicketUpdate(ticket.number, { status })
 }
 
 export function searchFaqs(q: string) {
@@ -838,21 +869,24 @@ export function addLog(entry: { type: Database['logs'][number]['type']; title: s
 }
 
 export async function createTask(input: Omit<Task, 'id' | 'number' | 'createdAt' | 'status'> & { status?: Task['status'] }) {
-  const serverBacked = [input.deptId, input.assigneeId, input.ticketId].every((value) => !value || /^\d+$/.test(value))
-  if (serverBacked) {
-    try {
-      const result = await createApiTask({ title: input.title, deptId: input.deptId, assigneeId: input.assigneeId, ticketId: input.ticketId, dueAt: input.dueAt })
-      const task = mapApiTask(result.task)
-      const db = load()
-      db.tasks.unshift(task)
-      save(db)
-      emit()
-      return task
-    } catch (error) {
-      if (error instanceof ApiRequestError) throw error
-    }
-  }
   const db = load()
+  const localEntity = [input.ticketId, input.assigneeId].some((value) => Boolean(value) && !/^\d+$/.test(String(value)))
+  if (!localEntity && staffTaskSession()) {
+    const departmentName = input.deptId ? db.departments.find((department) => department.id === input.deptId)?.name : undefined
+    const result = await createApiTask({
+      title: input.title,
+      departmentName,
+      assigneeId: input.assigneeId && /^\d+$/.test(input.assigneeId) ? input.assigneeId : undefined,
+      ticketId: input.ticketId && /^\d+$/.test(input.ticketId) ? input.ticketId : undefined,
+      dueAt: input.dueAt,
+    })
+    const currentDb = load()
+    const task = mapApiTaskForDb(result.task, currentDb)
+    currentDb.tasks.unshift(task)
+    save(currentDb)
+    emit()
+    return task
+  }
   const task: Task = {
     id: id(),
     number: taskNumber(),
@@ -870,16 +904,32 @@ export async function updateTask(taskId: string, patch: Partial<Task>) {
   const db = load()
   const task = db.tasks.find((t) => t.id === taskId)
   if (!task) return
+  if (/^\d+$/.test(taskId) && staffTaskSession()) {
+    const payload: Record<string, unknown> = {}
+    if ('title' in patch) payload.title = patch.title
+    if ('status' in patch) payload.status = patch.status
+    if ('dueAt' in patch) payload.dueAt = patch.dueAt ?? null
+    if ('deptId' in patch) {
+      if (patch.deptId) {
+        if (/^\d+$/.test(patch.deptId)) payload.deptId = patch.deptId
+        else payload.departmentName = db.departments.find((department) => department.id === patch.deptId)?.name ?? ''
+      } else payload.deptId = ''
+    }
+    if ('assigneeId' in patch) payload.assigneeId = patch.assigneeId && /^\d+$/.test(patch.assigneeId) ? patch.assigneeId : ''
+    if ('ticketId' in patch) payload.ticketId = patch.ticketId && /^\d+$/.test(patch.ticketId) ? patch.ticketId : ''
+    const result = await updateApiTask(taskId, payload)
+    const currentDb = load()
+    const updated = mapApiTaskForDb(result.task, currentDb)
+    const current = currentDb.tasks.find((item) => item.id === taskId)
+    if (current) Object.assign(current, updated)
+    save(currentDb)
+    emit()
+    return current
+  }
   Object.assign(task, patch)
   save(db)
   emit()
-  if (!/^\d+$/.test(taskId)) return
-  const result = await updateApiTask(taskId, patch)
-  const updated = mapApiTask(result.task)
-  const current = load().tasks.find((t) => t.id === taskId)
-  if (current) Object.assign(current, updated)
-  save(load())
-  emit()
+  return task
 }
 
 export function upsertFaq(input: Partial<Faq> & { question: string; answer: string; categoryId: string }) {
@@ -1003,7 +1053,7 @@ export function newId() {
   return id()
 }
 
-export function updateTicket(
+export async function updateTicket(
   ticketId: string,
   patch: Partial<Pick<Ticket, 'priority' | 'deptId' | 'topicId' | 'source' | 'dueAt' | 'slaId' | 'subject'>> & { topicName?: string },
   actor: User,
@@ -1012,13 +1062,26 @@ export function updateTicket(
   const ticket = db.tickets.find((t) => t.id === ticketId)
   if (!ticket) return
   const { topicName, ...ticketPatch } = patch
-  const before = { ...ticket }
-  Object.assign(ticket, ticketPatch)
-  ticket.updatedAt = now()
+  const department = ticketPatch.deptId ? db.departments.find((d) => d.id === ticketPatch.deptId)?.name : undefined
+  const topic = topicName || (ticketPatch.topicId ? db.topics.find((t) => t.id === ticketPatch.topicId)?.name : undefined)
+  if (/^\d+$/.test(ticket.id)) {
+    const mirror: Parameters<typeof updateApiTicket>[1] = {}
+    if (ticketPatch.priority) mirror.priority = ticketPatch.priority
+    if (ticketPatch.subject) mirror.subject = ticketPatch.subject
+    if (department) mirror.department = department
+    if (topic) mirror.topic = topic
+    if (Object.keys(mirror).length) await updateApiTicket(ticket.number, mirror)
+  }
+  const currentDb = load()
+  const current = currentDb.tickets.find((item) => item.id === ticketId)
+  if (!current) return
+  const before = { ...current }
+  Object.assign(current, ticketPatch)
+  current.updatedAt = now()
   const changes = Object.keys(ticketPatch)
-    .map((key) => `${key}: ${(before as unknown as Record<string, unknown>)[key] ?? '—'} → ${(ticket as unknown as Record<string, unknown>)[key] ?? '—'}`)
+    .map((key) => `${key}: ${(before as unknown as Record<string, unknown>)[key] ?? '—'} → ${(current as unknown as Record<string, unknown>)[key] ?? '—'}`)
     .join('; ')
-  db.messages.push({
+  currentDb.messages.push({
     id: id(),
     ticketId,
     authorId: 'system',
@@ -1027,7 +1090,7 @@ export function updateTicket(
     body: `${actor.name} updated ticket (${changes}).`,
     createdAt: now(),
   })
-  db.audits.unshift({
+  currentDb.audits.unshift({
     id: id(),
     createdAt: now(),
     actorId: actor.id,
@@ -1037,16 +1100,8 @@ export function updateTicket(
     action: 'update',
     details: changes,
   })
-  save(db)
+  save(currentDb)
   emit()
-  const department = db.departments.find((d) => d.id === ticket.deptId)?.name
-  const topic = topicName || db.topics.find((t) => t.id === ticket.topicId)?.name
-  mirrorTicketUpdate(ticket.number, {
-    ...(ticketPatch.priority ? { priority: ticketPatch.priority } : {}),
-    ...(ticketPatch.subject ? { subject: ticketPatch.subject } : {}),
-    ...(ticketPatch.deptId ? { department } : {}),
-    ...(ticketPatch.topicId ? { topic } : {}),
-  })
 }
 
 export function setTicketBranch(ticketId: string, branchId: string, branchName: string, actor: User) {
@@ -1299,8 +1354,8 @@ export async function releaseTicketLock(ticketId: string, actor: User) {
   emit()
 }
 
-export function releaseTicket(ticketId: string, actor: User) {
-  assignTicket(ticketId, undefined, actor)
+export async function releaseTicket(ticketId: string, actor: User) {
+  await assignTicket(ticketId, undefined, actor)
 }
 
 export async function markOverdue(ticketId: string, actor: User, overdue = true) {
@@ -1315,19 +1370,22 @@ export async function markOverdue(ticketId: string, actor: User, overdue = true)
   emit()
 }
 
-export function transferTicket(ticketId: string, deptId: string, actor: User) {
+export async function transferTicket(ticketId: string, deptId: string, actor: User) {
   const db = load()
   const ticket = db.tickets.find((t) => t.id === ticketId)
   const dept = db.departments.find((d) => d.id === deptId)
   if (!ticket || !dept) return
-  const prev = db.departments.find((d) => d.id === ticket.deptId)?.name ?? ticket.deptId
-  ticket.deptId = deptId
-  ticket.assigneeId = undefined
-  ticket.updatedAt = now()
-  db.messages.push(ticketEvent(ticketId, `${actor.name} transferred ticket from ${prev} to ${dept.name}.`))
-  save(db)
+  if (/^\d+$/.test(ticket.id)) await updateApiTicket(ticket.number, { department: dept.name, assigneeEmail: '' })
+  const currentDb = load()
+  const current = currentDb.tickets.find((item) => item.id === ticketId)
+  if (!current) return
+  const previous = currentDb.departments.find((d) => d.id === current.deptId)?.name ?? current.deptId
+  current.deptId = deptId
+  current.assigneeId = undefined
+  current.updatedAt = now()
+  currentDb.messages.push(ticketEvent(ticketId, `${actor.name} transferred ticket from ${previous} to ${dept.name}.`))
+  save(currentDb)
   emit()
-  mirrorTicketUpdate(ticket.number, { department: dept.name, assignee: '' })
 }
 
 export async function deleteTicket(ticketId: string, actor: User) {
@@ -1372,14 +1430,10 @@ export async function mergeTickets(primaryId: string, secondaryNumber: string, a
   const secondary = db.tickets.find((t) => t.number === secondaryNumber.trim())
   if (!primary || !secondary || primary.id === secondary.id) throw new Error('Select a different ticket number to merge.')
   if (/^\d+$/.test(primary.id) && /^\d+$/.test(secondary.id)) {
-    try {
-      await mergeApiTicket(primary.number, secondary.number)
-      await hydrateTicketDetailFromApi(primary.id)
-      await hydrateTicketDetailFromApi(secondary.id)
-      return
-    } catch (error) {
-      if (error instanceof ApiRequestError) throw error
-    }
+    await mergeApiTicket(primary.number, secondary.number)
+    await hydrateTicketDetailFromApi(primary.id)
+    await hydrateTicketDetailFromApi(secondary.id)
+    return
   }
   const moved = db.messages.filter((m) => m.ticketId === secondary.id)
   for (const msg of moved) msg.ticketId = primary.id
@@ -1396,8 +1450,8 @@ export async function mergeTickets(primaryId: string, secondaryNumber: string, a
   emit()
 }
 
-export function reopenTicket(ticketId: string, actor: User) {
-  setStatus(ticketId, 'open', actor)
+export async function reopenTicket(ticketId: string, actor: User) {
+  await setStatus(ticketId, 'open', actor)
 }
 
 export function editClientTicket(ticketId: string, userId: string, patch: { subject?: string; topicId?: string; branchId?: string; branchName?: string }) {

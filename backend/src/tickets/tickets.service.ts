@@ -6,6 +6,7 @@ import { MailService } from '../mail/mail.service';
 import { BUILTIN_TICKET_QUEUES } from './queue-defaults';
 
 const bi = (v: unknown) => BigInt(String(v || 0));
+const idOrZero = (v: unknown) => /^\d+$/.test(String(v ?? '')) ? BigInt(String(v)) : 0n;
 const parse = (s?: string | null) => { try { return JSON.parse(s || '{}'); } catch { return {}; } };
 
 @Injectable()
@@ -233,14 +234,15 @@ export class TicketsService {
     return { released: true, ticket: await this.view(refreshed) };
   }
 
-  private taskView(row: any, title: string) {
+  private taskView(row: any, title: string, departmentName = '') {
     return {
       id: String(row.id),
       number: row.number || '',
       title,
-      deptId: String(row.dept_id || ''),
-      assigneeId: row.staff_id ? String(row.staff_id) : undefined,
-      ticketId: row.object_type === 'T' && row.object_id ? String(row.object_id) : undefined,
+      deptId: Number(row.dept_id) ? String(row.dept_id) : '',
+      departmentName,
+      assigneeId: Number(row.staff_id) ? String(row.staff_id) : undefined,
+      ticketId: row.object_type === 'T' && Number(row.object_id) ? String(row.object_id) : undefined,
       dueAt: row.duedate ? row.duedate.toISOString() : undefined,
       status: row.closed ? 'closed' : 'open',
       createdAt: row.created.toISOString(),
@@ -248,11 +250,29 @@ export class TicketsService {
     };
   }
 
+  private async taskDepartment(input: any) {
+    const rawId = input.deptId;
+    if (rawId !== undefined && rawId !== null && rawId !== '' && /^\d+$/.test(String(rawId))) {
+      const department = await this.prisma.department.findUnique({ where: { id: BigInt(String(rawId)) } });
+      if (!department) throw new BadRequestException('Choose a valid department.');
+      return department;
+    }
+    const name = this.security.clean(input.departmentName || input.department || '', 255);
+    if (!name) return null;
+    const department = await this.prisma.department.findFirst({ where: { name: { equals: name, mode: 'insensitive' } } });
+    if (!department) throw new BadRequestException('Choose a valid department.');
+    return department;
+  }
+
   async listTasks() {
-    const rows = await this.prisma.task.findMany({ orderBy: { updated: 'desc' } });
+    const [rows, departments] = await Promise.all([
+      this.prisma.task.findMany({ orderBy: { updated: 'desc' } }),
+      this.prisma.department.findMany({ select: { id: true, name: true } }),
+    ]);
     const data = rows.length ? await this.prisma.taskCdata.findMany({ where: { task_id: { in: rows.map(row => row.id) } } }) : [];
     const titles = new Map(data.map(item => [String(item.task_id), item.title || '']));
-    return { tasks: rows.map(row => this.taskView(row, titles.get(String(row.id)) || '')) };
+    const departmentNames = new Map(departments.map(department => [String(department.id), department.name]));
+    return { tasks: rows.map(row => this.taskView(row, titles.get(String(row.id)) || '', departmentNames.get(String(row.dept_id)) || '')) };
   }
 
   async createTask(input: any, staffId: number) {
@@ -262,22 +282,35 @@ export class TicketsService {
     const due = input.dueAt ? new Date(String(input.dueAt)) : null;
     if (due && Number.isNaN(due.getTime())) throw new BadRequestException('Choose a valid due date.');
     const number = 'T' + randomBytes(4).toString('hex').toUpperCase();
+    const objectId = idOrZero(input.ticketId);
+    const department = await this.taskDepartment(input);
+    let deptId = department?.id ?? 0n;
+    let departmentName = department?.name || '';
+    if (!deptId && objectId) {
+      const ticket = await this.prisma.ticket.findUnique({ where: { ticket_id: objectId }, select: { dept_id: true } });
+      deptId = ticket?.dept_id ?? 0n;
+      if (deptId) departmentName = (await this.prisma.department.findUnique({ where: { id: deptId }, select: { name: true } }))?.name || '';
+    }
     const row = await this.prisma.$transaction(async tx => {
-      const task = await tx.task.create({ data: { object_id: input.ticketId ? bi(input.ticketId) : 0n, object_type: 'T', number, dept_id: input.deptId ? bi(input.deptId) : 0n, staff_id: input.assigneeId ? bi(input.assigneeId) : BigInt(staffId || 0), duedate: due, created: now, updated: now } });
+      const task = await tx.task.create({ data: { object_id: objectId, object_type: 'T', number, dept_id: deptId, staff_id: idOrZero(input.assigneeId) || BigInt(staffId || 0), duedate: due, created: now, updated: now } });
       await tx.taskCdata.create({ data: { task_id: task.id, title } });
       return task;
     });
-    return { task: this.taskView(row, title) };
+    return { task: this.taskView(row, title, departmentName) };
   }
 
   async updateTask(id: string, input: any) {
+    if (!/^\d+$/.test(String(id))) throw new NotFoundException('Task not found.');
     const task = await this.prisma.task.findUnique({ where: { id: bi(id) } });
     if (!task) throw new NotFoundException('Task not found.');
     const now = new Date();
     const data: any = { updated: now };
-    if (input.deptId !== undefined) data.dept_id = input.deptId ? bi(input.deptId) : 0n;
-    if (input.assigneeId !== undefined) data.staff_id = input.assigneeId ? bi(input.assigneeId) : 0n;
-    if (input.ticketId !== undefined) data.object_id = input.ticketId ? bi(input.ticketId) : 0n;
+    if (input.deptId !== undefined || input.departmentName !== undefined) {
+      const department = await this.taskDepartment(input);
+      data.dept_id = department?.id ?? 0n;
+    }
+    if (input.assigneeId !== undefined) data.staff_id = idOrZero(input.assigneeId);
+    if (input.ticketId !== undefined) data.object_id = idOrZero(input.ticketId);
     if (input.dueAt !== undefined) {
       const due = input.dueAt ? new Date(String(input.dueAt)) : null;
       if (due && Number.isNaN(due.getTime())) throw new BadRequestException('Choose a valid due date.');
@@ -295,7 +328,8 @@ export class TicketsService {
     });
     const refreshed = await this.prisma.task.findUniqueOrThrow({ where: { id: task.id } });
     const cdata = await this.prisma.taskCdata.findUnique({ where: { task_id: task.id } });
-    return { task: this.taskView(refreshed, cdata?.title || '') };
+    const department = refreshed.dept_id ? await this.prisma.department.findUnique({ where: { id: refreshed.dept_id }, select: { name: true } }) : null;
+    return { task: this.taskView(refreshed, cdata?.title || '', department?.name || '') };
   }
 
 

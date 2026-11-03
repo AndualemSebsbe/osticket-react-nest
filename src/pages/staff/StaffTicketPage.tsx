@@ -72,6 +72,7 @@ export function StaffTicketPage() {
       if (!active) return
       try {
         await acquireTicketLock(id, user)
+        if (!active) void releaseTicketLock(id, user)
       } catch (error) {
         if (active) setToast(error instanceof Error ? error.message : 'Could not lock the ticket.')
       }
@@ -116,25 +117,29 @@ export function StaffTicketPage() {
   const locker = current.lockedBy ? db.users.find((u) => u.id === current.lockedBy) : undefined
   const lockedByOther = current.lockedBy && current.lockedBy !== actor.id
 
-  function onReply(e: FormEvent<HTMLFormElement>) {
+  async function onReply(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const form = e.currentTarget
     const data = new FormData(form)
     const files = data.getAll('files') as File[]
-    addReply({
-      ticketId: current.id,
-      author: actor,
-      body: String(data.get('body')),
-      internal: data.get('internal') === 'on',
-      close: data.get('action') === 'close',
-      pending: data.get('action') === 'pending',
-      attachments: files.filter((f) => f.name).map((f) => f.name),
-      files: files.filter((f) => f.name),
-      recipients: data.getAll('toRecipients').map(String),
-      fromEmail: String(data.get('fromEmail') || db.settings.defaultFromEmail),
-    })
-    form.reset()
-    setBody('')
+    try {
+      await addReply({
+        ticketId: current.id,
+        author: actor,
+        body: String(data.get('body')),
+        internal: data.get('internal') === 'on',
+        close: data.get('action') === 'close',
+        pending: data.get('action') === 'pending',
+        attachments: files.filter((f) => f.name).map((f) => f.name),
+        files: files.filter((f) => f.name),
+        recipients: data.getAll('toRecipients').map(String),
+        fromEmail: String(data.get('fromEmail') || db.settings.defaultFromEmail),
+      })
+      form.reset()
+      setBody('')
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Could not post the reply.')
+    }
   }
 
   async function onBranchChange(branchId: string) {
@@ -168,6 +173,14 @@ export function StaffTicketPage() {
       setToast('Task created.')
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Could not create the task.')
+    }
+  }
+
+  async function runAction(action: () => Promise<unknown>, fallback: string) {
+    try {
+      await action()
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : fallback)
     }
   }
 
@@ -222,12 +235,12 @@ export function StaffTicketPage() {
           Print
         </button>
         {current.assigneeId ? (
-          <button type="button" className={btnGhost} onClick={() => releaseTicket(current.id, actor)}>
+          <button type="button" className={btnGhost} onClick={() => { void runAction(() => releaseTicket(current.id, actor), 'Could not release the ticket.') }}>
             Release
           </button>
         ) : null}
         {current.status === 'closed' ? (
-          <button type="button" className={btnGhost} onClick={() => reopenTicket(current.id, actor)}>
+          <button type="button" className={btnGhost} onClick={() => { void runAction(() => reopenTicket(current.id, actor), 'Could not reopen the ticket.') }}>
             Reopen
           </button>
         ) : null}
@@ -357,12 +370,12 @@ export function StaffTicketPage() {
               </select>
               {branchSaving ? <span className="mt-1 block text-xs text-ink-400">Saving branch…</span> : null}
             </label>
-            <button type="button" className="mt-4 w-full rounded-xl border border-line px-3 py-2 text-sm" onClick={() => assignTicket(current.id, actor.id, actor)}>
+            <button type="button" className="mt-4 w-full rounded-xl border border-line px-3 py-2 text-sm" onClick={() => { void runAction(() => assignTicket(current.id, actor.id, actor), 'Could not assign the ticket.') }}>
               Claim ticket
             </button>
             <label className="mt-4 block text-sm font-medium">
               Assign
-              <select className={inputClass + " mt-1"} value={current.assigneeId ?? ''} onChange={(e) => assignTicket(current.id, e.target.value || undefined, actor)}>
+              <select className={inputClass + " mt-1"} value={current.assigneeId ?? ''} onChange={(e) => { void runAction(() => assignTicket(current.id, e.target.value || undefined, actor), 'Could not assign the ticket.') }}>
                 <option value="">Unassigned</option>
                 {current.assigneeId && !agents.some((agent) => agent.id === current.assigneeId) ? (
                   <option value={current.assigneeId}>{currentAssignee?.name || current.assigneeId} (current)</option>
@@ -379,7 +392,7 @@ export function StaffTicketPage() {
               <select
                 className={inputClass + " mt-1"}
                 value={current.deptId}
-                onChange={(e) => transferTicket(current.id, e.target.value, actor)}
+                onChange={(e) => { void runAction(() => transferTicket(current.id, e.target.value, actor), 'Could not transfer the ticket.') }}
               >
                 {current.deptId && !departments.some((department) => department.id === current.deptId) ? (
                   <option value={current.deptId}>{currentDepartment?.name || current.deptId} (current)</option>
@@ -393,7 +406,7 @@ export function StaffTicketPage() {
             </label>
             <label className="mt-3 block text-sm font-medium">
               Status
-              <select className={inputClass + " mt-1"} value={current.status} onChange={(e) => setStatus(current.id, e.target.value as typeof current.status, actor)}>
+              <select className={inputClass + " mt-1"} value={current.status} onChange={(e) => { void runAction(() => setStatus(current.id, e.target.value as typeof current.status, actor), 'Could not update the ticket status.') }}>
                 {!ticketOptions.statuses.includes(current.status) ? <option value={current.status}>{current.status}</option> : null}
                 {ticketOptions.statuses.map((status) => (
                   <option key={status} value={status}>{status[0].toUpperCase() + status.slice(1)}</option>
@@ -404,7 +417,7 @@ export function StaffTicketPage() {
               Help topic
               <select className={inputClass + " mt-1"} value={selectedTopic?.id || current.topicId || ''} onChange={(e) => {
                 const topic = ticketOptions.topics.find((item) => item.id === e.target.value)
-                if (topic) updateTicket(current.id, { topicId: topic.id, topicName: topic.name }, actor)
+                if (topic) void runAction(() => updateTicket(current.id, { topicId: topic.id, topicName: topic.name }, actor), 'Could not update the ticket topic.')
               }}>
                 {current.topicId && !selectedTopic ? <option value={current.topicId}>{currentTopicName || current.topicId} (current)</option> : null}
                 {ticketOptions.topics.map((t) => (
@@ -416,7 +429,7 @@ export function StaffTicketPage() {
             </label>
             <label className="mt-3 block text-sm font-medium">
               Priority
-              <select className={inputClass + " mt-1"} value={current.priority} onChange={(e) => updateTicket(current.id, { priority: e.target.value as typeof current.priority }, actor)}>
+              <select className={inputClass + " mt-1"} value={current.priority} onChange={(e) => { void runAction(() => updateTicket(current.id, { priority: e.target.value as typeof current.priority }, actor), 'Could not update the ticket priority.') }}>
                 {!ticketOptions.priorities.includes(current.priority) ? <option value={current.priority}>{current.priority}</option> : null}
                 {ticketOptions.priorities.map((p) => (
                   <option key={p} value={p}>
@@ -431,7 +444,7 @@ export function StaffTicketPage() {
                 className={inputClass + " mt-1"}
                 defaultValue={current.subject}
                 onBlur={(e) => {
-                  if (e.target.value.trim() && e.target.value !== current.subject) updateTicket(current.id, { subject: e.target.value.trim() }, actor)
+                  if (e.target.value.trim() && e.target.value !== current.subject) void runAction(() => updateTicket(current.id, { subject: e.target.value.trim() }, actor), 'Could not update the ticket subject.')
                 }}
               />
             </label>

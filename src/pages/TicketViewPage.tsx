@@ -45,18 +45,19 @@ export function TicketViewPage() {
     const form = e.currentTarget
     const data = new FormData(form)
     const files = data.getAll('files') as File[]
-    addReply({
+    void addReply({
       ticketId: ticket!.id,
       author,
       body: String(data.get('body')),
       attachments: files.filter((f) => f.name).map((f) => f.name),
-    })
+      files: files.filter((f) => f.name),
+    }).catch((error: unknown) => window.alert(error instanceof Error ? error.message : 'Could not post the reply.'))
     form.reset()
   }
 
   function onReopen() {
     if (!user || !canReopen) return
-    reopenTicket(ticket!.id, user)
+    void reopenTicket(ticket!.id, user).catch((error: unknown) => window.alert(error instanceof Error ? error.message : 'Could not reopen the ticket.'))
   }
 
   return (
