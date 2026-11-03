@@ -9,7 +9,7 @@ function bubble(kind: MessageKind, internal?: boolean) {
   if (kind === "agent") return "flex  bg-brand-50 border-brand-100";
   if (kind === "collaborator") return "bg-violet-50 border-violet-200";
   if (kind === "system") return "flex bg-slate-100 border-slate-200 text-ink-600";
-  if (kind === "client") return "flex bg-ink-950 border-line";
+  if (kind === "client") return "flex dark:bg-ink-950 border-line";
   return " border-slate-200";
 }
 
