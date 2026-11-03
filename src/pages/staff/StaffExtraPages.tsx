@@ -658,7 +658,35 @@ export function StaffProfilePage() {
 export function StaffUserPage() {
   const { id } = useParams()
   const db = useDb()
+  const [organizations, setOrganizations] = useState<ApiOrganization[]>([])
+  const [organizationError, setOrganizationError] = useState('')
   const [saved, setSaved] = useState(false)
+  useEffect(() => {
+    let active = true
+    async function loadOrganizations() {
+      const token = accountSessionToken()
+      if (!token) { setOrganizationError('Staff session expired. Sign in again.'); return }
+      try {
+        const result = await listApiOrganizations(token)
+        if (!active) return
+        setOrganizations(result.organizations)
+        result.organizations.forEach((organization) => upsertRecord('organizations', {
+          id: organization.id,
+          name: organization.name,
+          address: organization.address,
+          domain: organization.domain || '',
+          phone: organization.phone || '',
+          website: organization.website,
+          notes: organization.notes || '',
+        }))
+        setOrganizationError('')
+      } catch (err) {
+        if (active) setOrganizationError(err instanceof Error ? err.message : 'Could not load organizations.')
+      }
+    }
+    void loadOrganizations()
+    return () => { active = false }
+  }, [])
   const person = db.users.find((u) => u.id === id)
   if (!person) {
     return (
@@ -671,7 +699,7 @@ export function StaffUserPage() {
     )
   }
   const tickets = db.tickets.filter((t) => t.userId === person.id)
-  const org = db.organizations.find((o) => o.id === person.orgId)
+  const org = organizations.find((o) => o.id === person.orgId) ?? db.organizations.find((o) => o.id === person.orgId)
 
   async function onSave(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -721,13 +749,14 @@ export function StaffUserPage() {
             <Field label="Organization">
               <select name="orgId" defaultValue={person.orgId ?? ''} className={inputClass}>
                 <option value="">None</option>
-                {db.organizations.map((o) => (
+                {organizations.map((o) => (
                   <option key={o.id} value={o.id}>
                     {o.name}
                   </option>
                 ))}
               </select>
             </Field>
+            {organizationError ? <p role="alert" className="text-rose-700">{organizationError}</p> : null}
             <Field label="Org label">
               <input name="org" defaultValue={person.org} className={inputClass} />
             </Field>

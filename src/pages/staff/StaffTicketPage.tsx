@@ -103,6 +103,8 @@ export function StaffTicketPage() {
 
   const current = ticket
   const actor = user
+  const currentAssignee = current.assigneeId ? db.users.find((person) => person.id === current.assigneeId) : undefined
+  const currentDepartment = db.departments.find((department) => department.id === current.deptId)
   const currentTopicName = db.topics.find((topic) => topic.id === current.topicId)?.name
   const selectedTopic = ticketOptions.topics.find((topic) =>
     topic.id === current.topicId || topic.name.toLowerCase() === currentTopicName?.toLowerCase(),
@@ -362,6 +364,9 @@ export function StaffTicketPage() {
               Assign
               <select className={inputClass + " mt-1"} value={current.assigneeId ?? ''} onChange={(e) => assignTicket(current.id, e.target.value || undefined, actor)}>
                 <option value="">Unassigned</option>
+                {current.assigneeId && !agents.some((agent) => agent.id === current.assigneeId) ? (
+                  <option value={current.assigneeId}>{currentAssignee?.name || current.assigneeId} (current)</option>
+                ) : null}
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
@@ -376,6 +381,9 @@ export function StaffTicketPage() {
                 value={current.deptId}
                 onChange={(e) => transferTicket(current.id, e.target.value, actor)}
               >
+                {current.deptId && !departments.some((department) => department.id === current.deptId) ? (
+                  <option value={current.deptId}>{currentDepartment?.name || current.deptId} (current)</option>
+                ) : null}
                 {departments.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.name}
@@ -394,10 +402,11 @@ export function StaffTicketPage() {
             </label>
             <label className="mt-3 block text-sm font-medium">
               Help topic
-              <select className={inputClass + " mt-1"} value={selectedTopic?.id || ''} onChange={(e) => {
+              <select className={inputClass + " mt-1"} value={selectedTopic?.id || current.topicId || ''} onChange={(e) => {
                 const topic = ticketOptions.topics.find((item) => item.id === e.target.value)
                 if (topic) updateTicket(current.id, { topicId: topic.id, topicName: topic.name }, actor)
               }}>
+                {current.topicId && !selectedTopic ? <option value={current.topicId}>{currentTopicName || current.topicId} (current)</option> : null}
                 {ticketOptions.topics.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
