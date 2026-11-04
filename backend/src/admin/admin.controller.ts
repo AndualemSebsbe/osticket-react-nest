@@ -29,7 +29,7 @@ export class AdminController {
   @Get('branches') async branches() { return { branches: await this.admin.list('branches') }; }
   @Get('help-topics') async publicHelpTopics() { return await this.helpTopics.publicList(); }
   @Get('admin/mail-log') async mailLog(@Req() req:any) { this.check(req); return { messages: await this.mail.listLog() }; }
-  @Post('admin/mail-test') async mailTest(@Req() req:any,@Body() body:any) { this.check(req); const to=String(body.to || process.env.MAIL_TEST_TO || process.env.SUPPORT_EMAIL || ''); const result=await this.mail.sendNotice(to,'osTicket React SMTP test','SMTP delivery test completed at '+new Date().toISOString()); return { sent:result.status==='sent',to }; }
+  @Post('admin/mail-test') async mailTest(@Req() req:any,@Body() body:any) { this.check(req); const to=String(body.to || process.env.MAIL_TEST_TO || process.env.SUPPORT_EMAIL || ''); const result=await this.mail.sendNotice(to,'SMTP test','SMTP delivery test completed at '+new Date().toISOString()); return { sent:result.status==='sent',to }; }
   @Patch('admin/ticket-settings') async ticketSettings(@Body() body:any) { await this.admin.saveState({ ticketSettings:body }); return { saved:true }; }
 
   @Get('admin/sla-plans') async slaPlans() { return await this.admin.slaOptions(); }
@@ -89,7 +89,7 @@ export class AdminController {
   @Put('admin/faq-articles/:id') async updateFaqArticle(@Param('id') id:string,@Body() body:any) { return { article:await this.admin.update('faq-articles',id,body) }; }
   @Delete('admin/faq-articles/:id') removeFaqArticle(@Param('id') id:string) { return this.admin.remove('faq-articles',id); }
 
-  // ========== AGENTS (full osTicket agents page) ==========
+  // ========== AGENTS (full agents page) ==========
   @Get('admin/agents')
   async listAgents() { return { agents: await this.agents.listAgents() }; }
 
@@ -114,7 +114,7 @@ export class AdminController {
   @Post('admin/agents/:id/set-password')
   async setAgentPassword(@Param('id') id: string, @Body() body: any) { return await this.agents.setAgentPassword(Number(id), String(body.password || ''), Boolean(body.forceChange)); }
 
-  // ========== ROLES (osTicket role permissions) ==========
+  // ========== ROLES (role permissions) ==========
   @Get('admin/roles')
   async listRoles() { return await this.roles.list(); }
 
@@ -133,7 +133,7 @@ export class AdminController {
   @Delete('admin/roles/:id')
   async removeRole(@Param('id') id: string) { return await this.roles.remove(Number(id)); }
 
-  // ========== TEAMS (osTicket assignment groups) ==========
+  // ========== TEAMS (assignment groups) ==========
   @Get('admin/teams')
   async listTeams() { return await this.teams.list(); }
 

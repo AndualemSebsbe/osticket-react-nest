@@ -1,7 +1,7 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
-// Team::FLAG_ENABLED and Team::FLAG_NOALERTS from osTicket's class.team.php.
+// Team::FLAG_ENABLED and Team::FLAG_NOALERTS.
 const TEAM_FLAG_ENABLED = 0x0001;
 const TEAM_FLAG_NOALERTS = 0x0002;
 // TeamMember::FLAG_ALERTS.

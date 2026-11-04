@@ -19,7 +19,7 @@ export interface RolePermissionGroup {
  * Permission catalogue mirrors osTicket's non-primary role permissions:
  * Ticket::getPermissions(), ThreadEntry::getPermissions(), TaskModel::getPermissions()
  * and Canned::getPermissions(). Primary (own-record) permissions are intentionally
- * excluded from role editing, matching osTicket's role.inc.php.
+ * excluded from role editing.
  */
 export const ROLE_PERMISSION_GROUPS: RolePermissionGroup[] = [
   {

@@ -303,7 +303,7 @@ export class SystemSettingsService {
     const values = {
       isOnline: boolValue(config.get('isonline'), true),
       helpdeskUrl: config.get('helpdesk_url') || process.env.HELPDESK_URL || DEFAULT_HELPDESK_URL,
-      helpdeskTitle: config.get('helpdesk_title') || stringValue(legacy.helpdeskName) || 'osTicket Support Center',
+      helpdeskTitle: config.get('helpdesk_title') || stringValue(legacy.helpdeskName) || 'IT Ticket Support Center',
       defaultDeptId: defaultDepartment?.id || '',
       forceHttps: boolValue(config.get('force_https'), false),
       autolockMinutes: intValue(config.get('autolock_minutes'), legacy.autolock === false ? 0 : 3),
