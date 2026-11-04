@@ -11,9 +11,10 @@ import type { LogLevel, SystemSettings } from '../../types'
 import { EntityManager } from './EntityManager'
 import { AdminDepartmentsPage } from './AdminDepartmentsPage'
 import { AdminRolesPage } from './AdminRolesPage'
+import { AdminTeamsPage } from './AdminTeamsPage'
 import { AdminCompanySettings } from './AdminCompanySettings'
 import { AdminSystemSettings } from './AdminSystemSettings'
-export { AdminDepartmentsPage, AdminRolesPage }
+export { AdminDepartmentsPage, AdminRolesPage, AdminTeamsPage }
 
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
   const { user, ready } = useAuth()
@@ -656,31 +657,6 @@ export function AdminTemplatesPage() {
         { name: 'notes', label: 'Notes', type: 'textarea', span2: true },
       ]}
       defaults={{ name: '', language: 'en_US', notes: '' }}
-    />
-  )
-}
-
-export function AdminTeamsPage() {
-  const db = useDb()
-  return (
-    <EntityManager
-      title="Teams"
-      subtitle="Groups of agents for assignment."
-      collection="teams"
-      rows={db.teams}
-      columns={[
-        { key: 'name', label: 'Team' },
-        { key: 'leadId', label: 'Lead', render: (r) => db.users.find((u) => u.id === r.leadId)?.name ?? '—' },
-        { key: 'enabled', label: 'Enabled', render: (r) => (r.enabled ? 'Yes' : 'No') },
-      ]}
-      fields={[
-        { name: 'name', label: 'Name', type: 'text', required: true },
-        { name: 'leadId', label: 'Lead', type: 'select', options: [{ value: '', label: '—' }, ...db.users.filter((u) => u.role !== 'client').map((u) => ({ value: u.id, label: u.name }))] },
-        { name: 'memberIds', label: 'Member IDs (comma separated)', type: 'text', span2: true },
-        { name: 'notes', label: 'Notes', type: 'textarea', span2: true },
-        { name: 'enabled', label: 'Enabled', type: 'checkbox' },
-      ]}
-      defaults={{ name: '', memberIds: [], enabled: true, notes: '' }}
     />
   )
 }

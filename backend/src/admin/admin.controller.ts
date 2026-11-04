@@ -7,6 +7,7 @@ import { AdminGuard } from '../common/admin.guard';
 import { SchedulesService } from './schedules.service';
 import { RolesService } from './roles.service';
 import { HelpTopicsService } from './help-topics.service';
+import { TeamsService } from './teams.service';
 
 @Controller()
 @UseGuards(AdminGuard)
@@ -18,6 +19,7 @@ export class AdminController {
     @Inject(SchedulesService) private schedules: SchedulesService,
     @Inject(RolesService) private roles: RolesService,
     @Inject(HelpTopicsService) private helpTopics: HelpTopicsService,
+    @Inject(TeamsService) private teams: TeamsService,
   ) {}
   private check(_req:any) { }
   @Get('health') health() { return { ok: true, mailConfigured: this.mail.isConfigured(), storage: 'postgresql' }; }
@@ -130,4 +132,23 @@ export class AdminController {
 
   @Delete('admin/roles/:id')
   async removeRole(@Param('id') id: string) { return await this.roles.remove(Number(id)); }
+
+  // ========== TEAMS (osTicket assignment groups) ==========
+  @Get('admin/teams')
+  async listTeams() { return await this.teams.list(); }
+
+  @Get('admin/teams/:id')
+  async getTeam(@Param('id') id: string) { return await this.teams.get(Number(id)); }
+
+  @Post('admin/teams')
+  async createTeam(@Body() body: any) { return await this.teams.create(body); }
+
+  @Post('admin/teams/mass-action')
+  async massTeamAction(@Body() body: any) { return await this.teams.massAction(String(body.action || ''), body.ids || []); }
+
+  @Put('admin/teams/:id')
+  async updateTeam(@Param('id') id: string, @Body() body: any) { return await this.teams.update(Number(id), body); }
+
+  @Delete('admin/teams/:id')
+  async removeTeam(@Param('id') id: string) { return await this.teams.remove(Number(id)); }
 }

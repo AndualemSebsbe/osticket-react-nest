@@ -9,8 +9,9 @@ import { CompanyService } from './company.service';
 import { SystemSettingsController } from './system-settings.controller';
 import { SystemSettingsService } from './system-settings.service';
 import { HelpTopicsService } from './help-topics.service';
+import { TeamsService } from './teams.service';
 import { MailModule } from '../mail/mail.module';
 import { AdminGuard } from '../common/admin.guard';
 import { AuthModule } from '../auth/auth.module';
-@Module({ imports:[MailModule,AuthModule], controllers:[AdminController, CompanyController, CompanyPublicController, SystemSettingsController], providers:[AdminService, AgentsService, RolesService, SchedulesService, CompanyService, SystemSettingsService, HelpTopicsService, AdminGuard] })
+@Module({ imports:[MailModule,AuthModule], controllers:[AdminController, CompanyController, CompanyPublicController, SystemSettingsController], providers:[AdminService, AgentsService, RolesService, SchedulesService, CompanyService, SystemSettingsService, HelpTopicsService, TeamsService, AdminGuard] })
 export class AdminModule {}

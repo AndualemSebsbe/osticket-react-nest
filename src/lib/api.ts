@@ -978,6 +978,116 @@ export function massApiRoleAction(action: 'enable' | 'disable' | 'delete', ids: 
   })
 }
 
+// --- Team Management -------------------------------------------------------
+
+export interface ApiTeamMember {
+  staffId: string
+  name: string
+  username: string
+  email: string
+  departmentId: string
+  departmentName: string
+  active: boolean
+  onvacation: boolean
+  alerts: boolean
+}
+
+export interface ApiTeam {
+  id: string
+  name: string
+  notes: string
+  enabled: boolean
+  active: boolean
+  disableAlerts: boolean
+  alertsEnabled: boolean
+  flags: number
+  leadId: string
+  leadName: string
+  memberCount: number
+  members: ApiTeamMember[]
+  alertMemberCount: number
+  ticketCount: number
+  taskCount: number
+  helpTopicCount: number
+  helpTopicNames: string[]
+  filterActionCount: number
+  usageCount: number
+  created: string
+  updated: string
+}
+
+export interface ApiTeamStaffOption {
+  id: string
+  staffId: string
+  name: string
+  username: string
+  email: string
+  departmentId: string
+  departmentName: string
+  active: boolean
+  onvacation: boolean
+}
+
+export interface ApiTeamsResponse {
+  teams: ApiTeam[]
+  staff: ApiTeamStaffOption[]
+}
+
+export interface ApiTeamMemberInput {
+  staffId: string
+  alerts: boolean
+}
+
+export interface ApiTeamInput {
+  name: string
+  notes?: string
+  enabled?: boolean
+  disableAlerts?: boolean
+  leadId?: string
+  members: ApiTeamMemberInput[]
+}
+
+export function listApiTeams(token: string) {
+  return request<ApiTeamsResponse>('/admin/teams', { headers: { 'x-user-session': token } })
+}
+
+export function getApiTeam(id: string, token: string) {
+  return request<{ team: ApiTeam; staff: ApiTeamStaffOption[] }>('/admin/teams/' + id, {
+    headers: { 'x-user-session': token },
+  })
+}
+
+export function createApiTeam(data: ApiTeamInput, token: string) {
+  return request<{ saved: boolean; id: string; team: ApiTeam }>('/admin/teams', {
+    method: 'POST',
+    headers: { 'x-user-session': token },
+    body: JSON.stringify(data),
+  })
+}
+
+export function updateApiTeam(id: string, data: ApiTeamInput, token: string) {
+  return request<{ saved: boolean; id: string; team: ApiTeam }>('/admin/teams/' + id, {
+    method: 'PUT',
+    headers: { 'x-user-session': token },
+    body: JSON.stringify(data),
+  })
+}
+
+export function deleteApiTeam(id: string, token: string) {
+  return request<{ deleted: boolean }>('/admin/teams/' + id, {
+    method: 'DELETE',
+    headers: { 'x-user-session': token },
+  })
+}
+
+export function massApiTeamAction(action: 'enable' | 'disable' | 'delete', ids: string[], token: string) {
+  return request<{ updated?: number; deleted?: number; skipped?: number }>('/admin/teams/mass-action', {
+    method: 'POST',
+    headers: { 'x-user-session': token },
+    body: JSON.stringify({ action, ids }),
+  })
+}
+
 export interface ApiCompanyField {
   id: string
   name: string
