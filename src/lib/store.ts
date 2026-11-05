@@ -522,7 +522,7 @@ export async function hydrateTicketDetailFromApi(ticketId: string) {
 }
 
 export async function hydrateTasksFromApi(_token: string) {
-  const result = await listApiTasks()
+  const result = await listApiTasks({ queue: 'all', perPage: 100, page: 1 })
   const db = load()
   const localOnly = db.tasks.filter((task) => !/^\d+$/.test(task.id))
   db.tasks = [...(result.tasks || []).map((row) => mapApiTaskForDb(row, db)), ...localOnly]
@@ -535,12 +535,21 @@ function mapApiTask(row: Record<string, any>): Task {
     id: String(row.id),
     number: String(row.number || ''),
     title: String(row.title || '(untitled task)'),
+    description: row.description ? String(row.description) : undefined,
     deptId: String(row.deptId || ''),
+    departmentName: row.departmentName ? String(row.departmentName) : undefined,
     assigneeId: row.assigneeId ? String(row.assigneeId) : undefined,
+    assigneeName: row.assigneeName ? String(row.assigneeName) : undefined,
+    teamId: row.teamId ? String(row.teamId) : undefined,
+    teamName: row.teamName ? String(row.teamName) : undefined,
     ticketId: row.ticketId ? String(row.ticketId) : undefined,
+    ticketNumber: row.ticketNumber ? String(row.ticketNumber) : undefined,
     dueAt: row.dueAt ? String(row.dueAt) : undefined,
     status: row.status === 'closed' ? 'closed' : 'open',
+    overdue: Boolean(row.overdue),
     createdAt: String(row.createdAt || now()),
+    updatedAt: row.updatedAt ? String(row.updatedAt) : undefined,
+    closedAt: row.closedAt ? String(row.closedAt) : undefined,
   }
 }
 
@@ -905,15 +914,16 @@ export function addLog(entry: { type: Database['logs'][number]['type']; title: s
   emit()
 }
 
-export async function createTask(input: Omit<Task, 'id' | 'number' | 'createdAt' | 'status'> & { status?: Task['status'] }) {
+export async function createTask(input: Omit<Task, 'id' | 'number' | 'createdAt' | 'status'> & { status?: Task['status']; description?: string }) {
   const db = load()
   const localEntity = [input.ticketId, input.assigneeId].some((value) => Boolean(value) && !/^\d+$/.test(String(value)))
   if (!localEntity && staffTaskSession()) {
-    const departmentName = input.deptId ? db.departments.find((department) => department.id === input.deptId)?.name : undefined
     const result = await createApiTask({
       title: input.title,
-      departmentName,
+      description: input.description || input.title,
+      deptId: input.deptId && /^\d+$/.test(input.deptId) ? input.deptId : undefined,
       assigneeId: input.assigneeId && /^\d+$/.test(input.assigneeId) ? input.assigneeId : undefined,
+      teamId: input.teamId && /^\d+$/.test(input.teamId) ? input.teamId : undefined,
       ticketId: input.ticketId && /^\d+$/.test(input.ticketId) ? input.ticketId : undefined,
       dueAt: input.dueAt,
     })
@@ -944,15 +954,17 @@ export async function updateTask(taskId: string, patch: Partial<Task>) {
   if (/^\d+$/.test(taskId) && staffTaskSession()) {
     const payload: Record<string, unknown> = {}
     if ('title' in patch) payload.title = patch.title
+    if ('description' in patch) payload.description = patch.description
     if ('status' in patch) payload.status = patch.status
     if ('dueAt' in patch) payload.dueAt = patch.dueAt ?? null
     if ('deptId' in patch) {
       if (patch.deptId) {
         if (/^\d+$/.test(patch.deptId)) payload.deptId = patch.deptId
-        else payload.departmentName = db.departments.find((department) => department.id === patch.deptId)?.name ?? ''
+        else payload.deptId = undefined
       } else payload.deptId = ''
     }
     if ('assigneeId' in patch) payload.assigneeId = patch.assigneeId && /^\d+$/.test(patch.assigneeId) ? patch.assigneeId : ''
+    if ('teamId' in patch) payload.teamId = patch.teamId && /^\d+$/.test(patch.teamId) ? patch.teamId : ''
     if ('ticketId' in patch) payload.ticketId = patch.ticketId && /^\d+$/.test(patch.ticketId) ? patch.ticketId : ''
     const result = await updateApiTask(taskId, payload)
     const currentDb = load()

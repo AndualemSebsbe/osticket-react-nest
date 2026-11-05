@@ -118,7 +118,4 @@ export class TicketsController {
   @Post('tickets/:number/merge') async merge(@Param('number') number:string,@Body() body:any,@Headers('x-user-session') token:string) { const account=await this.staffAccount(token); return this.tickets.merge(number,String(body.secondaryNumber||body.mergeNumber||''),account.staffId,account.user.name); }
   @Post('tickets/:number/lock') async lock(@Param('number') number:string,@Headers('x-user-session') token:string) { const account=await this.staffAccount(token); return this.tickets.acquireLock(number,account.staffId); }
   @Delete('tickets/:number/lock') async unlock(@Param('number') number:string,@Headers('x-user-session') token:string) { const account=await this.staffAccount(token); return this.tickets.releaseLock(number,account.staffId,account.role==='admin'); }
-  @Get('tasks') async tasks(@Headers('x-user-session') token:string) { await this.staffAccount(token); return this.tickets.listTasks(); }
-  @Post('tasks') async createTask(@Body() body:any,@Headers('x-user-session') token:string) { const account=await this.staffAccount(token); return this.tickets.createTask(body||{},account.staffId); }
-  @Patch('tasks/:id') async updateTask(@Param('id') id:string,@Body() body:any,@Headers('x-user-session') token:string) { await this.staffAccount(token); return this.tickets.updateTask(id,body||{}); }
 }
