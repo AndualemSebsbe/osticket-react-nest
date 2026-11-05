@@ -14,7 +14,8 @@ import { AdminRolesPage } from './AdminRolesPage'
 import { AdminTeamsPage } from './AdminTeamsPage'
 import { AdminCompanySettings } from './AdminCompanySettings'
 import { AdminSystemSettings } from './AdminSystemSettings'
-export { AdminDepartmentsPage, AdminRolesPage, AdminTeamsPage }
+import { AdminSystemLogsPage } from './AdminSystemLogsPage'
+export { AdminDepartmentsPage, AdminRolesPage, AdminTeamsPage, AdminSystemLogsPage, AdminSystemLogsPage as AdminLogsPage }
 
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
   const { user, ready } = useAuth()
@@ -1646,51 +1647,7 @@ export function AdminAuditsPage() {
   )
 }
 
-export function AdminLogsPage() {
-  const db = useDb()
-  const [level, setLevel] = useState<'all' | LogLevel>('all')
-  const logs = useMemo(
-    () => db.logs.filter((l) => level === 'all' || l.type === level),
-    [db.logs, level],
-  )
-  return (
-    <div>
-      <PageHeader title="System logs" subtitle="Login, mail, and SLA events stored with the demo data." />
-      <div className="mb-4 flex flex-wrap gap-2">
-        {(['all', 'debug', 'info', 'warning', 'error'] as const).map((l) => (
-          <button
-            key={l}
-            type="button"
-            onClick={() => setLevel(l)}
-            className={`rounded-full px-3 py-1.5 text-sm capitalize ${level === l ? 'bg-brand-600 text-white' : 'bg-surface ring-1 ring-line'}`}
-          >
-            {l}
-          </button>
-        ))}
-      </div>
-      <ul className="space-y-3">
-        {logs.map((log) => (
-          <li key={log.id}>
-            <Card>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-medium">{log.title}</p>
-                <span className="rounded-full bg-paper px-2 py-0.5 text-xs uppercase text-ink-600">{log.type}</span>
-              </div>
-              <p className="mt-1 text-sm text-ink-600">{log.body}</p>
-              <p className="mt-2 text-xs text-ink-400">
-                {formatDate(log.createdAt)} {log.ip ? `· ${log.ip}` : ''}
-              </p>
-              <button type="button" className="mt-2 text-sm text-rose-600" onClick={() => removeRecord('logs', log.id)}>
-                Delete
-              </button>
-            </Card>
-          </li>
-        ))}
-      </ul>
-      {logs.length === 0 ? <p className="text-sm text-ink-600">No log entries.</p> : null}
-    </div>
-  )
-}
+// System logs handled by AdminSystemLogsPage (ost_syslog / ost_config)
 
 export function AdminInfoPage() {
   const db = useDb()
