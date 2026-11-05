@@ -56,9 +56,12 @@ export class AdminController {
   @Get('admin/users') async users() { return { users:await this.admin.list('users') }; }
   @Patch('admin/users/verification') verify(@Body() body:any) { return this.admin.updateVerification(body); }
   @Get('admin/directory-users') async directoryUsers() { return { users:await this.admin.list('directory-users') }; }
+  @Get('admin/directory-users/:id') async getDirectoryUser(@Param('id') id:string) { return await this.admin.getDirectoryUser(id); }
   @Post('admin/directory-users') async createDirectoryUser(@Body() body:any) { return { user:await this.admin.create('directory-users',body) }; }
+  @Post('admin/directory-users/mass-action') async massDirectoryUsers(@Body() body:any) { return await this.admin.massDirectoryUsers(String(body.action||''), body.ids||[], body); }
   @Put('admin/directory-users') async updateDirectoryUser(@Body() body:any) { return { user:await this.admin.update('directory-users',String(body.id || ''),body) }; }
   @Put('admin/directory-users/:id') async updateDirectoryUserById(@Param('id') id:string,@Body() body:any) { return { user:await this.admin.update('directory-users',id,body) }; }
+  @Delete('admin/directory-users/:id') async deleteDirectoryUser(@Param('id') id:string) { return await this.admin.remove('directory-users',id); }
 
   @Get('admin/organizations') async organizations() { return { organizations:await this.admin.list('organizations') }; }
   @Post('admin/organizations') async createOrganization(@Body() body:any) { return { organization:await this.admin.create('organizations',body) }; }

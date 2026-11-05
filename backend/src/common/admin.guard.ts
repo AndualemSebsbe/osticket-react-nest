@@ -12,7 +12,13 @@ export class AdminGuard implements CanActivate {
     if(this.security.authorized(req.headers['x-api-key'])) return true;
     const session=this.security.readSession(req.headers['x-user-session']);
     const account=session?await this.auth.validateStaff(session.email):null;
-    if(!this.auth.sessionAccount(account,session,'staff')||account?.role!=='admin') throw new UnauthorizedException('Administrator session required.');
-    return true;
+    if(!this.auth.sessionAccount(account,session,'staff')) throw new UnauthorizedException('Administrator session required.');
+    if(account?.role==='admin') return true;
+    if(account?.role==='agent') {
+      if(path.includes('directory-users') || path.includes('/admin/users') || path.includes('organizations')) {
+        return true;
+      }
+    }
+    throw new UnauthorizedException('Administrator session required.');
   }
 }

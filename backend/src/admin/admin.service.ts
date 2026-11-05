@@ -597,7 +597,7 @@ export class AdminService {
       u.org_id ? this.prisma.organizationCdata.findUnique({ where: { org_id: u.org_id } }) : null,
     ]);
     const tickets = await this.prisma.ticket.findMany({ where: { user_id: u.id }, orderBy: { created: 'desc' }, take: 100 });
-    const notes = await this.prisma.quickNote.findMany({ where: { ext_id: `U${u.id}` }, orderBy: [{ sort: 'asc' }, { created: 'desc' }] });
+    const notes = await (this.prisma as any).quickNote.findMany({ where: { ext_id: `U${u.id}` }, orderBy: [{ sort: 'asc' }, { created: 'desc' }] });
     let status = 'Guest';
     if (account) {
       const s = Number(account.status || 0);
