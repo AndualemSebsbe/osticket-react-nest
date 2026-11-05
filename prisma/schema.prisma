@@ -395,6 +395,19 @@ model QueueExport {
   @@schema("osticket")
 }
 
+model QuickNote {
+  id       Int      @id @default(autoincrement())
+  staff_id BigInt   @default(0)
+  ext_id   String   @db.VarChar(20)
+  body     String
+  sort     BigInt   @default(0)
+  created  DateTime @default(now()) @db.Timestamp(6)
+  updated  DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("ost_note")
+  @@schema("osticket")
+}
+
 model QueueConfig {
   id BigInt @id @default(autoincrement())
   queue_id BigInt
