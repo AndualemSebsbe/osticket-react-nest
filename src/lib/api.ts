@@ -465,14 +465,138 @@ export async function lockApiTicket(number: string) {
 export async function unlockApiTicket(number: string) {
   return request<{ released: boolean; ticket: Record<string, any> }>('/tickets/' + encodeURIComponent(number) + '/lock', { method: 'DELETE', headers: currentSessionHeaders() })
 }
-export async function listApiTasks() {
-  return request<{ tasks: Array<Record<string, any>> }>('/tasks', { headers: currentSessionHeaders() })
+export async function listApiTasks(query: Record<string, unknown> = {}) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === '') continue
+    params.set(key, String(value))
+  }
+  const suffix = params.toString() ? '?' + params.toString() : ''
+  return request<ApiTaskListResult>('/tasks' + suffix, { headers: currentSessionHeaders() })
 }
-export async function createApiTask(input: any) {
-  return request<{ task: Record<string, any> }>('/tasks', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) })
+export interface ApiTaskAttachment { id: string; entryId: string; name: string; size: number; type: string }
+export interface ApiTaskMessage {
+  id: string
+  kind: 'message' | 'reply' | 'note'
+  type: string
+  author: string
+  body: string
+  internal: boolean
+  createdAt: string
+  attachments: ApiTaskAttachment[]
+}
+export interface ApiTaskEvent { id: string; event: string; actor: string; at: string; data: string }
+export interface ApiTaskCollaborator { userId: string; name: string; email: string; active: boolean }
+export interface ApiTaskPermissions {
+  canEdit: boolean
+  canAssign: boolean
+  canTransfer: boolean
+  canReply: boolean
+  canClose: boolean
+  canDelete: boolean
+  canCreate: boolean
+}
+export interface ApiTask {
+  id: string
+  number: string
+  title: string
+  deptId: string
+  departmentName: string
+  assigneeId: string
+  assigneeName: string
+  teamId: string
+  teamName: string
+  ticketId: string
+  ticketNumber: string
+  dueAt: string
+  status: 'open' | 'closed'
+  overdue: boolean
+  createdAt: string
+  updatedAt: string
+  closedAt: string
+  description: string
+  permissions: ApiTaskPermissions
+  messages: ApiTaskMessage[]
+  collaborators: ApiTaskCollaborator[]
+  events: ApiTaskEvent[]
+}
+export interface ApiTaskCounts { open: number; overdue: number; assigned: number; closed: number; all: number }
+export interface ApiTaskListResult {
+  tasks: ApiTask[]
+  total: number
+  page: number
+  perPage: number
+  pages: number
+  counts: ApiTaskCounts
+  permissions: string[]
+}
+export interface ApiTaskOptions {
+  departments: Array<{ id: string; name: string }>
+  staff: Array<{ id: string; name: string; email: string }>
+  teams: Array<{ id: string; name: string }>
+  tickets: Array<{ id: string; number: string; subject: string }>
+  permissions: string[]
+}
+export interface ApiTaskQuery {
+  queue?: 'open' | 'closed' | 'overdue' | 'assigned' | 'all'
+  q?: string
+  departmentId?: string
+  assigneeId?: string
+  ticketId?: string
+  sort?: 'updated' | 'created' | 'due' | 'number' | 'title' | 'assignee' | 'department' | 'closed'
+  dir?: 'asc' | 'desc'
+  page?: number
+  perPage?: number
+}
+export function getApiTaskOptions() {
+  return request<ApiTaskOptions>('/tasks/options', { headers: currentSessionHeaders() })
+}
+export function getApiTask(id: string) {
+  return request<{ task: ApiTask }>('/tasks/' + encodeURIComponent(id), { headers: currentSessionHeaders() })
+}
+function taskFormData(key: string, input: unknown, files: File[]) {
+  const form = new FormData()
+  form.set(key, JSON.stringify(input))
+  files.forEach(file => form.append('files', file, file.name))
+  return form
+}
+export async function createApiTask(input: any, files: File[] = []) {
+  if (files.length) return request<{ task: ApiTask }>('/tasks', { method: 'POST', headers: currentSessionHeaders(), body: taskFormData('task', input, files) })
+  return request<{ task: ApiTask }>('/tasks', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) })
 }
 export async function updateApiTask(id: string, input: any) {
-  return request<{ task: Record<string, any> }>('/tasks/' + encodeURIComponent(id), { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify(input) })
+  return request<{ task: ApiTask }>('/tasks/' + encodeURIComponent(id), { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify(input) })
+}
+export function closeApiTask(id: string) {
+  return request<{ task: ApiTask }>('/tasks/' + encodeURIComponent(id) + '/close', { method: 'POST', headers: currentSessionHeaders() })
+}
+export function reopenApiTask(id: string) {
+  return request<{ task: ApiTask }>('/tasks/' + encodeURIComponent(id) + '/reopen', { method: 'POST', headers: currentSessionHeaders() })
+}
+export function deleteApiTask(id: string) {
+  return request<{ deleted: boolean; id: string }>('/tasks/' + encodeURIComponent(id), { method: 'DELETE', headers: currentSessionHeaders() })
+}
+export async function postApiTaskMessage(id: string, input: { message: string; internal?: boolean; status?: 'open' | 'closed' }, files: File[] = []) {
+  if (files.length) return request<{ task: ApiTask; messageId: string }>('/tasks/' + encodeURIComponent(id) + '/messages', { method: 'POST', headers: currentSessionHeaders(), body: taskFormData('message', input, files) })
+  return request<{ task: ApiTask; messageId: string }>('/tasks/' + encodeURIComponent(id) + '/messages', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) })
+}
+export function saveApiTaskCollaborators(id: string, collaborators: Array<{ userId?: string; name: string; email: string; active: boolean }>) {
+  return request<{ task: ApiTask }>('/tasks/' + encodeURIComponent(id) + '/collaborators', { method: 'PUT', headers: currentSessionHeaders(), body: JSON.stringify({ collaborators }) })
+}
+export async function downloadApiTaskAttachment(taskId: string, attachmentId: string, fileName: string) {
+  const response = await fetch('/api/v1/tasks/' + encodeURIComponent(taskId) + '/attachments/' + encodeURIComponent(attachmentId), { headers: currentSessionHeaders() })
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}))
+    throw new ApiRequestError(data.message || data.error || 'Could not download attachment.', response.status)
+  }
+  const url = URL.createObjectURL(await response.blob())
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 export function updateApiClientTicketBranch(number: string, branchId: string) {
   return request<{ ticket: { branchId?: string; branchName?: string } }>('/users/tickets/' + encodeURIComponent(number) + '/branch', { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify({ branchId }) })

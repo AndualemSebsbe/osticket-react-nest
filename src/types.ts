@@ -192,12 +192,21 @@ export interface Task {
   id: string
   number: string
   title: string
+  description?: string
   deptId: string
+  departmentName?: string
   assigneeId?: string
+  assigneeName?: string
+  teamId?: string
+  teamName?: string
   ticketId?: string
+  ticketNumber?: string
   dueAt?: string
   status: TaskStatus
+  overdue?: boolean
   createdAt: string
+  updatedAt?: string
+  closedAt?: string
 }
 
 export interface SystemLog {
