@@ -151,7 +151,17 @@ export async function hydrateAppStateFromApi(token: string, _role: User['role'])
     const db = load()
     for (const key of postgresStateKeys) {
       if (!Object.hasOwn(state,key)) continue
-      if (key === 'settings') db.settings = { ...seed().settings, ...(state.settings || {}) }
+      if (key === 'settings') {
+        const prev = db.settings
+        db.settings = {
+          ...seed().settings,
+          ...prev,
+          ...(state.settings || {}),
+          clientLogoId: state.settings?.clientLogoId || prev.clientLogoId || '0',
+          staffLogoId: state.settings?.staffLogoId || prev.staffLogoId || '0',
+          staffBackdropId: state.settings?.staffBackdropId || prev.staffBackdropId || '0',
+        }
+      }
       else Object.assign(db, { [key]: state[key] })
     }
     lastPostgresStateSnapshot = postgresStateSnapshot(db)
@@ -174,7 +184,17 @@ export async function hydratePublicAppStateFromApi() {
   for (const key of ['faqs','categories','pages'] as const) {
     if (state[key]) Object.assign(db, { [key]: state[key] })
   }
-  if (state.settings) db.settings = { ...seed().settings, ...state.settings }
+  if (state.settings) {
+    const prev = db.settings
+    db.settings = {
+      ...seed().settings,
+      ...prev,
+      ...state.settings,
+      clientLogoId: state.settings.clientLogoId || prev.clientLogoId || '0',
+      staffLogoId: state.settings.staffLogoId || prev.staffLogoId || '0',
+      staffBackdropId: state.settings.staffBackdropId || prev.staffBackdropId || '0',
+    }
+  }
   hydratingAppState = true
   persist(db)
   hydratingAppState = false

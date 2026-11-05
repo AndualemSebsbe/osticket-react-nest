@@ -1,8 +1,9 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useLogo } from '../../hooks/useLogo'
 import { useDb } from '../../hooks/useDb'
+import { hydratePublicBrandingFromApi } from '../../lib/store'
 
 function maskIdentifier(value: string) {
   const at = value.indexOf('@')
@@ -79,10 +80,42 @@ export function StaffLoginPage() {
   const backdropUrl = useLogo('backdrop')
   const db = useDb()
 
+  // Interactive mouse parallax state
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [mouse, setMouse] = useState({ x: 0, y: 0, percentX: 50, percentY: 50 })
+
+  useEffect(() => {
+    // Ensure branding is loaded fresh on login mount
+    void hydratePublicBrandingFromApi()
+  }, [])
+
   useEffect(() => {
     if (!ready || !user || (user.role !== 'agent' && user.role !== 'admin')) return
     navigate(user.role === 'admin' ? '/scp/admin' : '/scp', { replace: true })
   }, [navigate, ready, user])
+
+  function handleMouseMove(e: React.MouseEvent<HTMLDivElement>) {
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const width = rect.width
+    const height = rect.height
+    const clientX = e.clientX - rect.left
+    const clientY = e.clientY - rect.top
+
+    // Normalized from -1 to 1
+    const x = ((clientX / width) - 0.5) * 2
+    const y = ((clientY / height) - 0.5) * 2
+
+    // Percentage coordinates (0% to 100%) for spotlight
+    const percentX = (clientX / width) * 100
+    const percentY = (clientY / height) * 100
+
+    setMouse({ x, y, percentX, percentY })
+  }
+
+  function handleMouseLeave() {
+    setMouse({ x: 0, y: 0, percentX: 50, percentY: 50 })
+  }
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -113,15 +146,84 @@ export function StaffLoginPage() {
 
   return (
     <div
-      className="relative flex min-h-dvh items-center justify-center p-4 sm:p-6 bg-slate-100 dark:bg-[#070b14] bg-cover bg-center"
-      style={backdropUrl ? { backgroundImage: `url(${backdropUrl})` } : undefined}
+      ref={containerRef}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      className="relative flex min-h-dvh items-center justify-center p-4 sm:p-6 md:p-10 overflow-hidden bg-slate-100 dark:bg-[#070b14] select-none"
     >
-      {/* Background overlay if custom backdrop is active */}
-      {backdropUrl ? <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" /> : null}
-
-      {/* Main split login card */}
-      <div className="relative w-full max-w-4xl overflow-hidden rounded-3xl bg-white dark:bg-[#0c1220] shadow-2xl border border-slate-200 dark:border-slate-800 grid md:grid-cols-[1.05fr_1.15fr]">
+      {/* =========================================================================
+          INTERACTIVE BACKDROP SYSTEM
+          Prominently displays any uploaded backdrop with interactive parallax & lighting
+          ========================================================================= */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
         
+        {/* Layer 0: Ambient Base Gradient */}
+        <div className="absolute inset-0 bg-gradient-to-tr from-slate-200 via-slate-100 to-slate-200 dark:from-[#050811] dark:via-[#091122] dark:to-[#050811]" />
+
+        {backdropUrl ? (
+          <>
+            {/* Layer 1: Ambient Color Aura (Diffused Glow behind the main image) */}
+            <div
+              className="absolute -inset-16 transition-transform duration-700 ease-out bg-cover bg-center opacity-40 dark:opacity-30 blur-2xl saturate-150"
+              style={{
+                backgroundImage: `url(${backdropUrl})`,
+                transform: `translate3d(${mouse.x * 20}px, ${mouse.y * 20}px, 0) scale(1.15)`,
+              }}
+            />
+
+            {/* Layer 2: Main Backdrop Image with Smooth 3D Interactive Parallax (Full Bleed Cover) */}
+            <div
+              className="absolute -inset-10 transition-transform duration-500 ease-out bg-cover bg-center"
+              style={{
+                backgroundImage: `url(${backdropUrl})`,
+                transform: `translate3d(${mouse.x * -30}px, ${mouse.y * -30}px, 0) scale(1.08)`,
+              }}
+            />
+
+            {/* Layer 3: Contrast Protection Overlay (Keeps text crystal clear while leaving image bold) */}
+            <div className="absolute inset-0 bg-slate-900/10 dark:bg-black/35 backdrop-blur-[1px]" />
+
+            {/* Layer 4: Interactive Mouse Spotlight / Luminous Sheen across the image */}
+            <div
+              className="absolute inset-0 transition-opacity duration-300"
+              style={{
+                background: `radial-gradient(circle 650px at ${mouse.percentX}% ${mouse.percentY}%, rgba(255, 255, 255, 0.22), transparent 70%)`,
+                mixBlendMode: 'overlay',
+              }}
+            />
+          </>
+        ) : (
+          /* Default dynamic ambient glow spheres when no custom backdrop is chosen */
+          <div
+            className="absolute inset-0 flex items-center justify-center transition-transform duration-700 ease-out"
+            style={{
+              transform: `translate3d(${mouse.x * -35}px, ${mouse.y * -35}px, 0)`,
+            }}
+          >
+            <div className="w-[32rem] h-[32rem] rounded-full bg-blue-500/15 dark:bg-blue-600/20 blur-3xl animate-pulse" />
+            <div className="absolute -top-10 -right-10 w-96 h-96 rounded-full bg-indigo-500/15 dark:bg-indigo-600/15 blur-3xl" />
+          </div>
+        )}
+
+        {/* Layer 5: Subtle Micro Tech Grid Texture */}
+        <div
+          className="absolute inset-0 opacity-[0.035] dark:opacity-[0.06]"
+          style={{
+            backgroundImage: `radial-gradient(currentColor 1.5px, transparent 1.5px)`,
+            backgroundSize: '28px 28px',
+          }}
+        />
+      </div>
+
+      {/* =========================================================================
+          MAIN LOGIN SPLIT-CARD WITH COMPLEMENTARY 3D TILT
+          ========================================================================= */}
+      <div
+        className="relative z-10 w-full max-w-4xl overflow-hidden rounded-3xl bg-white/95 dark:bg-[#0c1220]/95 backdrop-blur-xl shadow-[0_25px_70px_-15px_rgba(0,0,0,0.35)] dark:shadow-[0_30px_90px_-20px_rgba(0,0,0,0.75)] border border-slate-200/90 dark:border-slate-800/90 grid md:grid-cols-[1.05fr_1.15fr] transition-transform duration-300 ease-out"
+        style={{
+          transform: `perspective(1000px) rotateX(${mouse.y * -1.8}deg) rotateY(${mouse.x * 1.8}deg) translateZ(8px)`,
+        }}
+      >
         {/* Left Side: Brand Panel */}
         <div className="relative flex flex-col justify-between overflow-hidden bg-gradient-to-br from-[#004ce6] via-[#0057ff] to-[#0038b3] dark:from-[#002f8c] dark:via-[#003db3] dark:to-[#001f5c] p-8 sm:p-10 text-white min-h-[22rem] md:min-h-[32rem]">
           
@@ -187,7 +289,7 @@ export function StaffLoginPage() {
         </div>
 
         {/* Right Side: Sign In Form */}
-        <div className="relative flex flex-col justify-center p-8 sm:p-12 bg-white dark:bg-[#0c1220]">
+        <div className="relative flex flex-col justify-center p-8 sm:p-12 bg-white/95 dark:bg-[#0c1220]/95 backdrop-blur-sm">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
               Welcome back
@@ -211,7 +313,7 @@ export function StaffLoginPage() {
                   type="text"
                   autoComplete="username"
                   placeholder="zekisebisib@gmail.com"
-                  className="w-full rounded-xl bg-blue-50/60 dark:bg-slate-800/80 border border-blue-100/80 dark:border-slate-700 px-4 py-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition"
+                  className="w-full rounded-xl bg-blue-50/60 dark:bg-slate-800/80 border border-blue-100/80 dark:border-slate-700 px-4 py-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition shadow-inner"
                 />
               </div>
 
@@ -227,7 +329,7 @@ export function StaffLoginPage() {
                     type={showPassword ? 'text' : 'password'}
                     autoComplete="current-password"
                     placeholder="••••••••••••"
-                    className="w-full rounded-xl bg-blue-50/60 dark:bg-slate-800/80 border border-blue-100/80 dark:border-slate-700 px-4 py-3 pr-11 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition"
+                    className="w-full rounded-xl bg-blue-50/60 dark:bg-slate-800/80 border border-blue-100/80 dark:border-slate-700 px-4 py-3 pr-11 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition shadow-inner"
                   />
                   <button
                     type="button"
@@ -254,7 +356,7 @@ export function StaffLoginPage() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-semibold py-3 text-sm shadow-md shadow-blue-500/25 transition disabled:opacity-60"
+                className="w-full rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-semibold py-3 text-sm shadow-md shadow-blue-500/25 transition disabled:opacity-60 cursor-pointer"
               >
                 {submitting ? 'Signing in…' : 'Sign in'}
               </button>

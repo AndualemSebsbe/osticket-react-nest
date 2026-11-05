@@ -341,14 +341,21 @@ export class AdminService {
   }
 
   async publicState() {
-    const [faqs, categories, pages, settings] = await Promise.all([
+    const [faqs, categories, pages, settings, coreRows] = await Promise.all([
       this.prisma.faq.findMany({ where: { ispublished: 1 }, orderBy: { question: 'asc' } }),
       this.prisma.faqCategory.findMany({ where: { ispublic: 1 }, orderBy: { name: 'asc' } }),
       this.prisma.content.findMany({ where: { isactive: 1 }, orderBy: { name: 'asc' } }),
       this.prisma.config.findMany({ where: { namespace: 'react_app_state' } }),
+      this.prisma.config.findMany({ where: { namespace: 'core', key: { in: ['client_logo_id', 'staff_logo_id', 'staff_backdrop_id'] } } }).catch(() => []),
     ]);
     const state: Record<string, any> = {};
     for (const row of settings) { try { state[row.key] = JSON.parse(row.value); } catch { state[row.key] = row.value; } }
+    if (!state.settings) state.settings = {};
+    for (const row of (coreRows as any[])) {
+      if (row.key === 'client_logo_id') state.settings.clientLogoId = String(row.value || '0');
+      if (row.key === 'staff_logo_id') state.settings.staffLogoId = String(row.value || '0');
+      if (row.key === 'staff_backdrop_id') state.settings.staffBackdropId = String(row.value || '0');
+    }
     return Object.keys(state).length ? state : { faqs, categories, pages };
   }
 
