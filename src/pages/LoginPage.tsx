@@ -1,12 +1,16 @@
 import { FormEvent, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useLogo } from '../hooks/useLogo'
+import { useDb } from '../hooks/useDb'
 
 import { inputClass } from "../components/ui"
 export function LoginPage() {
   const { loginClient } = useAuth()
   const navigate = useNavigate()
   const [error, setError] = useState('')
+  const clientLogoUrl = useLogo('client')
+  const db = useDb()
 
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
@@ -23,6 +27,13 @@ export function LoginPage() {
   return (
     <div className="mx-auto grid max-w-3xl gap-8 lg:grid-cols-2">
       <div>
+        {clientLogoUrl ? (
+          <img
+            src={clientLogoUrl}
+            alt={db.settings.helpdeskName || 'osTicket'}
+            className="mb-4 h-12 w-auto max-w-[14rem] object-contain"
+          />
+        ) : null}
         <h1 className="text-2xl font-semibold dark:text-500">Sign in</h1>
         <p className="mt-2 text-sm text-ink-600">
           Register for an account to track every ticket in one place. Guests can still open a ticket or check status.

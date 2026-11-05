@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { ticketsForUser } from '../lib/store'
 import { useDb } from '../hooks/useDb'
+import { useLogo } from '../hooks/useLogo'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -18,6 +19,7 @@ export function ClientLayout({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
   const count = useMemo(() => (user?.role === 'client' ? ticketsForUser(user.id).length : 0), [user, db])
   const isClient = user?.role === 'client'
+  const clientLogoUrl = useLogo('client')
 
   useEffect(() => {
     setOpen(false)
@@ -28,7 +30,15 @@ export function ClientLayout({ children }: { children: ReactNode }) {
       <header className="sticky top-0 z-40 bg-brand-700 pt-[env(safe-area-inset-top)] text-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
           <NavLink to="/" className="flex min-w-0 items-center gap-2 font-semibold tracking-tight">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white/15 text-lg">✉</span>
+            {clientLogoUrl ? (
+              <img
+                src={clientLogoUrl}
+                alt={db.settings.helpdeskName || 'osTicket'}
+                className="h-9 w-auto max-w-[10rem] shrink-0 object-contain"
+              />
+            ) : (
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white/15 text-lg">✉</span>
+            )}
             <span className="truncate">
               {db.settings.helpdeskName || 'osTicket'}
               <span className="hidden text-blue-100 sm:inline"> · {db.settings.companyName}</span>

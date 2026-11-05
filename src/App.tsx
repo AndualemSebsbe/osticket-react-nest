@@ -3,7 +3,7 @@ import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { CommandPalette } from './components/CommandPalette'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
-import { hydratePublicAppStateFromApi } from './lib/store'
+import { hydratePublicAppStateFromApi, hydratePublicBrandingFromApi } from './lib/store'
 import { ClientLayout } from './layouts/ClientLayout'
 import { StaffLayout } from './layouts/StaffLayout'
 import { CheckStatusPage } from './pages/CheckStatusPage'
@@ -103,6 +103,7 @@ function AdminShell() {
 export default function App() {
   useEffect(() => {
     void hydratePublicAppStateFromApi().catch((error) => console.warn('[public postgres data]', error instanceof Error ? error.message : error))
+    void hydratePublicBrandingFromApi().catch(() => {})
   }, [])
   return (
     <ThemeProvider>

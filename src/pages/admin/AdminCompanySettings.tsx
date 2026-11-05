@@ -243,6 +243,11 @@ export function AdminCompanySettings() {
       setData(result)
       setValues(Object.fromEntries(result.fields.map((field) => [field.name, field.value])))
       setSelected(result.selected)
+      saveSettings({
+        clientLogoId: result.selected.clientLogoId,
+        staffLogoId: result.selected.staffLogoId,
+        staffBackdropId: result.selected.staffBackdropId,
+      })
       setDeleteLogoIds([])
       setDeleteBackdropIds([])
       setError('')
@@ -304,6 +309,9 @@ export function AdminCompanySettings() {
         website: values.website || '',
         phone: values.phone || '',
         address: values.address || '',
+        clientLogoId: selected.clientLogoId,
+        staffLogoId: selected.staffLogoId,
+        staffBackdropId: selected.staffBackdropId,
       })
       await load(false)
       setNotice('Company settings saved.')

@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { useLogo } from '../../hooks/useLogo'
+import { useDb } from '../../hooks/useDb'
 
 import { inputClass } from '../../components/ui'
 
@@ -14,6 +16,9 @@ export function StaffLoginPage() {
   const { login, user, ready } = useAuth()
   const navigate = useNavigate()
   const [error, setError] = useState('')
+  const staffLogoUrl = useLogo('staff')
+  const backdropUrl = useLogo('backdrop')
+  const db = useDb()
 
   useEffect(() => {
     if (!ready || !user || (user.role !== 'agent' && user.role !== 'admin')) return
@@ -45,8 +50,20 @@ export function StaffLoginPage() {
   }
 
   return (
-    <div className="grid min-h-dvh place-items-center  px-4">
-      <div className="w-full max-w-md rounded-3xl p-6 shadow-xl sm:p-8 border-4 dark:border-slate-600 border-slate-300">
+    <div
+      className="grid min-h-dvh place-items-center px-4 bg-cover bg-center"
+      style={backdropUrl ? { backgroundImage: `url(${backdropUrl})` } : undefined}
+    >
+      <div className="w-full max-w-md rounded-3xl p-6 shadow-xl sm:p-8 border-4 dark:border-slate-600 border-slate-300 bg-surface/95 backdrop-blur-sm">
+        {staffLogoUrl ? (
+          <div className="mb-4">
+            <img
+              src={staffLogoUrl}
+              alt={db.settings.helpdeskName || 'osTicket'}
+              className="h-12 w-auto max-w-[14rem] object-contain"
+            />
+          </div>
+        ) : null}
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-600">Staff control panel</p>
         <h1 className="mt-2 text-2xl font-semibold dark:text-slate-500">Agent sign in</h1>
         <form onSubmit={onSubmit} className="mt-6 space-y-4">

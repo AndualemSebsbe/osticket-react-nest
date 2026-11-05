@@ -1291,3 +1291,13 @@ export function uploadApiCompanyImage(kind: 'logo' | 'backdrop', file: File) {
 export function companyAssetUrl(id: string) {
   return '/api/v1/company/files/' + encodeURIComponent(id)
 }
+
+export interface ApiPublicBranding {
+  clientLogoId: string
+  staffLogoId: string
+  staffBackdropId: string
+}
+
+export function getApiPublicBranding() {
+  return request<ApiPublicBranding>('/company/branding')
+}
