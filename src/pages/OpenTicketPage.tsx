@@ -60,6 +60,44 @@ export function OpenTicketPage() {
     }
   }
 
+  if (!user) {
+    return (
+      <div className="mx-auto max-w-lg text-slate-700 text-center rounded-3xl border-2 border-line bg-surface p-8 shadow-sm space-y-5">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 dark:bg-amber-950/70 dark:text-amber-400">
+          <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </div>
+        <div>
+          <h1 className="text-xl font-bold dark:text-slate-200">Sign In Required</h1>
+          <p className="mt-2 text-sm text-ink-600 leading-relaxed">
+            Only registered clients or staff members can open support tickets. Please sign in or register an account to continue.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 pt-2">
+          <button
+            onClick={() => navigate("/login")}
+            className="rounded-xl bg-brand-600 py-2.5 px-4 font-semibold text-white shadow hover:bg-brand-700 transition"
+          >
+            Sign In as Client
+          </button>
+          <button
+            onClick={() => navigate("/register")}
+            className="rounded-xl border border-line bg-paper py-2.5 px-4 font-semibold text-ink-800 hover:bg-surface transition"
+          >
+            Register Client Account
+          </button>
+          <button
+            onClick={() => navigate("/scp/login")}
+            className="mt-2 text-xs font-semibold text-ink-500 hover:text-brand-600"
+          >
+            Staff & Agent Sign In &rarr;
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-2xl text-slate-700">
       <h1 className="text-2xl font-semibold dark:text-slate-500">Open a new ticket</h1>
@@ -75,38 +113,19 @@ export function OpenTicketPage() {
         onSubmit={onSubmit}
         className="mt-6 space-y-4 rounded-2xl border-4 dark:border-slate-600 border-slate-200  p-5 shadow-sm sm:p-6"
       >
-        {!user || user.role !== "client" ? (
-          <div className="grid gap-4  sm:grid-cols-2">
-            <label className="block text-sm font-medium dark:text-slate-400">
-              Full name *
-              <input
-                required
-                name="name"
-                className={inputClass + " mt-1"}
-              />
-            </label>
-            <label className="block text-sm font-medium dark:text-slate-400">
-              Email *
-              <input
-                required
-                type="email"
-                name="email"
-                className={inputClass + " mt-1"}
-              />
-            </label>
-            <label className="block dark:text-slate-400 text-sm font-medium sm:col-span-2">
-              Phone
-              <input
-                name="phone"
-                className={inputClass + " mt-1"}
-              />
-            </label>
-          </div>
-        ) : (
-          <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm">
-            Opening as <strong>{user.name}</strong> ({user.email})
-          </p>
-        )}
+        <div className="rounded-xl bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-blue-900 px-4 py-3 text-sm text-ink-800">
+          Opening as verified account: <strong>{user.name}</strong> ({user.email}) &bull; <span className="capitalize font-semibold text-brand-600">{user.role}</span>
+        </div>
+        <input type="hidden" name="name" value={user.name} />
+        <input type="hidden" name="email" value={user.email} />
+        <label className="block dark:text-slate-400 text-sm font-medium">
+          Phone
+          <input
+            name="phone"
+            defaultValue={user.phone || ""}
+            className={inputClass + " mt-1"}
+          />
+        </label>
         <label className="block dark:text-slate-400 text-sm font-medium">
           Help topic *
           <select

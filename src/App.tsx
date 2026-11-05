@@ -88,7 +88,7 @@ function StaffShell() {
 function RequireClient({ children }: { children: ReactNode }) {
   const { user, ready } = useAuth()
   if (!ready) return <div className="grid min-h-dvh place-items-center text-sm text-ink-500">Checking your session…</div>
-  if (!user || user.role !== 'client') return <Navigate to="/login" replace />
+  if (!user) return <Navigate to="/login" replace />
   return children
 }
 

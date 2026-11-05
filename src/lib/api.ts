@@ -1182,3 +1182,85 @@ export function uploadApiCompanyImage(kind: 'logo' | 'backdrop', file: File) {
 export function companyAssetUrl(id: string) {
   return '/api/v1/company/files/' + encodeURIComponent(id)
 }
+
+export interface ApiWizardTopic {
+  id: string
+  name: string
+  deptId: string
+  departmentName: string
+  priority: string
+  slaId: string
+  hint: string
+  active: boolean
+}
+
+export interface ApiWizardCategory {
+  id: string
+  name: string
+  description: string
+  articleCount: number
+}
+
+export interface ApiWizardFaq {
+  id: string
+  categoryId: string
+  question: string
+  answer: string
+  keywords: string
+  updatedAt?: string
+}
+
+export interface ApiWizardMeta {
+  topics: ApiWizardTopic[]
+  categories: ApiWizardCategory[]
+  featuredFaqs: ApiWizardFaq[]
+  branches: Array<{ id: string; name: string }>
+  settings: {
+    helpdeskName: string
+    companyName: string
+    landingPageMessage: string
+    allowGuestTickets: boolean
+  }
+}
+
+export interface ApiWizardTicketStatusResult {
+  found: boolean
+  message?: string
+  ticket?: {
+    id: string
+    number: string
+    subject: string
+    priority: string
+    status: string
+    statusState: string
+    department: string
+    requesterName: string
+    requesterEmail: string
+    createdAt: string
+    updatedAt: string
+    lastActivity: string
+    messageCount: number
+    lastMessageSnippet: string
+    isClosed: boolean
+  }
+}
+
+export function getApiWizardMeta() {
+  return request<ApiWizardMeta>('/wizard/meta')
+}
+
+export function getApiWizardFaqs(params: { query?: string; categoryId?: string; topicId?: string }) {
+  const query = new URLSearchParams()
+  if (params.query) query.set('query', params.query)
+  if (params.categoryId) query.set('categoryId', params.categoryId)
+  if (params.topicId) query.set('topicId', params.topicId)
+  return request<ApiWizardFaq[]>('/wizard/faqs?' + query.toString())
+}
+
+export function checkApiTicketStatus(number: string, email: string) {
+  return request<ApiWizardTicketStatusResult>('/wizard/check-status', {
+    method: 'POST',
+    body: JSON.stringify({ number, email }),
+  })
+}
+

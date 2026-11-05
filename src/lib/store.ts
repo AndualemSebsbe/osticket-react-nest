@@ -20,7 +20,7 @@ const SESSION = 'osticket-react-session'
 
 const now = () => new Date().toISOString()
 const id = () => crypto.randomUUID()
-const ticketNumber = () => String(480000 + Math.floor(Math.random() * 19000))
+const ticketNumber = () => String(Math.floor(100000 + Math.random() * 900000))
 const taskNumber = () => String(1000 + Math.floor(Math.random() * 8000))
 const ticketAttachmentExtensions = new Set(['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'txt', 'csv', 'doc', 'docx', 'xls', 'xlsx', 'zip'])
 const postgresStateKeys: Array<keyof Database> = ['faqs','categories','teams','roles','slas','filters','emails','banlist','templates','canned','logs','apiKeys','pages','forms','lists','plugins','schedules','queues','audits','settings']
