@@ -15,27 +15,6 @@ import { TeamsService } from './teams.service';
 import { MailModule } from '../mail/mail.module';
 import { AdminGuard } from '../common/admin.guard';
 import { AuthModule } from '../auth/auth.module';
-
-@Module({
-  imports: [MailModule, AuthModule],
-  controllers: [
-    AdminController,
-    CompanyController,
-    CompanyPublicController,
-    SystemSettingsController,
-    SystemLogsController,
-  ],
-  providers: [
-    AdminService,
-    AgentsService,
-    RolesService,
-    SchedulesService,
-    CompanyService,
-    SystemSettingsService,
-    SystemLogsService,
-    HelpTopicsService,
-    TeamsService,
-    AdminGuard,
-  ],
-})
+import { PrismaModule } from '../prisma/prisma.module';
+@Module({ imports:[MailModule,AuthModule,PrismaModule], controllers:[AdminController, CompanyController, CompanyPublicController, SystemSettingsController], providers:[AdminService, AgentsService, RolesService, SchedulesService, CompanyService, SystemSettingsService, HelpTopicsService, TeamsService, AdminGuard] })
 export class AdminModule {}
