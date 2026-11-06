@@ -604,7 +604,12 @@ export class AdminService {
       u.org_id ? this.prisma.organizationCdata.findUnique({ where: { org_id: u.org_id } }) : null,
     ]);
     const tickets = await this.prisma.ticket.findMany({ where: { user_id: u.id }, orderBy: { created: 'desc' }, take: 100 });
-    const notes = await (this.prisma as any).quickNote.findMany({ where: { ext_id: `U${u.id}` }, orderBy: [{ sort: 'asc' }, { created: 'desc' }] });
+    const ticketIds = tickets.map(t => t.ticket_id);
+    const cdatas = ticketIds.length ? await this.prisma.ticketCdata.findMany({ where: { ticket_id: { in: ticketIds } } }) : [];
+    const statuses = await this.prisma.ticketStatus.findMany();
+    const cdataById = new Map<string, (typeof cdatas)[number]>(cdatas.map(c => [String(c.ticket_id), c]));
+    const statusById = new Map<string, (typeof statuses)[number]>(statuses.map(s => [String(s.id), s]));
+    const notes = await this.prisma.quickNote.findMany({ where: { ext_id: `U${u.id}` }, orderBy: [{ sort: 'asc' }, { created: 'desc' }] });
     let status = 'Guest';
     if (account) {
       const s = Number(account.status || 0);
@@ -627,8 +632,12 @@ export class AdminService {
         created: u.created?.toISOString(),
         updated: u.updated?.toISOString(),
       },
-      tickets: tickets.map(t => ({ id: String(t.ticket_id), number: t.number, subject: '', status: String(t.status_id), created: t.created?.toISOString() })),
-      notes: notes.map(n => ({ id: n.id, body: n.body, created: n.created?.toISOString(), updated: n.updated?.toISOString() })),
+      tickets: tickets.map(t => {
+        const c = cdataById.get(String(t.ticket_id));
+        const st = statusById.get(String(t.status_id));
+        return { id: String(t.ticket_id), number: t.number, subject: c?.subject || '', status: st?.name || st?.state || String(t.status_id), created: t.created?.toISOString(), updated: t.updated?.toISOString() };
+      }),
+      notes: notes.map(n => ({ id: n.id, body: n.body, created: n.created?.toISOString(), updated: n.updated?.toISOString(), staff_id: n.staff_id ? String(n.staff_id) : null })),
     };
   }
 

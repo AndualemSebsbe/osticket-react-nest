@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { StatusBadge } from '../../components/Badges'
 import { CollaboratorModal } from '../../components/CollaboratorModal'
@@ -29,7 +29,6 @@ import {
   updateApiTask,
   getApiDirectoryUser, 
   massActionApiDirectoryUsers,
-  type ApiDirectoryUser,
   type ApiOrganization,
   type ApiTask,
   type ApiTaskListResult,
@@ -451,11 +450,20 @@ export function StaffUsersPage() {
 
   async function massAction(action: string) {
     if (selected.size === 0) { window.alert('You need to select at least one item'); return }
+    let options: any = {}
+    if (action === 'add-to-org') {
+      const orgList = organizations.map(o => `${o.id}: ${o.name}`).join('\n') || '(no organizations)'
+      const picked = window.prompt(`Enter Organization ID to add selected users to:\n\n${orgList}`, '')
+      if (picked == null) return
+      const orgId = picked.trim()
+      if (!orgId) { window.alert('Organization ID is required.'); return }
+      options = { orgId }
+    }
     if (!confirm('You sure?')) return
     const token = accountSessionToken()
     if (!token) { setError('Staff session expired. Sign in again.'); return }
     try {
-      await massActionApiDirectoryUsers(action, Array.from(selected), token)
+      await massActionApiDirectoryUsers(action, Array.from(selected), token, options)
       setSelected(new Set())
       await refreshUsers()
       setError('')
