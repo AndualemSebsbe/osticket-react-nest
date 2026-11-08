@@ -380,6 +380,22 @@ export class CompanyService {
     return this.imageView(row);
   }
 
+  /** Public, unauthenticated – returns only the active logo / backdrop IDs. */
+  async getPublicBranding() {
+    const rows = await this.prisma.config.findMany({
+      where: {
+        namespace: CORE,
+        key: { in: ['client_logo_id', 'staff_logo_id', 'staff_backdrop_id'] },
+      },
+    });
+    const config = new Map<string, string>(rows.map((row: any) => [String(row.key), String(row.value ?? '')]));
+    return {
+      clientLogoId: configId(config.get('client_logo_id')),
+      staffLogoId: configId(config.get('staff_logo_id')),
+      staffBackdropId: configId(config.get('staff_backdrop_id')),
+    };
+  }
+
   async getFile(id: string) {
     const fileId = numericId(id);
     if (!fileId) throw new NotFoundException('Image not found.');

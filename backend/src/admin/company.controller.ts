@@ -42,4 +42,10 @@ export class CompanyPublicController {
     res.setHeader('cache-control', 'public, max-age=86400');
     return res.send(file.data);
   }
+
+  /** Public branding endpoint – returns active logo / backdrop IDs without auth. */
+  @Get('branding')
+  async branding() {
+    return this.company.getPublicBranding();
+  }
 }

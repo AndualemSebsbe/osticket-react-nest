@@ -404,6 +404,9 @@ export function seed(): Database {
       alertAssignment: true,
       autorespNewTicket: true,
       autorespMessageActivity: true,
+      clientLogoId: '0',
+      staffLogoId: '0',
+      staffBackdropId: '0',
     },
   }
 }

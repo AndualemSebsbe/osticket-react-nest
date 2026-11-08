@@ -13,7 +13,7 @@ import type {
   User,
 } from '../types'
 import { seed } from './seed'
-import { ApiRequestError, banApiTicketEmail, createApiTask, deleteApiTicket, getApiAppState, getApiPublicAppState, getApiStaffTicket, listApiAccountTickets, listApiTasks, listApiTickets, listApiAssignableStaff, lockApiTicket, mergeApiTicket, mirrorReply, mirrorTicket, registerApiUser, saveApiAppState, saveApiTicketCollaborators, unlockApiTicket, updateApiTask, updateApiTicket, updateApiUserVerification, type ApiClientUser, type ApiPersistedMessage, type ApiPersistedTicket } from './api'
+import { ApiRequestError, banApiTicketEmail, createApiTask, deleteApiTicket, getApiAppState, getApiPublicAppState, getApiPublicBranding, getApiStaffTicket, listApiAccountTickets, listApiTasks, listApiTickets, listApiAssignableStaff, lockApiTicket, mergeApiTicket, mirrorReply, mirrorTicket, registerApiUser, saveApiAppState, saveApiTicketCollaborators, unlockApiTicket, updateApiTask, updateApiTicket, updateApiUserVerification, type ApiClientUser, type ApiPersistedMessage, type ApiPersistedTicket } from './api'
 
 const KEY = 'osticket-react-db-v4'
 const SESSION = 'osticket-react-session'
@@ -163,6 +163,7 @@ export async function hydrateAppStateFromApi(token: string, _role: User['role'])
     lastPostgresStateSnapshot = postgresStateSnapshot(load())
   }
   appStateHydrated = true
+  void hydratePublicBrandingFromApi()
 }
 
 export async function hydratePublicAppStateFromApi() {
@@ -178,6 +179,26 @@ export async function hydratePublicAppStateFromApi() {
   persist(db)
   hydratingAppState = false
   emit()
+}
+
+/** Fetch logo/backdrop IDs from the backend and store them in settings so all portals can display them. */
+export async function hydratePublicBrandingFromApi() {
+  try {
+    const branding = await getApiPublicBranding()
+    const db = load()
+    db.settings = {
+      ...db.settings,
+      clientLogoId: branding.clientLogoId || '0',
+      staffLogoId: branding.staffLogoId || '0',
+      staffBackdropId: branding.staffBackdropId || '0',
+    }
+    hydratingAppState = true
+    persist(db)
+    hydratingAppState = false
+    emit()
+  } catch {
+    // non-critical – logos simply fall back to the default icon
+  }
 }
 
 export function findUserByEmail(email: string) {
@@ -840,7 +861,7 @@ export function setTicketAssignee(ticketId: string, assigneeId: string | undefin
     body: name ? `Assigned to ${name} by ${actor.name}.` : `Released by ${actor.name}.`,
     createdAt: now(),
   })
-  db.audits.unshift({ id: id(), createdAt: now(), actorId: actor.id, actorName: actor.name, objectType: 'ticket', objectId: ticketId, action: 'assign', details: `${previous} → ${name ?? 'Unassigned'}` })
+  db.audits.unshift({ id: id(), createdAt: now(), actorId: actor.id, actorName: actor.name, objectType: 'ticket', objectId: ticketId, action: 'assign', details: `${previous} â†’ ${name ?? 'Unassigned'}` })
   save(db)
   emit()
 }
@@ -874,7 +895,7 @@ export function setTicketStatus(ticketId: string, status: TicketStatusOption, ac
     body: `Status set to ${status.name} by ${actor.name}.`,
     createdAt: now(),
   })
-  db.audits.unshift({ id: id(), createdAt: now(), actorId: actor.id, actorName: actor.name, objectType: 'ticket', objectId: ticketId, action: 'status', details: `${previousName} → ${status.name}` })
+  db.audits.unshift({ id: id(), createdAt: now(), actorId: actor.id, actorName: actor.name, objectType: 'ticket', objectId: ticketId, action: 'status', details: `${previousName} â†’ ${status.name}` })
   save(db)
   emit()
 }
@@ -1115,10 +1136,10 @@ export function setTicketPriority(ticketId: string, priority: Ticket['priority']
     authorId: 'system',
     authorName: 'System',
     kind: 'system',
-    body: `${actor.name} changed the ticket priority: ${previous} → ${priority}.`,
+    body: `${actor.name} changed the ticket priority: ${previous} â†’ ${priority}.`,
     createdAt: now(),
   })
-  db.audits.unshift({ id: id(), createdAt: now(), actorId: actor.id, actorName: actor.name, objectType: 'ticket', objectId: ticketId, action: 'priority', details: `${previous} → ${priority}` })
+  db.audits.unshift({ id: id(), createdAt: now(), actorId: actor.id, actorName: actor.name, objectType: 'ticket', objectId: ticketId, action: 'priority', details: `${previous} â†’ ${priority}` })
   save(db)
   emit()
 }
@@ -1149,7 +1170,7 @@ export async function updateTicket(
   Object.assign(current, ticketPatch)
   current.updatedAt = now()
   const changes = Object.keys(ticketPatch)
-    .map((key) => `${key}: ${(before as unknown as Record<string, unknown>)[key] ?? '—'} → ${(current as unknown as Record<string, unknown>)[key] ?? '—'}`)
+    .map((key) => `${key}: ${(before as unknown as Record<string, unknown>)[key] ?? 'â€”'} â†’ ${(current as unknown as Record<string, unknown>)[key] ?? 'â€”'}`)
     .join('; ')
   currentDb.messages.push({
     id: id(),
@@ -1178,16 +1199,16 @@ export function setTicketBranch(ticketId: string, branchId: string, branchName: 
   const db = load()
   const ticket = db.tickets.find((item) => item.id === ticketId)
   if (!ticket) return
-  const previousName = ticket.branchName || '—'
+  const previousName = ticket.branchName || 'â€”'
   ticket.branchId = branchId || undefined
   ticket.branchName = branchName || undefined
   ticket.updatedAt = now()
-  const nextName = branchName || '—'
+  const nextName = branchName || 'â€”'
   db.messages.push({
     id: id(), ticketId, authorId: 'system', authorName: 'System', kind: 'system',
-    body: `${actor.name} changed the ticket branch: ${previousName} → ${nextName}.`, createdAt: now(),
+    body: `${actor.name} changed the ticket branch: ${previousName} â†’ ${nextName}.`, createdAt: now(),
   })
-  db.audits.unshift({ id: id(), createdAt: now(), actorId: actor.id, actorName: actor.name, objectType: 'ticket', objectId: ticketId, action: 'branch', details: `${previousName} → ${nextName}` })
+  db.audits.unshift({ id: id(), createdAt: now(), actorId: actor.id, actorName: actor.name, objectType: 'ticket', objectId: ticketId, action: 'branch', details: `${previousName} â†’ ${nextName}` })
   save(db)
   emit()
 }
@@ -1454,7 +1475,7 @@ export function setTicketDepartment(ticketId: string, deptId: string, deptName: 
   ticket.assigneeId = undefined
   ticket.updatedAt = now()
   db.messages.push(ticketEvent(ticketId, `${actor.name} transferred ticket from ${previous} to ${name}.`))
-  db.audits.unshift({ id: id(), createdAt: now(), actorId: actor.id, actorName: actor.name, objectType: 'ticket', objectId: ticketId, action: 'transfer', details: `${previous} → ${name}` })
+  db.audits.unshift({ id: id(), createdAt: now(), actorId: actor.id, actorName: actor.name, objectType: 'ticket', objectId: ticketId, action: 'transfer', details: `${previous} â†’ ${name}` })
   save(db)
   emit()
 }

@@ -5,6 +5,8 @@ import { useTheme } from '../context/ThemeContext'
 import { AdminBar } from './AdminBar'
 import { AgentBar } from './AgentBar'
 import { adminGroups, agentNav, type NavItem } from './staffNav'
+import { useLogo } from '../hooks/useLogo'
+import { useDb } from '../hooks/useDb'
 
 import { inputClass } from "../components/ui"
 const link = ({ isActive }: { isActive: boolean }) =>
@@ -21,10 +23,12 @@ export function StaffLayout() {
   const { cycle, theme } = useTheme()
   const navigate = useNavigate()
   const location = useLocation()
+  const db = useDb()
   const [open, setOpen] = useState(false)
   const [navQ, setNavQ] = useState('')
   const isAdmin = user?.role === 'admin'
   const inAdmin = location.pathname.startsWith('/scp/admin')
+  const staffLogoUrl = useLogo('staff')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     agent: !inAdmin,
     admin: inAdmin,
@@ -69,7 +73,15 @@ export function StaffLayout() {
     <>
       <div className="mb-4 flex items-start justify-between gap-2">
         <NavLink to="/scp" className="flex min-w-0 items-center gap-2 font-semibold text-white" end>
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-600 text-sm">SCP</span>
+          {staffLogoUrl ? (
+            <img
+              src={staffLogoUrl}
+              alt={db.settings.helpdeskName || 'osTicket'}
+              className="h-9 w-auto max-w-[9rem] shrink-0 object-contain"
+            />
+          ) : (
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-600 text-sm">SCP</span>
+          )}
           <span className="leading-tight">
             Staff control panel
             <span className="block text-xs font-normal text-slate-400">osTicket</span>

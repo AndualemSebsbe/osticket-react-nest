@@ -326,6 +326,12 @@ export interface SystemSettings {
   alertAssignment: boolean
   autorespNewTicket: boolean
   autorespMessageActivity: boolean
+  /** ID of the logo image selected for the client portal (from admin Logos page). '0' means none set. */
+  clientLogoId: string
+  /** ID of the logo image selected for the staff control panel (from admin Logos page). '0' means none set. */
+  staffLogoId: string
+  /** ID of the backdrop image selected for the staff login page (from admin Logos page). '0' means none set. */
+  staffBackdropId: string
 }
 
 export interface Session {
