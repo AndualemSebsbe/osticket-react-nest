@@ -9,8 +9,12 @@ async function bootstrap() {
   app.enableShutdownHooks();
   app.useGlobalInterceptors(new BigIntSerializerInterceptor());
   const port = Number(process.env.API_PORT || 8787);
+  console.log('Starting HTTP listener on port ' + port + '...');
   await app.listen(port);
   console.log('NestJS API listening on http://localhost:' + port);
 }
 
-void bootstrap();
+void bootstrap().catch((error: unknown) => {
+  console.error('NestJS API failed to start:', error);
+  process.exitCode = 1;
+});
