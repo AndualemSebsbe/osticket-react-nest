@@ -720,8 +720,23 @@ export function deleteApiOrganization(id: string, token: string) {
 export function listApiDirectoryUsers(token: string) {
   return request<{ users: ApiDirectoryUser[] }>('/admin/directory-users', { headers: { 'x-user-session': token } })
 }
-export function saveApiDirectoryUser(input: { name: string; email: string; phone?: string; org?: string; orgId?: string }, token: string) {
+export function getApiDirectoryUser(id: string, token: string) {
+  return request<any>('/admin/directory-users/' + encodeURIComponent(id), { headers: { 'x-user-session': token } })
+}
+export function saveApiDirectoryUser(input: { name: string; email: string; phone?: string; org?: string; orgId?: string } & Record<string, any>, token: string) {
+  if (input.id) {
+    return request<{ user: ApiDirectoryUser }>('/admin/directory-users/' + encodeURIComponent(input.id), { method: 'PUT', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+  }
   return request<{ user: ApiDirectoryUser }>('/admin/directory-users', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+}
+export function updateApiDirectoryUser(id: string, input: any, token: string) {
+  return request<{ user: ApiDirectoryUser }>('/admin/directory-users/' + encodeURIComponent(id), { method: 'PUT', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+}
+export function deleteApiDirectoryUser(id: string, token: string) {
+  return request<{ deleted: boolean }>('/admin/directory-users/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'x-user-session': token } })
+}
+export function massActionApiDirectoryUsers(action: string, ids: string[], token: string, options: any = {}) {
+  return request<any>('/admin/directory-users/mass-action', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify({ action, ids, ...options }) })
 }
 export function listApiUsers(token: string) {
   return request<{ users: Array<ApiClientUser & { verificationStatus: 'pending' | 'approved' | 'rejected'; registeredAt: string | null }> }>('/admin/users', { headers: { 'x-user-session': token } })
@@ -1301,3 +1316,84 @@ export interface ApiPublicBranding {
 export function getApiPublicBranding() {
   return request<ApiPublicBranding>('/company/branding')
 }
+export interface ApiWizardTopic {
+  id: string
+  name: string
+  deptId: string
+  departmentName: string
+  priority: string
+  slaId: string
+  hint: string
+  active: boolean
+}
+
+export interface ApiWizardCategory {
+  id: string
+  name: string
+  description: string
+  articleCount: number
+}
+
+export interface ApiWizardFaq {
+  id: string
+  categoryId: string
+  question: string
+  answer: string
+  keywords: string
+  updatedAt?: string
+}
+
+export interface ApiWizardMeta {
+  topics: ApiWizardTopic[]
+  categories: ApiWizardCategory[]
+  featuredFaqs: ApiWizardFaq[]
+  branches: Array<{ id: string; name: string }>
+  settings: {
+    helpdeskName: string
+    companyName: string
+    landingPageMessage: string
+    allowGuestTickets: boolean
+  }
+}
+
+export interface ApiWizardTicketStatusResult {
+  found: boolean
+  message?: string
+  ticket?: {
+    id: string
+    number: string
+    subject: string
+    priority: string
+    status: string
+    statusState: string
+    department: string
+    requesterName: string
+    requesterEmail: string
+    createdAt: string
+    updatedAt: string
+    lastActivity: string
+    messageCount: number
+    lastMessageSnippet: string
+    isClosed: boolean
+  }
+}
+
+export function getApiWizardMeta() {
+  return request<ApiWizardMeta>('/wizard/meta')
+}
+
+export function getApiWizardFaqs(params: { query?: string; categoryId?: string; topicId?: string }) {
+  const query = new URLSearchParams()
+  if (params.query) query.set('query', params.query)
+  if (params.categoryId) query.set('categoryId', params.categoryId)
+  if (params.topicId) query.set('topicId', params.topicId)
+  return request<ApiWizardFaq[]>('/wizard/faqs?' + query.toString())
+}
+
+export function checkApiTicketStatus(number: string, email: string) {
+  return request<ApiWizardTicketStatusResult>('/wizard/check-status', {
+    method: 'POST',
+    body: JSON.stringify({ number, email }),
+  })
+}
+

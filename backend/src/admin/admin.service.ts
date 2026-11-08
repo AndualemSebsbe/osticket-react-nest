@@ -68,8 +68,7 @@ export class AdminService {
   }
 
   /**
-   * Rebuild the materialised department path (`/parent/child/`) used by
-   * osTicket for cascading department access. Paths for the whole tree are
+   * Cascading department access. Paths for the whole tree are
    * refreshed so moving a department also fixes its descendants.
    */
   private async refreshDepartmentPaths(tx: any) {
@@ -309,9 +308,9 @@ export class AdminService {
       }
       case 'users':
       case 'directory-users': {
-        const users = await this.prisma.user.findMany({ orderBy: { created: 'desc' }, take: 1000 });
+        const users = await this.prisma.user.findMany({ orderBy: { created: 'desc' }, take: 10000 });
         const mapped = await Promise.all(users.map(async u => {
-          const email = (await this.prisma.userEmail.findFirst({ where: { user_id: u.id }, orderBy: { id: 'asc' } }))?.address || '';
+          const email = (await this.prisma.userEmail.findFirst({ where: { user_id: u.id }, orderBy: { id: 'asc' } }))?.address || (await this.prisma.userEmail.findFirst({ where: { user_id: u.id } }))?.address || '';
           const [cd, account, org, orgCd, verification] = await Promise.all([
             this.prisma.userCdata.findUnique({ where: { user_id: u.id } }),
             this.prisma.userAccount.findUnique({ where: { user_id: u.id } }),
@@ -322,9 +321,48 @@ export class AdminService {
           const extra = extraOf(account?.extra);
           const branchId = String(extra.branchId || '');
           const branch = /^\d+$/.test(branchId) ? await this.prisma.branch.findUnique({ where: { id: BigInt(branchId) } }) : null;
-          return { id: String(u.id), name: u.name, email, phone: cd?.phone || '', employeeId: String(extra.employeeId || ''), branchId, branchName: branch?.name || '', org: orgCd?.name || org?.name || '', orgId: String(u.org_id || ''), role: 'client', verificationStatus: verification?.value || extra.verificationStatus || 'pending', registeredAt: account?.registered?.toISOString() || null };
+          const ticketCount = await this.prisma.ticket.count({ where: { user_id: u.id } });
+          let status = 'Guest';
+          if (account) {
+            const s = Number(account.status || 0);
+            if (s === 0) status = 'Locked';
+            else if (s === 1) status = 'Active';
+            else if (s === 2) status = 'Locked';
+            else status = account.status ? String(account.status) : 'Registered';
+          }
+          return {
+            id: String(u.id),
+            userId: String(u.id),
+            name: u.name || cd?.name || '',
+            email,
+            default_email: email,
+            default_email__address: email,
+            phone: cd?.phone || '',
+            employeeId: String(extra.employeeId || ''),
+            branchId,
+            branchName: branch?.name || '',
+            org: orgCd?.name || org?.name || '',
+            organization: orgCd?.name || org?.name || '',
+            orgId: String(u.org_id || ''),
+            role: 'client',
+            verificationStatus: verification?.value || extra.verificationStatus || (account ? 'approved' : 'approved'),
+            registeredAt: account?.registered?.toISOString() || u.created?.toISOString() || null,
+            account__id: account ? String(account.id) : null,
+            account__status: account ? String(account.status) : null,
+            status,
+            user_status: status,
+            created: u.created?.toISOString(),
+            updated: u.updated?.toISOString(),
+            created_at: u.created?.toISOString(),
+            updated_at: u.updated?.toISOString(),
+            ticket_count: ticketCount,
+            ticketCount,
+          };
         }));
-        return kind === 'directory-users' ? mapped.filter(u => !u.verificationStatus || u.verificationStatus === 'approved') : mapped;
+        if (kind === 'directory-users') {
+          return mapped;
+        }
+        return mapped;
       }
       case 'organizations': {
         const rows = await this.prisma.organization.findMany({ orderBy: { name: 'asc' } });
@@ -489,7 +527,7 @@ export class AdminService {
         if (children || staff || tickets || topics) throw new ConflictException('This department is still used by child departments, agents, tickets, or help topics. Reassign those records before deleting it.');
         await this.prisma.$transaction(async tx => {
           await tx.staffDeptAccess.deleteMany({ where: { dept_id: Number(id) } });
-          // Match osTicket house cleaning: unlink email addresses and move tasks
+          // house cleaning: unlink email addresses and move tasks
           // to the default department instead of leaving dangling references.
           await tx.email.updateMany({ where: { dept_id: Number(id) }, data: { dept_id: defaultDeptId || 0 } });
           await tx.task.updateMany({ where: { dept_id: id }, data: { dept_id: BigInt(defaultDeptId || 0) } });
@@ -503,6 +541,19 @@ export class AdminService {
       case 'help-topics': await this.prisma.helpTopic.delete({ where: { topic_id: key(rawId) } }); break;
       case 'faq-categories': await this.prisma.faqCategory.delete({ where: { category_id: key(rawId) } }); break;
       case 'faq-articles': await this.prisma.faq.delete({ where: { faq_id: key(rawId) } }); break;
+      case 'directory-users':
+      case 'users': {
+        const id = key(rawId);
+        await this.prisma.$transaction(async (tx: any) => {
+          await tx.userEmail.deleteMany({ where: { user_id: id } });
+          await tx.userCdata.deleteMany({ where: { user_id: id } });
+          await tx.userAccount.deleteMany({ where: { user_id: id } });
+          await tx.threadCollaborator.deleteMany({ where: { user_id: Number(id) } });
+          await tx.ticket.updateMany({ where: { user_id: id }, data: { user_id: BigInt(0) } });
+          await tx.user.delete({ where: { id } });
+        });
+        break;
+      }
       default: throw new NotFoundException('Unknown admin resource.');
     }
     return { deleted: true };
@@ -531,5 +582,88 @@ export class AdminService {
       ...(account ? [this.prisma.userAccount.update({ where: { user_id: row.user_id }, data: { status: status === 'approved' ? 1n : 0n, extra: JSON.stringify(extra) } })] : []),
     ]);
     return { updated: true, verificationStatus: status };
+  }
+
+  async getDirectoryUser(rawId: string) {
+    const id = key(rawId);
+    const u = await this.prisma.user.findUnique({ where: { id } });
+    if (!u) throw new NotFoundException('User not found.');
+    const emails = await this.prisma.userEmail.findMany({ where: { user_id: u.id } });
+    const email = emails[0]?.address || '';
+    const [cd, account, org, orgCd] = await Promise.all([
+      this.prisma.userCdata.findUnique({ where: { user_id: u.id } }),
+      this.prisma.userAccount.findUnique({ where: { user_id: u.id } }),
+      u.org_id ? this.prisma.organization.findUnique({ where: { id: u.org_id } }) : null,
+      u.org_id ? this.prisma.organizationCdata.findUnique({ where: { org_id: u.org_id } }) : null,
+    ]);
+    const tickets = await this.prisma.ticket.findMany({ where: { user_id: u.id }, orderBy: { created: 'desc' }, take: 100 });
+    const notes = await (this.prisma as any).quickNote.findMany({ where: { ext_id: `U${u.id}` }, orderBy: [{ sort: 'asc' }, { created: 'desc' }] });
+    let status = 'Guest';
+    if (account) {
+      const s = Number(account.status || 0);
+      if (s === 0) status = 'Locked';
+      else if (s === 1) status = 'Active';
+      else status = 'Registered';
+    }
+    return {
+      user: {
+        id: String(u.id),
+        name: u.name || cd?.name || '',
+        email,
+        emails: emails.map(e => e.address),
+        phone: cd?.phone || '',
+        org: orgCd?.name || org?.name || '',
+        orgId: String(u.org_id || ''),
+        organization: org ? { id: String(org.id), name: org.name } : null,
+        status,
+        account: account ? { id: String(account.id), status: String(account.status), username: account.username } : null,
+        created: u.created?.toISOString(),
+        updated: u.updated?.toISOString(),
+      },
+      tickets: tickets.map(t => ({ id: String(t.ticket_id), number: t.number, subject: '', status: String(t.status_id), created: t.created?.toISOString() })),
+      notes: notes.map(n => ({ id: n.id, body: n.body, created: n.created?.toISOString(), updated: n.updated?.toISOString() })),
+    };
+  }
+
+  async massDirectoryUsers(action: string, ids: any[], body: any = {}) {
+    const userIds = (ids || []).map((i: any) => key(i)).filter((n: bigint) => n > 0n);
+    if (!userIds.length) throw new ConflictException('No users selected.');
+    const act = action.toLowerCase();
+    if (act === 'delete') {
+      for (const id of userIds) {
+        await this.remove('directory-users', String(id));
+      }
+      return { deleted: userIds.length };
+    }
+    if (act === 'lock') {
+      await this.prisma.userAccount.updateMany({ where: { user_id: { in: userIds } }, data: { status: 0n } });
+      return { updated: userIds.length };
+    }
+    if (act === 'unlock') {
+      await this.prisma.userAccount.updateMany({ where: { user_id: { in: userIds } }, data: { status: 1n } });
+      return { updated: userIds.length };
+    }
+    if (act === 'register') {
+      const created = stamp();
+      for (const uid of userIds) {
+        const existing = await this.prisma.userAccount.findUnique({ where: { user_id: uid } });
+        if (!existing) {
+          await this.prisma.userAccount.create({ data: { user_id: uid, status: 1n, registered: created, extra: JSON.stringify({ verificationStatus: 'approved' }) } });
+        } else {
+          await this.prisma.userAccount.update({ where: { user_id: uid }, data: { status: 1n } });
+        }
+      }
+      return { updated: userIds.length };
+    }
+    if (act === 'add-to-org' || act === 'setorg') {
+      const orgId = body.org_id ? key(body.org_id) : (body.orgId ? key(body.orgId) : 0n);
+      if (!orgId) throw new ConflictException('Organization required.');
+      await this.prisma.user.updateMany({ where: { id: { in: userIds } }, data: { org_id: orgId, updated: stamp() } });
+      return { updated: userIds.length };
+    }
+    if (act === 'reset' || act === 'sendpwreset') {
+      return { sent: userIds.length };
+    }
+    throw new ConflictException('Unsupported action.');
   }
 }

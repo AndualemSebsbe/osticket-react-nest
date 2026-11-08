@@ -49,7 +49,7 @@ export function AdminDashboardPage() {
     { to: '/scp/admin/departments', title: 'Departments', body: `${db.departments.length} routing groups.` },
     { to: '/scp/admin/logs', title: 'System logs', body: `${db.logs.length} recorded events.` },
     { to: '/scp/admin/audits', title: 'Audit logs', body: `${db.audits.length} staff actions.` },
-    { to: '/scp/admin/info', title: 'Information', body: 'About this React rebuild of osTicket.' },
+    { to: '/scp/admin/info', title: 'Information', body: 'About this It ticket management system.' },
   ]
   const byPath = Object.fromEntries(modules.map((m) => [m.to, m]))
   return (

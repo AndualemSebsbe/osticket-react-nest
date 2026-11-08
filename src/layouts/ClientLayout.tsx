@@ -26,7 +26,7 @@ export function ClientLayout({ children }: { children: ReactNode }) {
   }, [location.pathname])
 
   return (
-    <div className="min-h-dvh bg-paper text-slate-700">
+    <div className="flex min-h-dvh flex-col bg-paper text-slate-700">
       <header className="sticky top-0 z-40 bg-brand-700 pt-[env(safe-area-inset-top)] text-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
           <NavLink to="/" className="flex min-w-0 items-center gap-2 font-semibold tracking-tight">
@@ -162,9 +162,9 @@ export function ClientLayout({ children }: { children: ReactNode }) {
           </nav>
         ) : null}
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">{children}</main>
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:py-8">{children}</main>
       <footer className="border-t border-line bg-surface px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-center text-sm text-ink-600">
-        Powered by a React rebuild of osTicket · Ctrl/⌘ K to search · Demo data stays in your browser
+        Powered by Ethiopian Customs Commission Develpoed by Customs Technology Development Directorate · Ctrl/⌘ K to search 
       </footer>
     </div>
   )

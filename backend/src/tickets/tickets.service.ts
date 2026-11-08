@@ -319,7 +319,16 @@ export class TicketsService {
       const duplicate = await this.prisma.ticket.findUnique({ where: { number: candidate }, select: { ticket_id: true } });
       if (!duplicate) return candidate;
     }
-    return randomBytes(6).toString('hex').toUpperCase();
+    return this.generateSixDigitTicketNumber();
+  }
+
+  private async generateSixDigitTicketNumber(): Promise<string> {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const candidate = String(Math.floor(100000 + Math.random() * 900000));
+      const duplicate = await this.prisma.ticket.findUnique({ where: { number: candidate }, select: { ticket_id: true } });
+      if (!duplicate) return candidate;
+    }
+    throw new BadRequestException('Failed to generate a unique 6-digit ticket number.');
   }
 
   async create(input: any, ip = '', uploads: Array<{originalname:string;mimetype:string;buffer:Buffer;size:number}> = []) {
@@ -327,6 +336,35 @@ export class TicketsService {
     const email = this.security.email(data.email || data.requesterEmail), name = this.security.clean(data.name || data.requesterName, 128);
     const subject = this.security.clean(data.subject, 255), message = this.security.clean(data.message || data.body, 20000);
     if (!name || !this.security.validEmail(email) || !subject || !message) throw new BadRequestException('Name, valid email, subject, and message are required.');
+
+    // Verify that the creator is either a staff member in ost_staff OR a registered client in ost_user_account
+    const isStaff = await this.prisma.staff.findFirst({
+      where: {
+        email: { equals: email, mode: 'insensitive' },
+        isactive: 1,
+      },
+    });
+
+    let isRegisteredClient = false;
+    if (!isStaff) {
+      const emailRow = await this.prisma.userEmail.findFirst({
+        where: { address: { equals: email, mode: 'insensitive' } },
+      });
+      if (emailRow) {
+        const clientAccount = await this.prisma.userAccount.findUnique({
+          where: { user_id: emailRow.user_id },
+        });
+        if (clientAccount) {
+          isRegisteredClient = true;
+        }
+      }
+    }
+
+    if (!isStaff && !isRegisteredClient) {
+      throw new UnauthorizedException(
+        'Only registered clients in ost_user_account or active staff in ost_staff can open tickets. Please sign in.',
+      );
+    }
     const banConfig = await this.prisma.config.findUnique({ where: { namespace_key: { namespace: 'react_app_state', key: 'banlist' } } });
     const banlist = parse(banConfig?.value);
     if (Array.isArray(banlist) && banlist.some((item: any) => String(item.email || '').toLowerCase() === email.toLowerCase())) throw new ForbiddenException('This email address is on the ban list.');
@@ -374,9 +412,21 @@ export class TicketsService {
 
     const timestamp = new Date();
     const requestedNumber = this.security.clean(data.number, 20);
-    const number = requestedNumber
-      || (await this.topicTicketNumber(helpTopic))
-      || randomBytes(6).toString('hex').toUpperCase();
+    let number = '';
+    if (/^\d{6}$/.test(requestedNumber)) {
+      const existing = await this.prisma.ticket.findUnique({ where: { number: requestedNumber } });
+      if (!existing) {
+        number = requestedNumber;
+      }
+    }
+    if (!number) {
+      const topicNumber = await this.topicTicketNumber(helpTopic);
+      if (topicNumber && /^\d{6}$/.test(topicNumber)) {
+        number = topicNumber;
+      } else {
+        number = await this.generateSixDigitTicketNumber();
+      }
+    }
     const duplicate = await this.prisma.ticket.findUnique({ where: { number } });
     if (duplicate) { const owner=await this.prisma.userEmail.findUnique({where:{id:duplicate.user_email_id}}); if(owner?.address.toLowerCase()!==email) throw new BadRequestException('Ticket number is already in use.'); return {duplicate:true}; }
     const accessToken = randomBytes(32).toString('base64url');

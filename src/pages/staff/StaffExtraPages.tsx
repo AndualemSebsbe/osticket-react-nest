@@ -27,6 +27,8 @@ import {
   updateApiFaqArticle,
   updateApiProfile,
   updateApiTask,
+  getApiDirectoryUser, 
+  massActionApiDirectoryUsers,
   type ApiDirectoryUser,
   type ApiOrganization,
   type ApiTask,
@@ -34,6 +36,7 @@ import {
   type ApiTaskOptions,
   type ApiTaskQuery,
 } from '../../lib/api'
+
 import { useDb } from '../../hooks/useDb'
 import { formatDate, relativeTime } from '../../lib/format'
 import {
@@ -386,12 +389,16 @@ export function StaffTasksPage() {
 
 export function StaffUsersPage() {
   const db = useDb()
-  const [clients, setClients] = useState<ApiDirectoryUser[]>([])
+  const [clients, setClients] = useState<any[]>([])
   const [organizations, setOrganizations] = useState<ApiOrganization[]>([])
   const [q, setQ] = useState('')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [sort, setSort] = useState<'name' | 'email' | 'status' | 'create' | 'update'>('name')
+  const [order, setOrder] = useState<'asc' | 'desc'>('asc')
+
   async function refreshUsers() {
     const token = accountSessionToken()
     if (!token) { setError('Staff session expired. Sign in again.'); setLoading(false); return }
@@ -400,13 +407,32 @@ export function StaffUsersPage() {
       setClients(result.users)
       setOrganizations(orgResult.organizations)
       orgResult.organizations.forEach((org) => upsertRecord('organizations', { id: org.id, name: org.name, address: org.address, domain: org.domain || '', phone: org.phone || '', website: org.website, notes: org.notes || '' }))
-      result.users.forEach((u) => upsertUser({ ...u, password: '', active: true, role: 'client' }))
+      result.users.forEach((u: any) => upsertUser({ ...u, password: '', active: true, role: 'client' }))
       setError('')
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not load users from PostgreSQL.') }
     finally { setLoading(false) }
   }
   useEffect(() => { void refreshUsers() }, [])
-  const filtered = clients.filter((u) => `${u.name} ${u.email} ${u.org}`.toLowerCase().includes(q.toLowerCase()))
+
+  const filtered = useMemo(() => {
+    let list = clients.filter((u: any) => {
+      if (!q) return true
+      const hay = `${u.name || ''} ${u.email || u.default_email || u.default_email__address || ''} ${u.org || u.organization || ''} ${u.phone || ''}`.toLowerCase()
+      return hay.includes(q.toLowerCase())
+    })
+    list = [...list].sort((a: any, b: any) => {
+      let av = '', bv = ''
+      if (sort === 'name') { av = (a.name || '').toLowerCase(); bv = (b.name || '').toLowerCase() }
+      else if (sort === 'email') { av = (a.email || a.default_email || '').toLowerCase(); bv = (b.email || b.default_email || '').toLowerCase() }
+      else if (sort === 'status') { av = (a.status || a.user_status || '').toLowerCase(); bv = (b.status || b.user_status || '').toLowerCase() }
+      else if (sort === 'create') { av = a.created || a.created_at || ''; bv = b.created || b.created_at || '' }
+      else if (sort === 'update') { av = a.updated || a.updated_at || ''; bv = b.updated || b.updated_at || '' }
+      if (av < bv) return order === 'asc' ? -1 : 1
+      if (av > bv) return order === 'asc' ? 1 : -1
+      return 0
+    })
+    return list
+  }, [clients, q, sort, order])
 
   async function onAdd(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -415,30 +441,52 @@ export function StaffUsersPage() {
     if (!token) { setError('Staff session expired. Sign in again.'); return }
     try {
       const result = await saveApiDirectoryUser({ name: String(form.get('name')), email: String(form.get('email')), phone: String(form.get('phone')), orgId: String(form.get('orgId')), org: String(form.get('org')) }, token)
-      upsertUser({ ...result.user, password: '', active: true, role: 'client' })
-      if (result.user.orgId && result.user.org) upsertRecord('organizations', { id: result.user.orgId, name: result.user.org, domain: '', phone: '', notes: '' })
-      setClients((current) => [result.user, ...current.filter((u) => u.id !== result.user.id)])
-      const orgResult = await listApiOrganizations(token)
-      setOrganizations(orgResult.organizations)
+      upsertUser({ ...(result.user as any), password: '', active: true, role: 'client' })
+      if ((result.user as any).orgId && (result.user as any).org) upsertRecord('organizations', { id: (result.user as any).orgId, name: (result.user as any).org, domain: '', phone: '', notes: '' })
+      await refreshUsers()
       setError('')
       setAdding(false)
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not save user to PostgreSQL.') }
   }
 
+  async function massAction(action: string) {
+    if (selected.size === 0) { window.alert('You need to select at least one item'); return }
+    if (!confirm('You sure?')) return
+    const token = accountSessionToken()
+    if (!token) { setError('Staff session expired. Sign in again.'); return }
+    try {
+      await massActionApiDirectoryUsers(action, Array.from(selected), token)
+      setSelected(new Set())
+      await refreshUsers()
+      setError('')
+    } catch (err) { setError(err instanceof Error ? err.message : 'Mass action failed.') }
+  }
+
+  function toggleSort(field: typeof sort) {
+    if (sort === field) setOrder(o => o === 'asc' ? 'desc' : 'asc')
+    else { setSort(field); setOrder('asc') }
+  }
+
+  const sortIcon = (field: typeof sort) => sort === field ? (order === 'asc' ? ' ↑' : ' ↓') : ''
+
   return (
     <div>
       <PageHeader
-        title="User directory"
+        title="User Directory"
         subtitle="End users stored in PostgreSQL and linked to organizations."
         actions={
-          <button type="button" className={btnPrimary} onClick={() => setAdding((v) => !v)}>
-            Add user
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={btnPrimary} onClick={() => setAdding((v) => !v)}>
+              Add User
+            </button>
+            <button type="button" className={btnGhost} onClick={() => { void refreshUsers() }}>Refresh</button>
+          </div>
         }
       />
       {error ? <p role="alert" className="mb-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
-      {loading ? <Card className="mb-4"><p className="text-sm text-ink-600">Loading users…</p></Card> : null}
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search users" className={`${inputClass} mb-4 max-w-md`} />
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search users" className={`${inputClass} max-w-md`} />
+      </div>
       {adding ? (
         <Card className="mb-6">
           <form onSubmit={onAdd} className="grid gap-4 sm:grid-cols-2">
@@ -452,8 +500,8 @@ export function StaffUsersPage() {
               <input name="phone" className={inputClass} />
             </Field>
             <Field label="Organization">
-              <select name="orgId" className={inputClass} defaultValue="Ethiopian Customs Commission">
-                
+              <select name="orgId" className={inputClass}>
+                <option value="">None</option>
                 {organizations.map((o) => (
                   <option key={o.id} value={o.id}>
                     {o.name}
@@ -464,56 +512,77 @@ export function StaffUsersPage() {
             <Field label="Org label">
               <input name="org" className={inputClass} />
             </Field>
-            <div className="sm:col-span-2">
+            <div className="flex gap-2 sm:col-span-2">
               <button className={btnPrimary}>Save user</button>
+              <button type="button" className={btnGhost} onClick={() => setAdding(false)}>Cancel</button>
             </div>
           </form>
         </Card>
       ) : null}
-      <ul className="grid gap-3 lg:hidden">
-        {filtered.map((u) => (
-          <li key={u.id}>
-            <Card>
-              <Link to={`/scp/users/${u.id}`} className="font-medium hover:text-brand-600">
-                {u.name}
-              </Link>
-              <p className="text-sm text-ink-600">
-                {u.email}
-                {u.org ? ` · ${u.org}` : ''}
-              </p>
-              <p className="text-xs text-ink-400">{db.tickets.filter((t) => t.userId === u.id).length} tickets</p>
-            </Card>
-          </li>
-        ))}
-      </ul>
-      <div className="-mx-3 hidden overflow-x-auto px-3 lg:mx-0 lg:block lg:px-0">
+      {selected.size > 0 ? (
+        <Card className="mb-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm">{selected.size} selected</span>
+            <button type="button" className={btnGhost} onClick={() => void massAction('add-to-org')}>Add to Organization</button>
+            <button type="button" className={btnGhost} onClick={() => void massAction('reset')}>Send Password Reset Email</button>
+            <button type="button" className={btnGhost} onClick={() => void massAction('register')}>Register</button>
+            <button type="button" className={btnGhost} onClick={() => void massAction('lock')}>Lock</button>
+            <button type="button" className={btnGhost} onClick={() => void massAction('unlock')}>Unlock</button>
+            <button type="button" className={btnGhost} onClick={() => void massAction('delete')}>Delete</button>
+          </div>
+        </Card>
+      ) : null}
+      {loading ? <Card className="mb-4"><p className="text-sm text-ink-600">Loading users…</p></Card> : null}
+      <div className="-mx-3 overflow-x-auto px-3 lg:mx-0 lg:block lg:px-0">
         <div className="overflow-hidden rounded-2xl border border-line bg-surface">
-        <table className="w-full min-w-[40rem] text-left text-sm">
+        <table className="w-full min-w-[60rem] text-left text-sm">
           <thead className="bg-paper text-ink-600">
             <tr>
-              <th className="px-4 py-3 font-medium">Name</th>
-              <th className="px-4 py-3 font-medium">Email</th>
+              <th className="px-4 py-3 font-medium">&nbsp;</th>
+              <th className="px-4 py-3 font-medium cursor-pointer" onClick={() => toggleSort('name')}>Name{sortIcon('name')}</th>
+              <th className="px-4 py-3 font-medium cursor-pointer" onClick={() => toggleSort('email')}>Email{sortIcon('email')}</th>
               <th className="px-4 py-3 font-medium">Organization</th>
+              <th className="px-4 py-3 font-medium cursor-pointer" onClick={() => toggleSort('status')}>Status{sortIcon('status')}</th>
+              <th className="px-4 py-3 font-medium cursor-pointer" onClick={() => toggleSort('create')}>Created{sortIcon('create')}</th>
+              <th className="px-4 py-3 font-medium cursor-pointer" onClick={() => toggleSort('update')}>Updated{sortIcon('update')}</th>
               <th className="px-4 py-3 font-medium">Tickets</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((u) => (
-              <tr key={u.id} className="border-t border-line">
-                <td className="px-4 py-3">
-                  <Link to={`/scp/users/${u.id}`} className="text-brand-600">
-                    {u.name}
-                  </Link>
-                </td>
-                <td className="px-4 py-3">{u.email}</td>
-                <td className="px-4 py-3">{u.org ?? db.organizations.find((o) => o.id === u.orgId)?.name ?? '—'}</td>
-                <td className="px-4 py-3">{db.tickets.filter((t) => t.userId === u.id).length}</td>
-              </tr>
-            ))}
+            {filtered.map((u: any) => {
+              const email = u.email || u.default_email || u.default_email__address || ''
+              const org = u.org || u.organization || (db.organizations.find((o: any) => o.id === u.orgId)?.name) || '—'
+              const status = u.status || u.user_status || (u.account__id ? 'Registered' : 'Guest')
+              const ticketCount = u.ticket_count ?? u.ticketCount ?? db.tickets.filter((t: any) => t.userId === u.id || t.user_id === u.id).length
+              const created = u.created || u.created_at
+              const updated = u.updated || u.updated_at
+              const isSel = selected.has(u.id)
+              return (
+                <tr key={u.id} className="border-t border-line hover:bg-paper/50">
+                  <td className="px-4 py-3">
+                    <input type="checkbox" checked={isSel} onChange={() => {
+                      setSelected(s => { const n = new Set(s); if (n.has(u.id)) n.delete(u.id); else n.add(u.id); return n })
+                    }} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <Link to={`/scp/users/${u.id}`} className="text-brand-600 font-medium">
+                      {u.name || email}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3">{email}</td>
+                  <td className="px-4 py-3">{org}</td>
+                  <td className="px-4 py-3">{status}</td>
+                  <td className="px-4 py-3">{created ? formatDate(created) : '—'}</td>
+                  <td className="px-4 py-3">{updated ? formatDate(updated) : '—'}</td>
+                  <td className="px-4 py-3">{ticketCount}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
         </div>
       </div>
+      {filtered.length === 0 && !loading ? <p className="mt-4 text-sm text-ink-600">No users found.</p> : null}
     </div>
   )
 }
@@ -882,6 +951,9 @@ export function StaffUserPage() {
   const [organizations, setOrganizations] = useState<ApiOrganization[]>([])
   const [organizationError, setOrganizationError] = useState('')
   const [saved, setSaved] = useState(false)
+  const [tab, setTab] = useState<'tickets' | 'notes'>('tickets')
+  const [details, setDetails] = useState<any>(null)
+  const [loadingDetails, setLoadingDetails] = useState(false)
   useEffect(() => {
     let active = true
     async function loadOrganizations() {
@@ -908,8 +980,27 @@ export function StaffUserPage() {
     void loadOrganizations()
     return () => { active = false }
   }, [])
-  const person = db.users.find((u) => u.id === id)
-  if (!person) {
+  useEffect(() => {
+    let active = true
+    async function loadDetails() {
+      if (!id) return
+      const token = accountSessionToken()
+      if (!token) return
+      setLoadingDetails(true)
+      try {
+        const res = await getApiDirectoryUser(id, token)
+        if (active) setDetails(res)
+      } catch (e) {
+        // ignore
+      } finally {
+        if (active) setLoadingDetails(false)
+      }
+    }
+    void loadDetails()
+    return () => { active = false }
+  }, [id])
+  const person = db.users.find((u) => u.id === id) || details?.user
+  if (!person && !loadingDetails) {
     return (
       <div>
         <PageHeader title="User not found" />
@@ -919,8 +1010,9 @@ export function StaffUserPage() {
       </div>
     )
   }
-  const tickets = db.tickets.filter((t) => t.userId === person.id)
-  const org = organizations.find((o) => o.id === person.orgId) ?? db.organizations.find((o) => o.id === person.orgId)
+  const tickets = details?.tickets?.length ? details.tickets : db.tickets.filter((t) => t.userId === person?.id)
+  const notes = details?.notes || []
+  const org = organizations.find((o) => o.id === person?.orgId) ?? db.organizations.find((o) => o.id === person?.orgId)
 
   async function onSave(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -928,8 +1020,8 @@ export function StaffUserPage() {
     const token = accountSessionToken()
     if (!token) return
     try {
-      const result = await saveApiDirectoryUser({ name: String(form.get('name')), email: String(form.get('email')), phone: String(form.get('phone')), org: String(form.get('org')), orgId: String(form.get('orgId')) }, token)
-      upsertUser({ ...result.user, password: '', active: true, role: 'client' })
+      const result = await saveApiDirectoryUser({ id, name: String(form.get('name')), email: String(form.get('email')), phone: String(form.get('phone')), org: String(form.get('org')), orgId: String(form.get('orgId')) }, token)
+      upsertUser({ ...(result.user as any), password: '', active: true, role: 'client' })
       setSaved(true)
     } catch (err) { window.alert(err instanceof Error ? err.message : 'Could not save user.') }
   }
@@ -937,38 +1029,53 @@ export function StaffUserPage() {
   return (
     <div className="space-y-6">
       <Link to="/scp/users" className="text-sm text-brand-600">
-        ← Users
+        ← User Directory
       </Link>
-      <PageHeader title={person.name} subtitle={person.email} />
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      <PageHeader title={person?.name || 'User'} subtitle={person?.email || ''} />
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <Card>
-          <h2 className="font-semibold">Tickets</h2>
-          <ul className="mt-3 space-y-2 text-sm">
-            {tickets.map((t) => (
-              <li key={t.id}>
-                <Link to={`/scp/tickets/${t.id}`} className="text-brand-600">
-                  #{t.number} {t.subject}
-                </Link>
-                <span className="ml-2 text-ink-400">{t.status}</span>
-              </li>
-            ))}
-            {tickets.length === 0 ? <li className="text-ink-400">No tickets.</li> : null}
-          </ul>
+          <div className="mb-4 flex gap-4 border-b border-line">
+            <button className={`pb-2 text-sm ${tab === 'tickets' ? 'border-b-2 border-brand-600 text-brand-700' : 'text-ink-600'}`} onClick={() => setTab('tickets')}>Tickets</button>
+            <button className={`pb-2 text-sm ${tab === 'notes' ? 'border-b-2 border-brand-600 text-brand-700' : 'text-ink-600'}`} onClick={() => setTab('notes')}>Notes</button>
+          </div>
+          {tab === 'tickets' ? (
+            <ul className="space-y-2 text-sm">
+              {tickets.map((t: any) => (
+                <li key={t.id}>
+                  <Link to={`/scp/tickets/${t.id}`} className="text-brand-600">
+                    #{t.number || t.id} {t.subject || ''}
+                  </Link>
+                  <span className="ml-2 text-ink-400">{t.status}</span>
+                </li>
+              ))}
+              {tickets.length === 0 ? <li className="text-ink-400">No tickets.</li> : null}
+            </ul>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {notes.map((n: any) => (
+                <li key={n.id} className="rounded-lg border border-line p-3">
+                  <div className="text-ink-700 whitespace-pre-wrap">{n.body}</div>
+                  <div className="mt-1 text-xs text-ink-400">{n.created ? formatDate(n.created) : ''}</div>
+                </li>
+              ))}
+              {notes.length === 0 ? <li className="text-ink-400">No notes.</li> : null}
+            </ul>
+          )}
         </Card>
         <Card>
-          <h2 className="font-semibold">Edit user</h2>
+          <h2 className="font-semibold">User Information</h2>
           <form onSubmit={onSave} className="mt-3 grid gap-3 text-sm">
             <Field label="Name">
-              <input name="name" defaultValue={person.name} required className={inputClass} />
+              <input name="name" defaultValue={person?.name || ''} required className={inputClass} />
             </Field>
             <Field label="Email">
-              <input name="email" type="email" value={person.email} readOnly className={inputClass} />
+              <input name="email" type="email" defaultValue={person?.email || ''} className={inputClass} />
             </Field>
             <Field label="Phone">
-              <input name="phone" defaultValue={person.phone} className={inputClass} />
+              <input name="phone" defaultValue={person?.phone || ''} className={inputClass} />
             </Field>
             <Field label="Organization">
-              <select name="orgId" defaultValue={person.orgId ?? ''} className={inputClass}>
+              <select name="orgId" defaultValue={person?.orgId ?? ''} className={inputClass}>
                 <option value="">None</option>
                 {organizations.map((o) => (
                   <option key={o.id} value={o.id}>
@@ -979,8 +1086,13 @@ export function StaffUserPage() {
             </Field>
             {organizationError ? <p role="alert" className="text-rose-700">{organizationError}</p> : null}
             <Field label="Org label">
-              <input name="org" defaultValue={person.org} className={inputClass} />
+              <input name="org" defaultValue={person?.org || org?.name || ''} className={inputClass} />
             </Field>
+            <div className="text-xs text-ink-500">
+              <div>Created: {person?.created ? formatDate(person.created) : '—'}</div>
+              <div>Updated: {person?.updated ? formatDate(person.updated) : '—'}</div>
+              <div>Status: {details?.user?.status || person?.status || (person?.account__id ? 'Registered' : 'Guest')}</div>
+            </div>
             <button className={btnPrimary}>Save</button>
             {saved ? <p className="text-emerald-700">Saved.</p> : null}
             {org ? (

@@ -5,7 +5,10 @@ import { TicketsModule } from './tickets/tickets.module';
 import { AdminModule } from './admin/admin.module';
 import { MailModule } from './mail/mail.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+
+import { WizardModule } from './wizard/wizard.module';
 import { TasksModule } from './tasks/tasks.module';
 
-@Module({ imports: [PrismaModule, MailModule, AuthModule, TicketsModule, AdminModule, DashboardModule, TasksModule] })
+@Module({ imports: [PrismaModule, MailModule, AuthModule, TicketsModule, AdminModule, DashboardModule, TasksModule, WizardModule] })
+
 export class AppModule {}

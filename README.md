@@ -1,4 +1,4 @@
-# osTicket React
+# Customs IT Ticketing System
 
 ## Backend
 
