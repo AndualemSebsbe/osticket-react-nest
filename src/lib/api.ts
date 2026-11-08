@@ -1397,3 +1397,123 @@ export function checkApiTicketStatus(number: string, email: string) {
   })
 }
 
+
+
+// ========== SYSTEM LOGS (Admin Panel > Dashboard > System Logs) ==========
+export interface ApiSystemLog {
+  id: string
+  type: 'Error' | 'Warning' | 'Debug'
+  title: string
+  log: string
+  logger: string
+  ipAddress: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ApiSystemLogsResponse {
+  logs: ApiSystemLog[]
+  total: number
+  page: number
+  limit: number
+  totalPages: number
+  counts: {
+    total: number
+    error: number
+    warning: number
+    debug: number
+  }
+  config: {
+    logLevel: string
+    logLevelRaw: string
+    logGracePeriodMonths: number
+  }
+}
+
+export interface ApiSystemLogsAuthResponse {
+  authorized: boolean
+  role: string
+  isAdmin: boolean
+  username: string
+  email: string
+  deptId: string
+  canView: boolean
+  canDelete: boolean
+  canPurge: boolean
+  canConfigure: boolean
+  reason?: string
+}
+
+export function checkApiSystemLogsAuth() {
+  return request<ApiSystemLogsAuthResponse>('/admin/logs/authorization', {
+    headers: currentSessionHeaders(),
+  })
+}
+
+export function getApiSystemLogs(params?: {
+  type?: string
+  startDate?: string
+  endDate?: string
+  search?: string
+  sort?: string
+  order?: 'asc' | 'desc'
+  page?: number
+  limit?: number
+}) {
+  const query = new URLSearchParams()
+  if (params?.type && params.type !== 'all') query.set('type', params.type)
+  if (params?.startDate) query.set('startDate', params.startDate)
+  if (params?.endDate) query.set('endDate', params.endDate)
+  if (params?.search) query.set('search', params.search)
+  if (params?.sort) query.set('sort', params.sort)
+  if (params?.order) query.set('order', params.order)
+  if (params?.page) query.set('page', String(params.page))
+  if (params?.limit) query.set('limit', String(params.limit))
+
+  const qs = query.toString()
+  return request<ApiSystemLogsResponse>('/admin/logs' + (qs ? '?' + qs : ''), {
+    headers: currentSessionHeaders(),
+  })
+}
+
+export function getApiSystemLog(id: string) {
+  return request<ApiSystemLog>('/admin/logs/' + encodeURIComponent(id), {
+    headers: currentSessionHeaders(),
+  })
+}
+
+export function deleteApiSystemLog(id: string) {
+  return request<{ success: boolean; id: string }>('/admin/logs/' + encodeURIComponent(id), {
+    method: 'DELETE',
+    headers: currentSessionHeaders(),
+  })
+}
+
+export function massDeleteApiSystemLogs(ids: string[]) {
+  return request<{ success: boolean; deleted: number; requested: number }>('/admin/logs/mass-delete', {
+    method: 'POST',
+    headers: currentSessionHeaders(),
+    body: JSON.stringify({ ids }),
+  })
+}
+
+export function purgeSystemLogs() {
+  return request<{ deleted: number; cutoff: string; months: number }>('/admin/logs/purge', {
+    method: 'POST',
+    headers: currentSessionHeaders(),
+  })
+}
+
+export function createApiSystemLog(input: {
+  type: 'Error' | 'Warning' | 'Debug'
+  title: string
+  log: string
+  logger?: string
+  ipAddress?: string
+}) {
+  return request<{ id?: string; type?: string; title?: string; skipped?: boolean; reason?: string }>('/admin/logs', {
+    method: 'POST',
+    headers: currentSessionHeaders(),
+    body: JSON.stringify(input),
+  })
+}

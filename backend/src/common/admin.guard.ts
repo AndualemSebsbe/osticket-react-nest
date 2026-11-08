@@ -15,7 +15,7 @@ export class AdminGuard implements CanActivate {
     if(!this.auth.sessionAccount(account,session,'staff')) throw new UnauthorizedException('Administrator session required.');
     if(account?.role==='admin') return true;
     if(account?.role==='agent') {
-      if(path.includes('directory-users') || path.includes('/admin/users') || path.includes('organizations')) {
+      if(path.includes('directory-users') || path.includes('/admin/users') || path.includes('organizations') || path.includes('admin/logs/authorization')) {
         return true;
       }
     }
