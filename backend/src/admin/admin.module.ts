@@ -10,11 +10,13 @@ import { SystemSettingsController } from './system-settings.controller';
 import { SystemSettingsService } from './system-settings.service';
 import { SystemLogsController } from './system-logs.controller';
 import { SystemLogsService } from './system-logs.service';
+import { SystemInfoController } from './system-info.controller';
+import { SystemInfoService } from './system-info.service';
 import { HelpTopicsService } from './help-topics.service';
 import { TeamsService } from './teams.service';
 import { MailModule } from '../mail/mail.module';
 import { AdminGuard } from '../common/admin.guard';
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../prisma/prisma.module';
-@Module({ imports:[MailModule,AuthModule,PrismaModule], controllers:[AdminController, CompanyController, CompanyPublicController, SystemSettingsController, SystemLogsController], providers:[AdminService, AgentsService, RolesService, SchedulesService, CompanyService, SystemSettingsService, SystemLogsService, HelpTopicsService, TeamsService, AdminGuard] })
+@Module({ imports:[MailModule,AuthModule,PrismaModule], controllers:[AdminController, CompanyController, CompanyPublicController, SystemSettingsController, SystemLogsController, SystemInfoController], providers:[AdminService, AgentsService, RolesService, SchedulesService, CompanyService, SystemSettingsService, SystemLogsService, SystemInfoService, HelpTopicsService, TeamsService, AdminGuard] })
 export class AdminModule {}

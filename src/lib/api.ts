@@ -1517,3 +1517,82 @@ export function createApiSystemLog(input: {
     body: JSON.stringify(input),
   })
 }
+
+// ========== SYSTEM INFORMATION (Admin Panel > Dashboard > Information) ==========
+export interface ApiSystemInfoCheck {
+  key: string
+  label: string
+  status: 'ok' | 'warning'
+  detail: string
+}
+
+export interface ApiSystemInfoTable {
+  name: string
+  totalBytes: number
+  dataBytes: number
+  indexBytes: number
+  rowEstimate: number
+}
+
+export interface ApiSystemInformation {
+  generatedAt: string
+  application: {
+    name: string
+    packageName: string
+    version: string
+    environment: string
+    runtime: string
+    platform: string
+    architecture: string
+    hostname: string
+    serverTime: string
+    timezone: string
+    uptimeSeconds: number
+    memory: {
+      rss: number
+      heapUsed: number
+      heapTotal: number
+      hostTotal: number
+      hostFree: number
+    }
+  }
+  database: {
+    engine: string
+    version: string
+    versionShort: string
+    host: string
+    port: string
+    username: string
+    database: string
+    schema: string
+    timezone: string
+    storedTimezone: string | null
+    timezoneSource: 'config' | 'server'
+    schemaSignature: string | null
+    schemaSignatureSource: 'config' | 'computed'
+    totalBytes: number
+    dataBytes: number
+    indexBytes: number
+    tableCount: number
+    attachment: {
+      table: string
+      totalBytes: number
+      dataBytes: number
+      indexBytes: number
+      chunks: number
+      storageBackend: string
+    }
+  }
+  tables: ApiSystemInfoTable[]
+  checks: ApiSystemInfoCheck[]
+  languages: {
+    primary: string
+    secondary: string[]
+  }
+}
+
+export function getApiSystemInformation() {
+  return request<ApiSystemInformation>('/admin/system-info', {
+    headers: currentSessionHeaders(),
+  })
+}

@@ -6,7 +6,7 @@ import { useDb } from '../../hooks/useDb'
 import { adminGroups } from '../../layouts/staffNav'
 import { createApiBranch, listApiSlaPlans, createApiSlaPlan, updateApiSlaPlan, deleteApiSlaPlan, createApiFaqCategory, createApiAgent, updateApiAgent, deleteApiBranch, deleteApiFaqCategory, deleteApiAgent, listApiAdminBranches, listApiUsers, listApiAgents, getApiAgentOptions, saveApiTicketVisibility, sendMailTest, updateApiBranch, updateApiFaqCategory, updateApiUserVerification, massAgentAction, listApiSchedules, createApiSchedule, updateApiSchedule, cloneApiSchedule, deleteApiSchedule, setApiDefaultSchedule, type ApiBranch, type ApiSlaPlan, type ApiSchedule, type ApiScheduleEntry, type ApiSchedulesResponse, type ApiAgent, type ApiAgentOptions, type ApiDeptAccess, type ApiTeamMembership } from '../../lib/api'
 import { formatDate } from '../../lib/format'
-import { accountSessionToken, addLog, newId, removeRecord, saveSettings, syncUserVerification } from '../../lib/store'
+import { accountSessionToken, addLog, newId, saveSettings, syncUserVerification } from '../../lib/store'
 import type { LogLevel, SystemSettings } from '../../types'
 import { EntityManager } from './EntityManager'
 import { AdminDepartmentsPage } from './AdminDepartmentsPage'
@@ -15,7 +15,8 @@ import { AdminTeamsPage } from './AdminTeamsPage'
 import { AdminCompanySettings } from './AdminCompanySettings'
 import { AdminSystemSettings } from './AdminSystemSettings'
 import { AdminSystemLogsPage } from './AdminSystemLogsPage'
-export { AdminDepartmentsPage, AdminRolesPage, AdminTeamsPage, AdminSystemLogsPage, AdminSystemLogsPage as AdminLogsPage }
+import { AdminInformationPage } from './AdminInformationPage'
+export { AdminDepartmentsPage, AdminRolesPage, AdminTeamsPage, AdminSystemLogsPage, AdminSystemLogsPage as AdminLogsPage, AdminInformationPage, AdminInformationPage as AdminInfoPage }
 
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
   const { user, ready } = useAuth()
@@ -50,7 +51,7 @@ export function AdminDashboardPage() {
     { to: '/scp/admin/departments', title: 'Departments', body: `${db.departments.length} routing groups.` },
     { to: '/scp/admin/logs', title: 'System logs', body: `${db.logs.length} recorded events.` },
     { to: '/scp/admin/audits', title: 'Audit logs', body: `${db.audits.length} staff actions.` },
-    { to: '/scp/admin/info', title: 'Information', body: 'About this It ticket management system.' },
+    { to: '/scp/admin/info', title: 'Information', body: 'Live server and database metadata, schema signature, and storage usage.' },
   ]
   const byPath = Object.fromEntries(modules.map((m) => [m.to, m]))
   return (
@@ -1648,55 +1649,7 @@ export function AdminAuditsPage() {
 }
 
 // System logs handled by AdminSystemLogsPage (ost_syslog / ost_config)
-
-export function AdminInfoPage() {
-  const db = useDb()
-  return (
-    <div>
-      <PageHeader title="System information" subtitle="About this IT Ticket Management System." />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card>
-          <h2 className="font-semibold">Application</h2>
-          <dl className="mt-3 space-y-2 text-sm">
-            <div className="flex justify-between gap-4">
-              <dt className="text-ink-400">Product</dt>
-              <dd></dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-ink-400">Runtime</dt>
-              <dd>Vite + React 19 + NestJS + PostgreSQL</dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-ink-400">Storage</dt>
-              <dd></dd>
-            </div>
-          </dl>
-        </Card>
-        <Card>
-          <h2 className="font-semibold">Counts</h2>
-          <dl className="mt-3 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-ink-400">Tickets</dt>
-              <dd>{db.tickets.length}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-ink-400">Users</dt>
-              <dd>{db.users.length}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-ink-400">Agents</dt>
-              <dd>{db.users.filter((u) => u.role !== 'client').length}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-ink-400">FAQs</dt>
-              <dd>{db.faqs.length}</dd>
-            </div>
-          </dl>
-        </Card>
-      </div>
-    </div>
-  )
-}
+// System information handled by AdminInformationPage (ost_config / information_schema.TABLES / ost_file_chunk)
 
 export function AdminDiagnosticPage() {
   const db = useDb()
