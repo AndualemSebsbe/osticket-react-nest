@@ -30,13 +30,13 @@ export function LoginPage() {
         {clientLogoUrl ? (
           <img
             src={clientLogoUrl}
-            alt={db.settings.helpdeskName || 'osTicket'}
+            alt={db.settings.helpdeskName || 'IT Ticket Management System'}
             className="mb-4 h-12 w-auto max-w-[14rem] object-contain"
           />
         ) : null}
         <h1 className="text-2xl font-semibold dark:text-500">Sign in</h1>
         <p className="mt-2 text-sm text-ink-600">
-          Register for an account to track every ticket in one place. Guests can still open a ticket or check status.
+          Register for an account to track every ticket in one place. Sign in users can open a ticket or check status.
         </p>
         <p className="mt-4 text-sm dark:text-500">
           I am an agent — <Link to="/scp/login" className="font-medium text-brand-600">sign in here</Link>

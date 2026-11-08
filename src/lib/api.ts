@@ -27,7 +27,7 @@ function background(promise: Promise<unknown>) {
 }
 function currentSessionHeaders(): Record<string, string> {
   try {
-    const token = (JSON.parse(localStorage.getItem('osticket-react-session') || '{}') as { accessToken?: string }).accessToken
+    const token = (JSON.parse(localStorage.getItem('ctms-react-session') || '{}') as { accessToken?: string }).accessToken
     return token ? { 'x-user-session': token } : Object.create(null) as Record<string, string>
   } catch { return Object.create(null) as Record<string, string> }
 }
@@ -768,19 +768,19 @@ export async function mirrorTicket(ticket: Ticket, requester: User, firstMessage
   }
   const result = await request<MirrorTicketResult>('/tickets', { method: 'POST', headers: currentSessionHeaders(), body })
   const finalNumber = result.ticket?.number || ticket.number
-  if (result.accessToken) localStorage.setItem('osticket-api-access-' + finalNumber, result.accessToken)
+  if (result.accessToken) localStorage.setItem('ctms-api-access-' + finalNumber, result.accessToken)
   return result
 }
 export function mirrorReply(input: { ticket: Ticket; owner: User; author: User; body: string; initialMessage: string; db: Database; internal?: boolean; status?: Ticket['status']; recipients?: string[]; fromEmail?: string; collaboratorResponse?: boolean; files?: File[] }) {
   const { ticket, owner, author, body, initialMessage, db } = input
   const sessionToken = (() => {
-    try { return (JSON.parse(localStorage.getItem('osticket-react-session') || '{}') as { accessToken?: string }).accessToken } catch { return undefined }
+    try { return (JSON.parse(localStorage.getItem('ctms-react-session') || '{}') as { accessToken?: string }).accessToken } catch { return undefined }
   })()
   const sendReply = () => {
     const payload = { authorName: author.name, authorEmail: author.email, requesterEmail: author.role === 'client' ? author.email : undefined, message: body, internal: input.internal, status: input.status, recipients: input.recipients, fromEmail: input.fromEmail, collaboratorResponse: input.collaboratorResponse }
     let requestBody: BodyInit = JSON.stringify(payload)
     const headers = new Headers()
-    const accessToken = author.role === 'client' ? localStorage.getItem('osticket-api-access-' + ticket.number) : null
+    const accessToken = author.role === 'client' ? localStorage.getItem('ctms-api-access-' + ticket.number) : null
     if (accessToken) headers.set('x-ticket-access', accessToken)
     if (sessionToken && author.role !== 'client') headers.set('x-user-session', sessionToken)
     if (input.files?.length) {
@@ -799,7 +799,7 @@ export function mirrorReply(input: { ticket: Ticket; owner: User; author: User; 
       // failures should surface to the caller instead of creating a second ticket.
       if (!(error instanceof ApiRequestError) || error.status !== 404) throw error
       const created = await request<{ accessToken?: string }>('/tickets', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify({ id: ticket.id, number: ticket.number, subject: ticket.subject, priority: ticket.priority, employeeId: ticket.employeeId, branchId: ticket.branchId, department: db.departments.find(d => d.id === ticket.deptId)?.name, topic: db.topics.find(t => t.id === ticket.topicId)?.name, requesterName: owner.name, requesterEmail: owner.email, message: initialMessage || '(Ticket imported from the existing help desk.)', collaborators: ticket.collaborators || [], fromEmail: ticket.fromEmail }) })
-      if (created.accessToken) localStorage.setItem('osticket-api-access-' + ticket.number, created.accessToken)
+      if (created.accessToken) localStorage.setItem('ctms-api-access-' + ticket.number, created.accessToken)
       return sendReply()
     }
   }
@@ -815,7 +815,7 @@ export async function apiLookupTicketByEmail(number: string, email: string) {
 
 export async function downloadApiTicketAttachment(number: string, attachmentId: string, fileName: string, email?: string) {
   const headers = new Headers(currentSessionHeaders())
-  const accessToken = localStorage.getItem('osticket-api-access-' + number)
+  const accessToken = localStorage.getItem('ctms-api-access-' + number)
   if (accessToken) headers.set('x-ticket-access', accessToken)
   if (email) headers.set('x-ticket-email', email)
   const response = await fetch('/api/v1/tickets/' + encodeURIComponent(number) + '/attachments/' + encodeURIComponent(attachmentId), { headers })

@@ -33,7 +33,7 @@ export const ticketQueues = [
   { id: 'all', label: 'All Tickets' },
 ] as const
 
-/** Mirrors osTicket AdminNav tabs + submenus from class.nav.php */
+/** Mirrors ctms AdminNav tabs + submenus */
 export const adminGroups: { id: string; label: string; items: NavItem[] }[] = [
   {
     id: 'dashboard',

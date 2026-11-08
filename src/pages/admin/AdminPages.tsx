@@ -55,7 +55,7 @@ export function AdminDashboardPage() {
   const byPath = Object.fromEntries(modules.map((m) => [m.to, m]))
   return (
     <div className="min-w-0 space-y-8">
-      <PageHeader title="Admin panel" subtitle="Same Dashboard / Settings / Manage / Emails / Agents tabs as osTicket-develop — laid out for phones, tablets, and desktops." />
+      <PageHeader title="Admin panel" subtitle="Dashboard / Settings / Manage / Emails / Agents tabs laid out for phones, tablets, and desktops." />
       {adminGroups.map((group) => {
         const items = group.items.filter((item) => item.to !== '/scp/admin')
         if (items.length === 0) return null
@@ -1625,7 +1625,7 @@ export function AdminAuditsPage() {
   const db = useDb()
   return (
     <div>
-      <PageHeader title="Audit logs" subtitle="Who changed tickets, users, and settings — from osTicket audit.php." />
+      <PageHeader title="Audit logs" subtitle="Who changed tickets, users, and settings." />
       <ul className="space-y-3">
         {db.audits.map((audit) => (
           <li key={audit.id}>
@@ -1653,26 +1653,22 @@ export function AdminInfoPage() {
   const db = useDb()
   return (
     <div>
-      <PageHeader title="System information" subtitle="About this React rebuild of osTicket develop." />
+      <PageHeader title="System information" subtitle="About this IT Ticket Management System." />
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
           <h2 className="font-semibold">Application</h2>
           <dl className="mt-3 space-y-2 text-sm">
             <div className="flex justify-between gap-4">
               <dt className="text-ink-400">Product</dt>
-              <dd>osTicket React</dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-ink-400">Based on</dt>
-              <dd>osTicket-develop</dd>
+              <dd></dd>
             </div>
             <div className="flex justify-between gap-4">
               <dt className="text-ink-400">Runtime</dt>
-              <dd>Vite + React 19</dd>
+              <dd>Vite + React 19 + NestJS + PostgreSQL</dd>
             </div>
             <div className="flex justify-between gap-4">
               <dt className="text-ink-400">Storage</dt>
-              <dd>Browser localStorage</dd>
+              <dd></dd>
             </div>
           </dl>
         </Card>

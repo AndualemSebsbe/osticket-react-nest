@@ -293,8 +293,8 @@ export function seed(): Database {
     ],
     banlist: [{ id: 'ban-1', email: 'spam@example.com', reason: 'Repeated junk tickets' }],
     templates: [
-      { id: 'tpl-en', name: 'osTicket Default (English)', language: 'en_US', notes: 'New ticket, reply, and assigned notices.' },
-      { id: 'tpl-es', name: 'osTicket Default (Spanish)', language: 'es_ES', notes: 'Optional localization pack.' },
+      { id: 'tpl-en', name: 'ctms Default (English)', language: 'en_US', notes: 'New ticket, reply, and assigned notices.' },
+      { id: 'tpl-es', name: 'ctms Default (Spanish)', language: 'es_ES', notes: 'Optional localization pack.' },
     ],
     canned: [
       { id: 'can-1', title: 'Need more info', deptId: 'd-support', body: 'Thanks for reaching out. Could you share screenshots, exact steps to reproduce, and when this started?' },
@@ -379,7 +379,7 @@ export function seed(): Database {
       website: 'https://support.local',
       phone: '+1 800 555 0199',
       address: '100 Help Desk Way, San Francisco, CA',
-      helpdeskName: 'osTicket Support Center',
+      helpdeskName: 'ctms Support Center',
       defaultDeptId: 'd-support',
       timezone: 'America/Los_Angeles',
       language: 'en_US',

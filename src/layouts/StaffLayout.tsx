@@ -76,7 +76,7 @@ export function StaffLayout() {
           {staffLogoUrl ? (
             <img
               src={staffLogoUrl}
-              alt={db.settings.helpdeskName || 'osTicket'}
+              alt={db.settings.helpdeskName || 'IT Ticket Management System'}
               className="h-9 w-auto max-w-[9rem] shrink-0 object-contain"
             />
           ) : (
@@ -84,7 +84,7 @@ export function StaffLayout() {
           )}
           <span className="leading-tight">
             Staff control panel
-            <span className="block text-xs font-normal text-slate-400">osTicket</span>
+            <span className="block text-xs font-normal text-slate-400">{db.settings.helpdeskName || 'IT Ticket Management System'}</span>
           </span>
         </NavLink>
         <button

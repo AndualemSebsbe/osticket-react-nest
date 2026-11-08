@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 
 export type Theme = 'light' | 'dark' | 'system'
 
-const KEY = 'osticket-react-theme'
+const KEY = 'ctms-react-theme'
 
 function readTheme(): Theme {
   const raw = localStorage.getItem(KEY)

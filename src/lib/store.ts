@@ -15,8 +15,8 @@ import type {
 import { seed } from './seed'
 import { ApiRequestError, banApiTicketEmail, createApiTask, deleteApiTicket, getApiAppState, getApiPublicAppState, getApiPublicBranding, getApiStaffTicket, listApiAccountTickets, listApiTasks, listApiTickets, listApiAssignableStaff, lockApiTicket, mergeApiTicket, mirrorReply, mirrorTicket, registerApiUser, saveApiAppState, saveApiTicketCollaborators, unlockApiTicket, updateApiTask, updateApiTicket, updateApiUserVerification, type ApiClientUser, type ApiPersistedMessage, type ApiPersistedTicket } from './api'
 
-const KEY = 'osticket-react-db-v4'
-const SESSION = 'osticket-react-session'
+const KEY = 'ctms-react-db-v4'
+const SESSION = 'ctms-react-session'
 
 const now = () => new Date().toISOString()
 const id = () => crypto.randomUUID()
@@ -94,9 +94,9 @@ function load(): Database {
   try {
     const raw =
       localStorage.getItem(KEY) ??
-      localStorage.getItem('osticket-react-db-v3') ??
-      localStorage.getItem('osticket-react-db-v2') ??
-      localStorage.getItem('osticket-react-db-v1')
+      localStorage.getItem('ctms-react-db-v3') ??
+      localStorage.getItem('ctms-react-db-v2') ??
+      localStorage.getItem('ctms-react-db-v1')
     if (raw) {
       cache = migrate(JSON.parse(raw) as Partial<Database>)
       persist(cache)

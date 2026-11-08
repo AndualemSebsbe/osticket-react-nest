@@ -630,7 +630,7 @@ export function StaffOrgsPage() {
     <div>
       <PageHeader
         title="Organizations"
-        subtitle="Organizations from the osTicket organization tables."
+        subtitle="Organizations."
         actions={
           <button type="button" className={btnPrimary} onClick={() => setAdding((v) => !v)}>
             Add organization

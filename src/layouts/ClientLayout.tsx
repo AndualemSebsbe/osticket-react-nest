@@ -33,14 +33,14 @@ export function ClientLayout({ children }: { children: ReactNode }) {
             {clientLogoUrl ? (
               <img
                 src={clientLogoUrl}
-                alt={db.settings.helpdeskName || 'osTicket'}
+                alt={db.settings.helpdeskName || 'IT Ticket Management System'}
                 className="h-9 w-auto max-w-[10rem] shrink-0 object-contain"
               />
             ) : (
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white/15 text-lg">✉</span>
             )}
             <span className="truncate">
-              {db.settings.helpdeskName || 'osTicket'}
+              {db.settings.helpdeskName || 'IT Ticket Management System'}
               <span className="hidden text-blue-100 sm:inline"> · {db.settings.companyName}</span>
             </span>
           </NavLink>

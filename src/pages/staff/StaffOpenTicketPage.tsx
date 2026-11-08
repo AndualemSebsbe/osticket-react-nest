@@ -65,7 +65,7 @@ export function StaffOpenTicketPage() {
 
   return (
     <div>
-      <PageHeader title="Open a ticket" subtitle="Create a ticket on behalf of a user — same flow as osTicket staff tickets.php?a=open." />
+      <PageHeader title="Open a ticket" subtitle="Create a ticket on behalf of a user." />
       {error ? <p className="mb-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
       <Card>
         <form onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2">
