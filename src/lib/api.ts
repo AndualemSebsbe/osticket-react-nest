@@ -756,7 +756,7 @@ export function massActionApiDirectoryUsers(action: string, ids: string[], token
   return request<any>('/admin/directory-users/mass-action', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify({ action, ids, ...options }) })
 }
 export function listApiUsers(token: string) {
-  return request<{ users: Array<ApiClientUser & { verificationStatus: 'pending' | 'approved' | 'rejected'; registeredAt: string | null }> }>('/admin/users', { headers: { 'x-user-session': token } })
+  return request<{ users: Array<ApiClientUser & { role: 'client' | 'admin'; verificationStatus: 'pending' | 'approved' | 'rejected'; registeredAt: string | null }> }>('/admin/users', { headers: { 'x-user-session': token } })
 }
 export function updateApiUserVerification(user: Pick<User, 'name' | 'email'>, status: 'approved' | 'rejected', actorName: string, token: string) {
   return request<{ updated: boolean; verificationStatus: 'approved' | 'rejected' }>('/admin/users/verification', { method: 'PATCH', headers: { 'x-user-session': token }, body: JSON.stringify({ ...user, status, actorName }) })
