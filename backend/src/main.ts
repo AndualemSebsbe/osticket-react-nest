@@ -1,12 +1,14 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { BigIntSerializerInterceptor } from './common/bigint.interceptor';
+import { sessionCookieMiddleware } from './common/session.middleware';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api/v1');
-  app.enableCors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' });
+  app.enableCors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173', credentials: true });
   app.enableShutdownHooks();
+  app.use(sessionCookieMiddleware);
   app.useGlobalInterceptors(new BigIntSerializerInterceptor());
   const port = Number(process.env.API_PORT || 8787);
   console.log('Starting HTTP listener on port ' + port + '...');

@@ -7,6 +7,7 @@ _ref
 node_modules/
 dist/
 build/
+.env
 
 server/data/*.json
 server/data/*.tmp

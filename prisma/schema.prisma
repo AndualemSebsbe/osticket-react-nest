@@ -966,6 +966,28 @@ model Branch {
   @@schema("osticket")
 }
 
+// Server-side session store. Session rows are deliberately independent from
+// ost_user, ost_staff and ost_ticket: the only identity information kept here
+// is the serialized session payload in session_data. The browser never receives
+// this row; it holds an opaque token whose SHA-256 hash is the primary key.
+model Session {
+  session_id      String    @id @db.VarChar(128)
+  session_data    String?   @db.Text
+  session_expire  DateTime? @db.Timestamptz(6)
+  session_updated DateTime? @db.Timestamptz(6)
+  user_id         String    @default("0") @db.VarChar(16)
+  user_ip         String    @default("") @db.VarChar(64)
+  user_agent      String    @default("") @db.VarChar(255)
+  revoked_at      DateTime? @db.Timestamptz(6)
+  created         DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([session_expire])
+  @@index([session_updated])
+  @@index([user_id])
+  @@map("ost_session")
+  @@schema("osticket")
+}
+
 enum EmailAccountTypeEnum {
   MAILBOX @map("mailbox")
   SMTP    @map("smtp")

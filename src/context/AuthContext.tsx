@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ApiRequestError, apiClientLogin, apiStaffLogin, apiValidateClientSession, apiValidateStaffSession } from '../lib/api'
+import { ApiRequestError, apiClientLogin, apiCurrentSession, apiLogout, apiStaffLogin } from '../lib/api'
 import { accountSessionToken, currentUser, establishApiSession, hydrateAppStateFromApi, hydrateAssignableStaffFromApi, hydrateTasksFromApi, hydrateTicketsFromApi, logout as doLogout, register as doRegister, subscribe } from '../lib/store'
 import type { User } from '../types'
 
@@ -24,34 +24,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const validate = async () => {
       const revision = authRevision.current
       const saved = currentUser()
-      const token = accountSessionToken()
-      if (saved && !token) {
-        doLogout()
-        if (alive) setUser(null)
-        if (alive) setReady(true)
-        return
-      }
-      if (!saved || !token) {
-        if (token && !saved) doLogout()
-        if (alive) setUser(null)
-        if (alive) setReady(true)
-        return
-      }
-      console.info('[auth-session] validating stored session', { role: saved.role, tokenPresent: true })
       try {
-        const isStaff = saved.role === 'agent' || saved.role === 'admin'
-        const result = isStaff
-          ? await apiValidateStaffSession(token)
-          : await apiValidateClientSession(token)
+        // The HTTP-only cookie is the source of truth. This also restores a
+        // signed-in browser after a reload even if localStorage was cleared.
+        const result = await apiCurrentSession()
         if (revision !== authRevision.current) return
-        if (saved.role !== result.role) {
-          console.warn('[auth-session] session role mismatch; clearing session', { savedRole: saved.role, serverRole: result.role })
-          doLogout()
-          if (alive) setUser(null)
-          return
-        }
-        console.info('[auth-session] session accepted', { role: result.role, userId: result.user.id })
+        const next = establishApiSession(result.user)
         try {
+          const token = accountSessionToken() || ''
           if (result.role === 'agent' || result.role === 'admin') await hydrateAssignableStaffFromApi(token)
           await hydrateTicketsFromApi(token)
           await hydrateAppStateFromApi(token, result.role)
@@ -60,7 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // A failed data refresh does not mean the signed-in account is invalid.
           console.warn('[helpdesk session refresh]', error instanceof Error ? error.message : error)
         }
-        if (alive && revision === authRevision.current) setUser(currentUser() || saved)
+        if (alive && revision === authRevision.current) setUser(currentUser() || next)
       } catch (error) {
         // Only clear credentials when the API explicitly rejects the session.
         // Network errors and server errors should not sign the user out.
@@ -71,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (alive) setUser(null)
         } else {
           console.error('[auth-session] validation request failed without an auth rejection; keeping session', error)
-          if (alive) setUser(currentUser() || saved)
+          if (alive) setUser(saved)
         }
       } finally {
         if (alive && revision === authRevision.current) setReady(true)
@@ -91,21 +71,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.info('[staff-login] starting API sign-in', { identifierProvided: Boolean(email.trim()), passwordProvided: Boolean(password) })
         try {
           const result = await apiStaffLogin(email, password)
-          console.info('[staff-login] API accepted credentials', { userId: result.user.id, role: result.user.role, sessionTokenReceived: Boolean(result.sessionToken) })
+          console.info('[staff-login] API accepted credentials', { userId: result.user.id, role: result.user.role })
           authRevision.current += 1
-          const next = establishApiSession(result.user, result.sessionToken)
+          const next = establishApiSession(result.user)
           setReady(true)
-          console.info('[staff-login] browser session stored', { userId: next.id, role: next.role, sessionStored: Boolean(accountSessionToken()) })
+          console.info('[staff-login] browser session stored', { userId: next.id, role: next.role })
           setUser(next)
           void (async () => {
             try {
-              await hydrateAssignableStaffFromApi(result.sessionToken)
+              const token = accountSessionToken() || ''
+              await hydrateAssignableStaffFromApi(token)
               console.info('[staff-login] staff directory loaded')
-              await hydrateTicketsFromApi(result.sessionToken)
+              await hydrateTicketsFromApi(token)
               console.info('[staff-login] ticket data loaded')
-              await hydrateAppStateFromApi(result.sessionToken, result.user.role)
+              await hydrateAppStateFromApi(token, result.user.role)
               console.info('[staff-login] shared application data loaded from PostgreSQL')
-              await hydrateTasksFromApi(result.sessionToken)
+              await hydrateTasksFromApi(token)
               console.info('[staff-login] task data loaded')
             } catch (error) {
               console.error('[staff-login] post-login data loading failed; keeping the session', error)
@@ -124,12 +105,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (result.status === 'pending') return { error: 'Your account is waiting for administrator verification.' }
             if (result.status === 'rejected') return { error: 'Your account was not approved. Contact the help desk administrator.' }
             if (result.status === 'disabled') return { error: 'This client account is disabled. Contact the help desk administrator.' }
-            if (result.status !== 'approved' || !result.user || !result.sessionToken) return { error: 'The account service could not verify this account.' }
-            const next = establishApiSession({ ...result.user, role: 'client' }, result.sessionToken)
+            if (result.status !== 'approved' || !result.user) return { error: 'The account service could not verify this account.' }
+            const next = establishApiSession({ ...result.user, role: 'client' })
             setUser(next)
             try {
-              await hydrateTicketsFromApi(result.sessionToken)
-              await hydrateAppStateFromApi(result.sessionToken, 'client')
+              const token = accountSessionToken() || ''
+              await hydrateTicketsFromApi(token)
+              await hydrateAppStateFromApi(token, 'client')
             } catch (error) {
               console.warn('[helpdesk initial ticket refresh]', error instanceof Error ? error.message : error)
             }
@@ -147,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return next
       },
       logout: () => {
+        void apiLogout().catch((error) => console.warn('[auth-session] logout request failed', error))
         doLogout()
         setUser(null)
       },

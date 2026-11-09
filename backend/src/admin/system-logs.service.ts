@@ -72,7 +72,7 @@ export class SystemLogsService {
         reason: 'Authentication session required.',
       };
     }
-    const session = this.security.readSession(token);
+    const session = await this.security.readSession(token);
     const account = session ? await this.auth.validateStaff(session.email) : null;
     if (!account || !this.auth.sessionAccount(account, session, 'staff')) {
       if (throwOnUnauthorized) throw new ForbiddenException('Access denied: Valid staff session required.');

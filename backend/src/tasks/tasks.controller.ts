@@ -15,7 +15,7 @@ export class TasksController {
   ) {}
 
   private async staffAccount(token: string) {
-    const session = this.security.readSession(token);
+    const session = await this.security.readSession(token);
     const account = session ? await this.auth.validateStaff(session.email) : null;
     if (!this.auth.sessionAccount(account, session, 'staff')) throw new UnauthorizedException('Active staff session required.');
     return account!;
