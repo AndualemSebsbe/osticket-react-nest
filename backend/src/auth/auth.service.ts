@@ -21,7 +21,7 @@ export class AuthService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService, @Inject(ApiSecurityService) private readonly security: ApiSecurityService) {}
 
   async profileFromSession(token: string) {
-    const session = this.security.readSession(token);
+    const session = await this.security.readSession(token);
     const account = session ? await this.validateClient(session.email) : null;
     if (!this.sessionAccount(account, session, 'client')) throw new UnauthorizedException('Session expired.');
     return account!.user;
@@ -93,8 +93,14 @@ export class AuthService {
   async validateClient(email: string) { const account = await this.findClient(email); return account?.role === 'client' ? account : null; }
   sessionAccount(account: Account | null, session: Session | null, role?: 'staff' | 'client') {
     if (!account || !session || account.status !== 'approved' || account.sessionVersion !== session.sessionVersion) return false;
-    if (role === 'staff') return account.role === 'agent' || account.role === 'admin';
-    if (role === 'client') return account.role === 'client';
+    if (role === 'staff') {
+      if (session.role && session.role !== 'agent' && session.role !== 'admin') return false;
+      return account.role === 'agent' || account.role === 'admin';
+    }
+    if (role === 'client') {
+      if (session.role && session.role !== 'client') return false;
+      return account.role === 'client';
+    }
     return true;
   }
 
@@ -164,6 +170,8 @@ export class AuthService {
       for (const account of accounts) { const extra = parseExtra(account.extra); await tx.userAccount.update({ where: { user_id: account.user_id }, data: { passwd: encoded, extra: JSON.stringify({ ...extra, authVersion: Number(extra.authVersion || 0) + 1 }) } }); }
       for (const staff of staffRows) { const extra = parseExtra(staff.extra); await tx.staff.update({ where: { staff_id: staff.staff_id }, data: { passwd: encoded, extra: JSON.stringify({ ...extra, authVersion: Number(extra.authVersion || 0) + 1 }), updated: new Date() } }); }
     });
+    // A password change invalidates every existing session for the account.
+    await this.security.revokeAllForEmail(email);
   }
 
   async requestReset(email: string) {
@@ -179,11 +187,13 @@ export class AuthService {
   }
 
   async completeReset(tokenHash: string, password: string) {
-    return this.prisma.$transaction(async (tx) => {
+    let resetEmail = '';
+    const updated = await this.prisma.$transaction(async (tx) => {
       const key = await tx.config.findUnique({ where: { namespace_key: { namespace: 'react_password_reset', key: tokenHash } } });
       if (!key) return false;
       let data: { email: string; expiresAt: number }; try { data = JSON.parse(key.value); } catch { await tx.config.delete({ where: { id: key.id } }); return false; }
       if (data.expiresAt < Date.now()) { await tx.config.delete({ where: { id: key.id } }); return false; }
+      resetEmail = data.email;
       const clientEmail = await tx.userEmail.findMany({ where: { address: { equals: data.email, mode: 'insensitive' } } });
       const accounts = await tx.userAccount.findMany({ where: { user_id: { in: clientEmail.map((item) => item.user_id) }, backend: 'react' } });
       const staff = await tx.staff.findMany({ where: { email: { equals: data.email, mode: 'insensitive' } } });
@@ -193,6 +203,8 @@ export class AuthService {
       await tx.config.delete({ where: { id: key.id } });
       return true;
     });
+    if (updated && resetEmail) await this.security.revokeAllForEmail(resetEmail);
+    return updated;
   }
 
   async updateProfile(email: string, input: { name: string; phone: string; org: string; title?: string }) {

@@ -11,10 +11,19 @@ export class ApiRequestError extends Error {
   }
 }
 
+function withoutSessionPlaceholder(headers: Headers) {
+  // Sessions live in an HTTP-only cookie now. Older call sites still pass the
+  // token returned by accountSessionToken(); drop the placeholder so the
+  // browser sends the real cookie instead.
+  const value = headers.get('x-user-session')
+  if (!value || value === 'cookie' || value === 'null' || value === 'undefined') headers.delete('x-user-session')
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
   if (!(init?.body instanceof FormData)) headers.set('content-type', 'application/json')
-  const response = await fetch('/api/v1' + path, { ...init, headers })
+  withoutSessionPlaceholder(headers)
+  const response = await fetch('/api/v1' + path, { ...init, headers, credentials: 'include' })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
     const message = typeof data.message === 'string' ? data.message : data.error
@@ -26,10 +35,9 @@ function background(promise: Promise<unknown>) {
   void promise.catch((error: unknown) => console.warn('[helpdesk API]', error instanceof Error ? error.message : error))
 }
 function currentSessionHeaders(): Record<string, string> {
-  try {
-    const token = (JSON.parse(localStorage.getItem('ctms-react-session') || '{}') as { accessToken?: string }).accessToken
-    return token ? { 'x-user-session': token } : Object.create(null) as Record<string, string>
-  } catch { return Object.create(null) as Record<string, string> }
+  // The session token is intentionally not readable from JavaScript; the
+  // browser attaches the HTTP-only cookie to every same-origin request.
+  return Object.create(null) as Record<string, string>
 }
 export function apiHealth() { return request<ApiHealth>('/health') }
 export function listApiTickets(token?: string) { return request<{ tickets: Array<Record<string, any>> }>('/tickets', { headers: token ? { 'x-user-session': token } : currentSessionHeaders() }) }
@@ -584,7 +592,7 @@ export function saveApiTaskCollaborators(id: string, collaborators: Array<{ user
   return request<{ task: ApiTask }>('/tasks/' + encodeURIComponent(id) + '/collaborators', { method: 'PUT', headers: currentSessionHeaders(), body: JSON.stringify({ collaborators }) })
 }
 export async function downloadApiTaskAttachment(taskId: string, attachmentId: string, fileName: string) {
-  const response = await fetch('/api/v1/tasks/' + encodeURIComponent(taskId) + '/attachments/' + encodeURIComponent(attachmentId), { headers: currentSessionHeaders() })
+  const response = await fetch('/api/v1/tasks/' + encodeURIComponent(taskId) + '/attachments/' + encodeURIComponent(attachmentId), { headers: currentSessionHeaders(), credentials: 'include' })
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
     throw new ApiRequestError(data.message || data.error || 'Could not download attachment.', response.status)
@@ -682,16 +690,25 @@ export function registerApiUser(input: { name: string; email: string; password: 
 }
 export interface ApiClientUser { id: string; name: string; email: string; phone?: string; employeeId?: string; branchId?: string; branchName?: string; org?: string; title?: string; deptId?: string; roleId?: string }
 export function apiClientLogin(email: string, password: string) {
-  return request<{ found: boolean; status?: 'pending' | 'approved' | 'rejected' | 'disabled'; user?: ApiClientUser; sessionToken?: string }>('/users/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+  return request<{ found: boolean; status?: 'pending' | 'approved' | 'rejected' | 'disabled'; user?: ApiClientUser }>('/users/login', { method: 'POST', body: JSON.stringify({ email, password }) })
 }
 export function apiStaffLogin(email: string, password: string) {
-  return request<{ user: ApiClientUser & { role: 'agent' | 'admin' }; sessionToken: string }>('/staff/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+  return request<{ user: ApiClientUser & { role: 'agent' | 'admin' } }>('/staff/login', { method: 'POST', body: JSON.stringify({ email, password }) })
 }
-export function apiValidateClientSession(token: string) {
-  return request<{ status: 'approved'; role: User['role']; user: ApiClientUser & { role: User['role'] } }>('/users/session', { headers: { 'x-user-session': token } })
+function sessionHeaders(token?: string): Record<string, string> {
+  return token && token !== 'cookie' ? { 'x-user-session': token } : Object.create(null) as Record<string, string>
 }
-export function apiValidateStaffSession(token: string) {
-  return request<{ status: 'approved'; role: 'agent' | 'admin'; user: ApiClientUser & { role: 'agent' | 'admin' } }>('/staff/session', { headers: { 'x-user-session': token } })
+export function apiValidateClientSession(token?: string) {
+  return request<{ status: 'approved'; role: User['role']; user: ApiClientUser & { role: User['role'] } }>('/users/session', { headers: sessionHeaders(token) })
+}
+export function apiValidateStaffSession(token?: string) {
+  return request<{ status: 'approved'; role: 'agent' | 'admin'; user: ApiClientUser & { role: 'agent' | 'admin' } }>('/staff/session', { headers: sessionHeaders(token) })
+}
+export function apiCurrentSession() {
+  return request<{ authenticated: true; status: 'approved'; role: User['role']; user: ApiClientUser & { role: User['role'] } }>('/auth/session')
+}
+export function apiLogout() {
+  return request<{ loggedOut: boolean }>('/auth/logout', { method: 'POST' })
 }
 export function requestPasswordReset(email: string) { return request<{ sent: boolean }>('/auth/password-reset/request', { method: 'POST', body: JSON.stringify({ email }) }) }
 export function completePasswordReset(token: string, password: string) { return request<{ updated: boolean }>('/auth/password-reset/complete', { method: 'POST', body: JSON.stringify({ token, password }) }) }
@@ -773,16 +790,13 @@ export async function mirrorTicket(ticket: Ticket, requester: User, firstMessage
 }
 export function mirrorReply(input: { ticket: Ticket; owner: User; author: User; body: string; initialMessage: string; db: Database; internal?: boolean; status?: Ticket['status']; recipients?: string[]; fromEmail?: string; collaboratorResponse?: boolean; files?: File[] }) {
   const { ticket, owner, author, body, initialMessage, db } = input
-  const sessionToken = (() => {
-    try { return (JSON.parse(localStorage.getItem('ctms-react-session') || '{}') as { accessToken?: string }).accessToken } catch { return undefined }
-  })()
   const sendReply = () => {
     const payload = { authorName: author.name, authorEmail: author.email, requesterEmail: author.role === 'client' ? author.email : undefined, message: body, internal: input.internal, status: input.status, recipients: input.recipients, fromEmail: input.fromEmail, collaboratorResponse: input.collaboratorResponse }
     let requestBody: BodyInit = JSON.stringify(payload)
     const headers = new Headers()
     const accessToken = author.role === 'client' ? localStorage.getItem('ctms-api-access-' + ticket.number) : null
     if (accessToken) headers.set('x-ticket-access', accessToken)
-    if (sessionToken && author.role !== 'client') headers.set('x-user-session', sessionToken)
+    // Staff/client sessions are carried by the HTTP-only cookie.
     if (input.files?.length) {
       const form = new FormData()
       form.set('reply', JSON.stringify(payload))
@@ -818,7 +832,7 @@ export async function downloadApiTicketAttachment(number: string, attachmentId: 
   const accessToken = localStorage.getItem('ctms-api-access-' + number)
   if (accessToken) headers.set('x-ticket-access', accessToken)
   if (email) headers.set('x-ticket-email', email)
-  const response = await fetch('/api/v1/tickets/' + encodeURIComponent(number) + '/attachments/' + encodeURIComponent(attachmentId), { headers })
+  const response = await fetch('/api/v1/tickets/' + encodeURIComponent(number) + '/attachments/' + encodeURIComponent(attachmentId), { headers, credentials: 'include' })
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
     throw new ApiRequestError(data.error || 'Could not download attachment.', response.status)
@@ -892,7 +906,7 @@ export async function downloadDashboardExport(
   if (start) params.set('start', start)
   if (period) params.set('period', period)
   const headers = new Headers(token ? { 'x-user-session': token } : currentSessionHeaders())
-  const response = await fetch('/api/v1/dashboard/export?' + params.toString(), { headers })
+  const response = await fetch('/api/v1/dashboard/export?' + params.toString(), { headers, credentials: 'include' })
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
     throw new ApiRequestError(data.error || 'Export failed.', response.status)

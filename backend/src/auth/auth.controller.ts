@@ -8,13 +8,18 @@ import { createHash } from 'node:crypto';
 export class UsersController {
   constructor(@Inject(AuthService) private auth: AuthService, @Inject(ApiSecurityService) private security: ApiSecurityService) {}
   @Post('login') @HttpCode(200)
-  async login(@Body() body: any, @Req() req: any) {
+  async login(@Body() body: any, @Req() req: any, @Res({ passthrough: true }) res: any) {
     const email = this.security.email(body.email);
     if (!this.security.rateLimit(req.ip, 'user-login:' + email, 10)) throw new UnauthorizedException('Too many login attempts.');
     const result = await this.auth.loginClient(email, String(body.password || ''));
     if (!result.found || !result.authenticated) throw new UnauthorizedException('Invalid email or password.');
     if (result.status !== 'approved') return { found: true, status: result.status };
-    return { found: true, status: result.status, user: result.user, sessionToken: this.security.issueSession(email, result.sessionVersion) };
+    const issued = await this.security.issueSession(
+      { email: result.user.email, role: 'client', userId: result.user.id, sessionVersion: result.sessionVersion },
+      { ip: req.ip, userAgent: req.headers?.['user-agent'] },
+    );
+    this.security.setSessionCookie(res, issued.token, issued.expiresAt);
+    return { found: true, status: result.status, user: result.user };
   }
   @Post('register')
   async register(@Body() body: any) {
@@ -25,7 +30,7 @@ export class UsersController {
   }
   @Get('session')
   async session(@Headers('authorization') authorization: string, @Headers('x-user-session') token: string, @Headers('x-session-token') legacyToken: string) {
-    const session = this.security.readSession(token || legacyToken || authorization?.replace(/^Bearer\s+/i, ''));
+    const session = await this.security.readSession(token || legacyToken || authorization?.replace(/^Bearer\s+/i, ''));
     const account = session ? await this.auth.validateClient(session.email) : null;
     if (!this.auth.sessionAccount(account, session, 'client')) throw new UnauthorizedException('Session expired.');
     return { status: account!.status, role: account!.role, user: account!.user };
@@ -34,7 +39,7 @@ export class UsersController {
   async profile(@Headers('x-user-session') token: string) { return { user: await this.auth.profileFromSession(token) }; }
   @Patch('profile')
   async updateProfile(@Body() body: any, @Headers('x-user-session') token: string) {
-    const session = this.security.readSession(token);
+    const session = await this.security.readSession(token);
     const account = session ? await this.auth.validateClient(session.email) : null;
     if (!this.auth.sessionAccount(account, session, 'client')) throw new UnauthorizedException('Session expired.');
     await this.auth.updateProfile(session!.email, { name: this.security.clean(body.name, 128), phone: this.security.clean(body.phone, 64), org: this.security.clean(body.org, 128), title: this.security.clean(body.title, 128) });
@@ -42,13 +47,20 @@ export class UsersController {
   }
   @Patch('password')
   async password(@Body() body: any, @Headers('x-user-session') token: string, @Res({ passthrough: true }) res: any) {
-    const session = this.security.readSession(token);
+    const session = await this.security.readSession(token);
     const account = session ? await this.auth.validateClient(session.email) : null;
     if (!this.auth.sessionAccount(account, session, 'client')) throw new UnauthorizedException('Session expired.');
     if (String(body.password || '').length < 8) throw new BadRequestException('Password must be at least 8 characters.');
     await this.auth.changePassword(session!.email, body.password);
+    this.security.clearSessionCookie(res);
     res.setHeader('x-session-refresh-required', 'true');
     return { updated: true };
+  }
+  @Post('logout') @HttpCode(200)
+  async logout(@Headers('x-user-session') token: string, @Res({ passthrough: true }) res: any) {
+    await this.security.revokeSession(token);
+    this.security.clearSessionCookie(res);
+    return { loggedOut: true };
   }
 }
 
@@ -56,17 +68,22 @@ export class UsersController {
 export class StaffController {
   constructor(@Inject(AuthService) private auth: AuthService, @Inject(ApiSecurityService) private security: ApiSecurityService) {}
   @Post('login') @HttpCode(200)
-  async login(@Body() body: any, @Req() req: any) {
+  async login(@Body() body: any, @Req() req: any, @Res({ passthrough: true }) res: any) {
     const identity = this.security.clean(body.email || body.username, 254);
     if (!this.security.rateLimit(req.ip, 'staff-login:' + identity.toLowerCase(), 10)) throw new UnauthorizedException('Too many login attempts.');
     const result = await this.auth.loginStaff(identity, String(body.password || ''));
     if (!result.found || !result.authenticated) throw new UnauthorizedException(result.error || 'Invalid username or password.');
     if (result.status !== 'approved') throw new UnauthorizedException('Staff account is disabled.');
-    return { user: { ...result.user, role: result.role }, sessionToken: this.security.issueSession(result.user.email, result.sessionVersion) };
+    const issued = await this.security.issueSession(
+      { email: result.user.email, role: result.role, userId: result.user.id, sessionVersion: result.sessionVersion },
+      { ip: req.ip, userAgent: req.headers?.['user-agent'] },
+    );
+    this.security.setSessionCookie(res, issued.token, issued.expiresAt);
+    return { user: { ...result.user, role: result.role } };
   }
   @Get('session')
   async session(@Headers('x-user-session') token: string, @Headers('authorization') authorization: string) {
-    const session = this.security.readSession(token || authorization?.replace(/^Bearer\s+/i, ''));
+    const session = await this.security.readSession(token || authorization?.replace(/^Bearer\s+/i, ''));
     const account = session ? await this.auth.validateStaff(session.email) : null;
     if (!this.auth.sessionAccount(account, session, 'staff')) throw new UnauthorizedException('Session expired.');
     return { status: account!.status, role: account!.role, user: account!.user };
@@ -74,6 +91,36 @@ export class StaffController {
   @Get('assignable') async assignable() { return { staff: await this.auth.listAssignableStaff() }; }
   @Get('departments') async departments() { return { departments: await this.auth.listStaffDepartments(), slas: [] }; }
   @Get('ticket-options') async options() { return this.auth.ticketOptions(); }
+  @Post('logout') @HttpCode(200)
+  async logout(@Headers('x-user-session') token: string, @Res({ passthrough: true }) res: any) {
+    await this.security.revokeSession(token);
+    this.security.clearSessionCookie(res);
+    return { loggedOut: true };
+  }
+}
+
+@Controller('auth')
+export class AuthSessionController {
+  constructor(@Inject(AuthService) private auth: AuthService, @Inject(ApiSecurityService) private security: ApiSecurityService) {}
+  @Get('session')
+  async session(@Headers('x-user-session') token: string) {
+    const session = await this.security.readSession(token);
+    const account = session
+      ? session.role === 'client'
+        ? await this.auth.validateClient(session.email)
+        : session.role
+          ? await this.auth.validateStaff(session.email)
+          : await this.auth.validate(session.email)
+      : null;
+    if (!this.auth.sessionAccount(account, session)) throw new UnauthorizedException('Session expired.');
+    return { authenticated: true, status: account!.status, role: account!.role, user: account!.user };
+  }
+  @Post('logout') @HttpCode(200)
+  async logout(@Headers('x-user-session') token: string, @Res({ passthrough: true }) res: any) {
+    await this.security.revokeSession(token);
+    this.security.clearSessionCookie(res);
+    return { loggedOut: true };
+  }
 }
 
 @Controller('auth/password-reset')

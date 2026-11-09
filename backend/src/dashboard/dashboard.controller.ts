@@ -24,7 +24,7 @@ export class DashboardController {
   ) {}
 
   private async assertStaff(token: string) {
-    const session = this.security.readSession(token);
+    const session = await this.security.readSession(token);
     const account = session ? await this.auth.validateStaff(session.email) : null;
     if (!this.auth.sessionAccount(account, session, 'staff')) {
       throw new UnauthorizedException('Active staff session required.');

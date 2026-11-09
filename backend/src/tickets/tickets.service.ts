@@ -516,7 +516,7 @@ export class TicketsService {
 
   async reply(number: string, body: any, sessionToken: string, accessToken: string, uploads: Array<{ originalname: string; mimetype: string; buffer: Buffer; size: number }> = []) {
     const { row, view } = await this.get(number);
-    const session = this.security.readSession(sessionToken);
+    const session = await this.security.readSession(sessionToken);
     const actor = session ? await this.prisma.userEmail.findFirst({ where: { address: { equals: session.email, mode: 'insensitive' } } }) : null;
     const staffRow = session ? await this.prisma.staff.findFirst({ where: { email: { equals: session.email, mode: 'insensitive' }, isactive: 1 } }) : null;
     const staffExtra = parse(staffRow?.extra), staff = Boolean(staffRow && Number(staffExtra.authVersion || 0) === session?.sessionVersion);

@@ -333,7 +333,7 @@ export function syncUserVerification(email: string, status: 'approved' | 'reject
   emit()
 }
 
-export function establishApiClientSession(account: ApiClientUser, accessToken: string) {
+export function establishApiClientSession(account: ApiClientUser, _accessToken?: string) {
   if (appStateSaveTimer) window.clearTimeout(appStateSaveTimer)
   lastPostgresStateSnapshot = null
   appStateHydrated = false
@@ -346,12 +346,14 @@ export function establishApiClientSession(account: ApiClientUser, accessToken: s
     db.users.push(user)
   }
   save(db)
-  localStorage.setItem(SESSION, JSON.stringify({ userId: user.id, accessToken }))
+  // The API session lives in an HTTP-only cookie; only the local profile id is
+  // kept in storage so the UI can restore the right record after a reload.
+  localStorage.setItem(SESSION, JSON.stringify({ userId: user.id }))
   emit()
   return user
 }
 
-export function establishApiStaffSession(account: ApiClientUser & { role: 'agent' | 'admin' }, accessToken: string) {
+export function establishApiStaffSession(account: ApiClientUser & { role: 'agent' | 'admin' }, _accessToken?: string) {
   if (appStateSaveTimer) window.clearTimeout(appStateSaveTimer)
   lastPostgresStateSnapshot = null
   appStateHydrated = false
@@ -361,21 +363,23 @@ export function establishApiStaffSession(account: ApiClientUser & { role: 'agent
   if (user) Object.assign(user, value)
   else { user = value; db.users.push(user) }
   save(db)
-  localStorage.setItem(SESSION, JSON.stringify({ userId: user.id, accessToken }))
+  localStorage.setItem(SESSION, JSON.stringify({ userId: user.id }))
   emit()
   return user
 }
 
-export function establishApiSession(account: ApiClientUser & { role: User['role'] }, accessToken: string) {
+export function establishApiSession(account: ApiClientUser & { role: User['role'] }, accessToken?: string) {
   if (account.role === 'agent' || account.role === 'admin') return establishApiStaffSession(account as ApiClientUser & { role: 'agent' | 'admin' }, accessToken)
   return establishApiClientSession(account, accessToken)
 }
 
+/**
+ * Compatibility helper for call sites that only need to know whether a local
+ * session exists. The real credential is the HTTP-only cookie and is never
+ * exposed to JavaScript; API helpers strip this placeholder before sending.
+ */
 export function clientSessionToken() {
-  try {
-    const raw = localStorage.getItem(SESSION)
-    return raw ? (JSON.parse(raw) as { accessToken?: string }).accessToken ?? null : null
-  } catch { return null }
+  try { return localStorage.getItem(SESSION) ? 'cookie' : null } catch { return null }
 }
 export const accountSessionToken = clientSessionToken
 
