@@ -309,6 +309,9 @@ export class AdminService {
       case 'users':
       case 'directory-users': {
         const users = await this.prisma.user.findMany({ orderBy: { created: 'desc' }, take: 10000 });
+        const adminEmails = kind === 'users'
+          ? new Set((await this.prisma.staff.findMany({ where: { isadmin: 1 }, select: { email: true } })).map(s => (s.email || '').toLowerCase()).filter(Boolean))
+          : new Set<string>();
         const mapped = await Promise.all(users.map(async u => {
           const email = (await this.prisma.userEmail.findFirst({ where: { user_id: u.id }, orderBy: { id: 'asc' } }))?.address || (await this.prisma.userEmail.findFirst({ where: { user_id: u.id } }))?.address || '';
           const [cd, account, org, orgCd, verification] = await Promise.all([
@@ -344,7 +347,7 @@ export class AdminService {
             org: orgCd?.name || org?.name || '',
             organization: orgCd?.name || org?.name || '',
             orgId: String(u.org_id || ''),
-            role: 'client',
+            role: adminEmails.has(email.toLowerCase()) ? 'admin' : 'client',
             verificationStatus: verification?.value || extra.verificationStatus || (account ? 'approved' : 'approved'),
             registeredAt: account?.registered?.toISOString() || u.created?.toISOString() || null,
             account__id: account ? String(account.id) : null,
@@ -583,6 +586,10 @@ export class AdminService {
     const account = await this.prisma.userAccount.findUnique({ where: { user_id: row.user_id } });
     const status = String(input.status || '');
     if (!['approved', 'rejected'].includes(status)) throw new ConflictException('Invalid account verification status.');
+    if (status === 'rejected') {
+      const adminStaff = await this.prisma.staff.findFirst({ where: { email: { equals: email, mode: 'insensitive' }, isadmin: 1 }, select: { staff_id: true } });
+      if (adminStaff || extraOf(account?.extra).role === 'admin') throw new ConflictException('Administrator accounts cannot be rejected.');
+    }
     const extra = { ...extraOf(account?.extra), role: 'client', verificationStatus: status, authVersion: Number(extraOf(account?.extra).authVersion || 0) + 1 };
     await this.prisma.$transaction([
       this.prisma.config.upsert({ where: { namespace_key: { namespace: 'react_user_verification', key: email } }, create: { namespace: 'react_user_verification', key: email, value: status }, update: { value: status, updated: stamp() } }),

@@ -172,11 +172,33 @@ export function AdminBranchesPage() {
   )
 }
 
+type VerificationClient = {
+  id: string
+  name: string
+  email: string
+  phone?: string
+  employeeId?: string
+  branchId?: string
+  branchName?: string
+  role: 'client' | 'admin'
+  verificationStatus: 'pending' | 'approved' | 'rejected'
+  registeredAt: string | null
+}
+
+function VerificationStatusBadge({ status }: { status: VerificationClient['verificationStatus'] }) {
+  return (
+    <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${status === 'approved' ? 'bg-emerald-100 text-emerald-800' : status === 'rejected' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-900'}`}>
+      {status}
+    </span>
+  )
+}
+
 export function AdminUserVerificationPage() {
   const { user: actor } = useAuth()
   const [filter, setFilter] = useState<'pending' | 'all'>('pending')
+  const [query, setQuery] = useState('')
   const [error, setError] = useState('')
-  const [clients, setClients] = useState<Array<{ id: string; name: string; email: string; phone?: string; employeeId?: string; branchId?: string; branchName?: string; verificationStatus: 'pending' | 'approved' | 'rejected'; registeredAt: string | null }>>([])
+  const [clients, setClients] = useState<VerificationClient[]>([])
   const [loading, setLoading] = useState(true)
 
   async function refresh() {
@@ -199,8 +221,16 @@ export function AdminUserVerificationPage() {
     return () => window.clearInterval(timer)
   }, [])
 
-  async function setStatus(person: (typeof clients)[number], status: 'approved' | 'rejected') {
+  async function setStatus(person: VerificationClient, status: 'approved' | 'rejected') {
     if (!actor) return
+    if (status === 'rejected' && person.role === 'admin') {
+      setError('Administrator accounts cannot be rejected.')
+      return
+    }
+    const prompt = status === 'approved'
+      ? `Approve ${person.name} (${person.email})?\n\nThey will be able to sign in and use their client account.`
+      : `Reject ${person.name} (${person.email})?\n\nThey will not be able to sign in until an administrator approves the account.`
+    if (!window.confirm(prompt)) return
     try {
       const token = accountSessionToken()
       if (!token) throw new Error('Administrator session expired. Sign in again.')
@@ -213,13 +243,53 @@ export function AdminUserVerificationPage() {
     }
   }
 
+  const term = query.trim().toLowerCase()
+  const filtered = filter === 'pending' ? clients.filter((person) => person.verificationStatus === 'pending') : clients
+  const visible = term
+    ? filtered.filter((person) => [person.name, person.email, person.phone, person.employeeId, person.branchName, person.role, person.verificationStatus].some((value) => (value || '').toLowerCase().includes(term)))
+    : filtered
+  const rows: Record<string, unknown>[] = visible.map((person) => ({ ...person }))
+  const personOf = (row: Record<string, unknown>) => clients.find((item) => item.id === String(row.id))
+
+  const actions = (row: Record<string, unknown>) => {
+    const person = personOf(row)
+    if (!person) return null
+    const isAdmin = person.role === 'admin'
+    return (
+      <div className="flex flex-wrap items-center gap-3">
+        {person.verificationStatus !== 'approved' ? (
+          <button type="button" className="text-brand-600 hover:text-brand-700" onClick={() => void setStatus(person, 'approved')}>Approve</button>
+        ) : null}
+        {person.verificationStatus !== 'rejected' ? (
+          <button
+            type="button"
+            disabled={isAdmin}
+            title={isAdmin ? 'Administrator accounts cannot be rejected.' : undefined}
+            className="text-rose-600 hover:text-rose-700 disabled:cursor-not-allowed disabled:text-ink-400 disabled:hover:text-ink-400"
+            onClick={() => void setStatus(person, 'rejected')}
+          >
+            Reject
+          </button>
+        ) : null}
+      </div>
+    )
+  }
+
   return (
     <div>
       <PageHeader title="User verification" subtitle="Review client registrations before allowing account sign-in." />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-600">{clients.filter((u) => u.verificationStatus === 'pending').length} pending approval</p>
-        <div className="flex flex-wrap gap-2">
-          <select aria-label="Filter accounts" value={filter} onChange={(e) => setFilter(e.target.value as 'pending' | 'all')} className={inputClass}>
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          <input
+            type="search"
+            aria-label="Search user verifications"
+            placeholder="Search name, email, phone…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className={`${inputClass} sm:max-w-xs`}
+          />
+          <select aria-label="Filter accounts" value={filter} onChange={(e) => setFilter(e.target.value as 'pending' | 'all')} className={`${inputClass} sm:w-auto`}>
             <option value="pending">Pending review</option>
             <option value="all">All client accounts</option>
           </select>
@@ -227,35 +297,86 @@ export function AdminUserVerificationPage() {
         </div>
       </div>
       {error ? <p role="alert" className="mb-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
-      {loading ? <Card><p className="text-sm text-ink-600">Loading accounts from the server…</p></Card> : clients.length ? (
-        <ul className="grid gap-3 lg:grid-cols-2">
-          {clients.map((person) => {
-            const status = person.verificationStatus
+      {loading ? <Card><p className="text-sm text-ink-600">Loading accounts from the server…</p></Card> : (
+        <DataTable
+          rows={rows}
+          rowKey={(row) => String(row.id)}
+          empty={term ? 'No accounts match your search.' : filter === 'pending' ? 'No accounts need review.' : 'No registered accounts found.'}
+          columns={[
+            {
+              key: 'user',
+              label: 'User',
+              render: (row) => {
+                const person = personOf(row)
+                if (!person) return null
+                return (
+                  <div className="min-w-0">
+                    <p className="flex flex-wrap items-center gap-2 font-medium">
+                      {person.name || 'Unnamed account'}
+                      {person.role === 'admin' ? <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-800">Admin</span> : null}
+                    </p>
+                    <p className="break-all text-sm text-ink-600">{person.email}</p>
+                  </div>
+                )
+              },
+            },
+            {
+              key: 'contact',
+              label: 'Contact',
+              render: (row) => {
+                const person = personOf(row)
+                if (!person) return null
+                const details = [
+                  person.phone || '',
+                  person.employeeId ? `Employee ID: ${person.employeeId}` : '',
+                  person.branchName ? `Branch: ${person.branchName}` : '',
+                ].filter(Boolean)
+                return details.length ? <div className="space-y-1 text-xs text-ink-600">{details.map((detail) => <p key={detail}>{detail}</p>)}</div> : <span className="text-ink-400">—</span>
+              },
+            },
+            {
+              key: 'registeredAt',
+              label: 'Registered',
+              render: (row) => {
+                const person = personOf(row)
+                return person?.registeredAt ? <span className="whitespace-nowrap text-sm text-ink-600">{formatDate(person.registeredAt)}</span> : <span className="text-ink-400">—</span>
+              },
+            },
+            {
+              key: 'verificationStatus',
+              label: 'Status',
+              render: (row) => {
+                const person = personOf(row)
+                return person ? <VerificationStatusBadge status={person.verificationStatus} /> : null
+              },
+            },
+            { key: 'actions', label: 'Actions', render: actions },
+          ]}
+          renderCard={(row) => {
+            const person = personOf(row)
+            if (!person) return null
             return (
-              <li key={person.id}>
-                <Card>
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <h2 className="font-semibold">{person.name}</h2>
-                      <p className="break-all text-sm text-ink-600">{person.email}</p>
-                      {person.phone ? <p className="mt-1 text-xs text-ink-500">{person.phone}</p> : null}
-                      {person.employeeId ? <p className="mt-1 text-xs text-ink-500">Employee ID: {person.employeeId}</p> : null}
-                      {person.branchName ? <p className="mt-1 text-xs text-ink-500">Branch: {person.branchName}</p> : null}
-                    </div>
-                    <span className={`w-fit rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${status === 'approved' ? 'bg-emerald-100 text-emerald-800' : status === 'rejected' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-900'}`}>
-                      {status}
-                    </span>
+              <Card>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <h2 className="flex flex-wrap items-center gap-2 font-semibold">
+                      {person.name || 'Unnamed account'}
+                      {person.role === 'admin' ? <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-800">Admin</span> : null}
+                    </h2>
+                    <p className="break-all text-sm text-ink-600">{person.email}</p>
+                    {person.phone ? <p className="mt-1 text-xs text-ink-500">{person.phone}</p> : null}
+                    {person.employeeId ? <p className="mt-1 text-xs text-ink-500">Employee ID: {person.employeeId}</p> : null}
+                    {person.branchName ? <p className="mt-1 text-xs text-ink-500">Branch: {person.branchName}</p> : null}
+                    {person.registeredAt ? <p className="mt-1 text-xs text-ink-500">Registered {formatDate(person.registeredAt)}</p> : null}
                   </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {status !== 'approved' ? <button type="button" className={btnPrimary} onClick={() => setStatus(person, 'approved')}>Approve account</button> : null}
-                    {status !== 'rejected' ? <button type="button" className={btnGhost} onClick={() => setStatus(person, 'rejected')}>Reject account</button> : null}
-                  </div>
-                </Card>
-              </li>
+                  <VerificationStatusBadge status={person.verificationStatus} />
+                </div>
+                <div className="mt-4">{actions(row)}</div>
+              </Card>
             )
-          })}
-        </ul>
-      ) : error ? null : <Card><p className="text-sm text-ink-600">{filter === 'pending' ? 'No accounts need review.' : 'No registered accounts found.'}</p></Card>}
+          }}
+        />
+      )}
     </div>
   )
 }
