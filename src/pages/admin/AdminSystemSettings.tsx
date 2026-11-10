@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { btnGhost, btnPrimary, Card, Field, inputClass } from '../../components/ui'
+import { useDialogs } from '../../context/DialogContext'
 import {
   getApiSystemSettings,
   purgeApiExpiredLocks,
@@ -37,6 +38,7 @@ function messageOf(error: unknown, fallback: string) {
 }
 
 export function AdminSystemSettings() {
+  const { confirm } = useDialogs()
   const [data, setData] = useState<ApiSystemSettingsResponse | null>(null)
   const [values, setValues] = useState<ApiSystemSettingsValues | null>(null)
   const [section, setSection] = useState<SystemSection>('general')
@@ -109,11 +111,18 @@ export function AdminSystemSettings() {
   }
 
   async function runPurge(kind: 'logs' | 'locks') {
-    if (kind === 'logs') {
-      if (!window.confirm('Delete system log entries older than the configured purge period? This cannot be undone.')) return
-    } else if (!window.confirm('Delete all expired ticket and task locks? This cannot be undone.')) {
-      return
-    }
+    const confirmed = await confirm(kind === 'logs'
+      ? {
+          title: 'Purge system logs',
+          description: 'Delete system log entries older than the configured purge period? This cannot be undone.',
+          confirmLabel: 'Purge',
+        }
+      : {
+          title: 'Remove expired locks',
+          description: 'Delete all expired ticket and task locks? This cannot be undone.',
+          confirmLabel: 'Delete',
+        })
+    if (!confirmed) return
     setBusy(kind)
     setError('')
     setNotice('')

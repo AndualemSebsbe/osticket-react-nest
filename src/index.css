@@ -16,6 +16,36 @@
   --color-line: #e2e8f0;
 }
 
+@theme {
+  --animate-dialog-overlay-in: dialog-overlay-in 150ms ease-out;
+  --animate-dialog-overlay-out: dialog-overlay-out 150ms ease-in forwards;
+  --animate-dialog-content-in: dialog-content-in 150ms ease-out;
+  --animate-dialog-content-out: dialog-content-out 150ms ease-in forwards;
+
+  @keyframes dialog-overlay-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes dialog-overlay-out {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes dialog-content-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -46%) scale(0.97);
+    }
+  }
+  @keyframes dialog-content-out {
+    to {
+      opacity: 0;
+      transform: translate(-50%, -46%) scale(0.97);
+    }
+  }
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 .dark {

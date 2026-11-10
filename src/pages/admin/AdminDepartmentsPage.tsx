@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { btnGhost, btnPrimary, Card, Field, inputClass, PageHeader } from '../../components/ui'
+import { useDialogs } from '../../context/DialogContext'
 import { accountSessionToken, removeRecord, upsertRecord } from '../../lib/store'
 import {
   createApiDepartment,
@@ -92,6 +93,7 @@ function orderDepartments(items: ApiDepartment[]) {
 }
 
 export function AdminDepartmentsPage() {
+  const { confirm } = useDialogs()
   const [options, setOptions] = useState<ApiDepartmentOptions>(emptyOptions)
   const [editing, setEditing] = useState<ApiDepartment | 'new' | null>(null)
   const [tab, setTab] = useState<Tab>('settings')
@@ -230,7 +232,11 @@ export function AdminDepartmentsPage() {
       setError('Administrator session expired. Sign in again.')
       return
     }
-    if (!window.confirm(`Delete “${department.name}”? Departments with agents, child departments, tickets, or help topics cannot be deleted.`)) return
+    if (!(await confirm({
+      title: 'Delete department',
+      description: `Delete “${department.name}”? Departments with agents, child departments, tickets, or help topics cannot be deleted.`,
+      confirmLabel: 'Delete',
+    }))) return
     setSaving(true)
     setError('')
     try {

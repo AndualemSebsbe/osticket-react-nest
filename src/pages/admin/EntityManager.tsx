@@ -1,5 +1,6 @@
 import { FormEvent, useMemo, useState } from 'react'
 import { btnGhost, btnPrimary, Card, DataTable, Field, inputClass, PageHeader } from '../../components/ui'
+import { useDialogs } from '../../context/DialogContext'
 import { newId, removeRecord, upsertRecord } from '../../lib/store'
 import type { Database } from '../../types'
 
@@ -37,6 +38,7 @@ export function EntityManager<K extends keyof Database>({
   onUpdate?: (record: Record<string, unknown>) => Promise<Record<string, unknown>>
   onDelete?: (id: string) => Promise<void>
 }) {
+  const { confirm } = useDialogs()
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   const [q, setQ] = useState('')
   const [saving, setSaving] = useState(false)
@@ -80,7 +82,11 @@ export function EntityManager<K extends keyof Database>({
   }
 
   async function deleteRow(id: string) {
-    if (!window.confirm('Delete this record? This action cannot be undone.')) return
+    if (!(await confirm({
+      title: 'Delete record',
+      description: 'Delete this record? This action cannot be undone.',
+      confirmLabel: 'Delete',
+    }))) return
     setSaving(true)
     setSaveError('')
     try {

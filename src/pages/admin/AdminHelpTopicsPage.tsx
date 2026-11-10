@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { btnGhost, btnPrimary, Card, Field, inputClass, PageHeader } from '../../components/ui'
+import { useDialogs } from '../../context/DialogContext'
 import { accountSessionToken } from '../../lib/store'
 import {
   createApiHelpTopic,
@@ -101,6 +102,7 @@ function newTopicForms(options: ApiHelpTopicOptions): ApiHelpTopicFormLink[] {
 }
 
 export function AdminHelpTopicsPage() {
+  const { confirm } = useDialogs()
   const [options, setOptions] = useState<ApiHelpTopicOptions>(emptyOptions)
   const [editing, setEditing] = useState<ApiHelpTopic | 'new' | null>(null)
   const [tab, setTab] = useState<Tab>('information')
@@ -254,7 +256,11 @@ export function AdminHelpTopicsPage() {
 
   async function remove(topic: ApiHelpTopic) {
     if (!token) { setError('Administrator session expired. Sign in again.'); return }
-    if (!window.confirm(`Delete the “${topic.name}” help topic? Tickets using it keep their history but become unassigned from the topic.`)) return
+    if (!(await confirm({
+      title: 'Delete help topic',
+      description: `Delete the “${topic.name}” help topic? Tickets using it keep their history but become unassigned from the topic.`,
+      confirmLabel: 'Delete',
+    }))) return
     setSaving(true)
     setError('')
     setNotice('')
@@ -273,7 +279,11 @@ export function AdminHelpTopicsPage() {
   async function runMassAction(action: 'enable' | 'disable' | 'archive' | 'delete') {
     if (!selected.size) { setError('Select one or more help topics first.'); return }
     if (!token) { setError('Administrator session expired. Sign in again.'); return }
-    if (action === 'delete' && !window.confirm(`Delete ${selected.size} selected help topic(s)?`)) return
+    if (action === 'delete' && !(await confirm({
+      title: 'Delete help topics',
+      description: `Delete ${selected.size} selected help topic(s)?`,
+      confirmLabel: 'Delete',
+    }))) return
     setSaving(true)
     setError('')
     setNotice('')

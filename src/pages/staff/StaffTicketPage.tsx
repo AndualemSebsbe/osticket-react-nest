@@ -5,6 +5,7 @@ import { EmptyState, TicketThread } from '../../components/TicketThread'
 import { CollaboratorModal } from '../../components/CollaboratorModal'
 import { btnGhost, btnPrimary, inputClass} from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
+import { useDialogs } from '../../context/DialogContext'
 import { useAgents } from '../../hooks/useAgents'
 import { useStaffDepartments } from '../../hooks/useStaffDepartments'
 import { useStaffTicketOptions } from '../../hooks/useStaffTicketOptions'
@@ -37,6 +38,7 @@ import {
 } from '../../lib/store'
 
 export function StaffTicketPage() {
+  const { confirm } = useDialogs()
   const { id } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -255,7 +257,11 @@ export function StaffTicketPage() {
   }
 
   async function onDelete() {
-    if (!window.confirm(`Delete ticket #${current.number} from the database? This cannot be undone.`)) return
+    if (!(await confirm({
+      title: 'Delete ticket',
+      description: `Delete ticket #${current.number} from the database? This cannot be undone.`,
+      confirmLabel: 'Delete',
+    }))) return
     try {
       await deleteTicket(current.id, actor)
       navigate('/scp/tickets')
