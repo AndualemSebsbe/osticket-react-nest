@@ -13,7 +13,7 @@ import type {
   User,
 } from '../types'
 import { seed } from './seed'
-import { ApiRequestError, banApiTicketEmail, createApiTask, deleteApiTicket, getApiAppState, getApiPublicAppState, getApiStaffTicket, listApiAccountTickets, listApiTasks, listApiTickets, listApiAssignableStaff, lockApiTicket, mergeApiTicket, mirrorReply, mirrorTicket, registerApiUser, saveApiAppState, saveApiTicketCollaborators, unlockApiTicket, updateApiTask, updateApiTicket, updateApiUserVerification, type ApiClientUser, type ApiPersistedMessage, type ApiPersistedTicket } from './api'
+import { ApiRequestError, banApiTicketEmail, createApiTask, deleteApiTicket, getApiAppState, getApiPublicAppState, getApiPublicBranding, getApiStaffTicket, listApiAccountTickets, listApiTasks, listApiTickets, listApiAssignableStaff, lockApiTicket, mergeApiTicket, mirrorReply, mirrorTicket, registerApiUser, saveApiAppState, saveApiTicketCollaborators, unlockApiTicket, updateApiTask, updateApiTicket, updateApiUserVerification, type ApiClientUser, type ApiPersistedMessage, type ApiPersistedTicket } from './api'
 
 const KEY = 'osticket-react-db-v4'
 const SESSION = 'osticket-react-session'
@@ -151,7 +151,20 @@ export async function hydrateAppStateFromApi(token: string, _role: User['role'])
     const db = load()
     for (const key of postgresStateKeys) {
       if (!Object.hasOwn(state,key)) continue
-      if (key === 'settings') db.settings = { ...seed().settings, ...(state.settings || {}) }
+      if (key === 'settings') {
+        const prev = db.settings
+        db.settings = {
+          ...seed().settings,
+          ...prev,
+          ...(state.settings || {}),
+          clientLogo: prev.clientLogo || '',
+          staffLogo: prev.staffLogo || '',
+          staffBackdrop: prev.staffBackdrop || '',
+          clientLogoId: state.settings?.clientLogoId || prev.clientLogoId || '0',
+          staffLogoId: state.settings?.staffLogoId || prev.staffLogoId || '0',
+          staffBackdropId: state.settings?.staffBackdropId || prev.staffBackdropId || '0',
+        }
+      }
       else Object.assign(db, { [key]: state[key] })
     }
     lastPostgresStateSnapshot = postgresStateSnapshot(db)
@@ -173,11 +186,45 @@ export async function hydratePublicAppStateFromApi() {
   for (const key of ['faqs','categories','pages'] as const) {
     if (state[key]) Object.assign(db, { [key]: state[key] })
   }
-  if (state.settings) db.settings = { ...seed().settings, ...state.settings }
+  if (state.settings) {
+    const prev = db.settings
+    db.settings = {
+      ...seed().settings,
+      ...prev,
+      ...state.settings,
+      clientLogo: prev.clientLogo || '',
+      staffLogo: prev.staffLogo || '',
+      staffBackdrop: prev.staffBackdrop || '',
+      clientLogoId: state.settings?.clientLogoId || prev.clientLogoId || '0',
+      staffLogoId: state.settings?.staffLogoId || prev.staffLogoId || '0',
+      staffBackdropId: state.settings?.staffBackdropId || prev.staffBackdropId || '0',
+    }
+  }
   hydratingAppState = true
   persist(db)
   hydratingAppState = false
   emit()
+}
+
+/** Fetch logo/backdrop IDs from the backend and store them in settings so all portals can display them. */
+export async function hydratePublicBrandingFromApi() {
+  try {
+    const branding = await getApiPublicBranding()
+    if (!branding) return
+    const db = load()
+    db.settings = {
+      ...db.settings,
+      clientLogoId: branding.clientLogoId || db.settings.clientLogoId || '0',
+      staffLogoId: branding.staffLogoId || db.settings.staffLogoId || '0',
+      staffBackdropId: branding.staffBackdropId || db.settings.staffBackdropId || '0',
+    }
+    hydratingAppState = true
+    persist(db)
+    hydratingAppState = false
+    emit()
+  } catch {
+    // non-critical
+  }
 }
 
 export function findUserByEmail(email: string) {

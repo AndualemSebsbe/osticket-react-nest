@@ -317,6 +317,12 @@ export interface SystemSettings {
   alertAssignment: boolean
   autorespNewTicket: boolean
   autorespMessageActivity: boolean
+  clientLogo?: string
+  staffLogo?: string
+  staffBackdrop?: string
+  clientLogoId?: string
+  staffLogoId?: string
+  staffBackdropId?: string
 }
 
 export interface Session {

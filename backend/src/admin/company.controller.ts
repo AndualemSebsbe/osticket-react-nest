@@ -34,6 +34,11 @@ export class CompanyController {
 export class CompanyPublicController {
   constructor(@Inject(CompanyService) private readonly company: CompanyService) {}
 
+  @Get('branding')
+  async branding() {
+    return this.company.getPublicBranding();
+  }
+
   @Get('files/:id')
   async file(@Param('id') id: string, @Res() res: any) {
     const file = await this.company.getFile(id);

@@ -392,4 +392,19 @@ export class CompanyService {
       data: Buffer.concat(chunks.map((chunk: any) => Buffer.from(chunk.filedata))),
     };
   }
+
+  async getPublicBranding() {
+    const configs = await this.prisma.config.findMany({
+      where: {
+        namespace: CORE,
+        key: { in: ['client_logo_id', 'staff_logo_id', 'staff_backdrop_id'] },
+      },
+    });
+    const map = new Map(configs.map((c: any) => [c.key, c.value]));
+    return {
+      clientLogoId: configId(map.get('client_logo_id')),
+      staffLogoId: configId(map.get('staff_logo_id')),
+      staffBackdropId: configId(map.get('staff_backdrop_id')),
+    };
+  }
 }
