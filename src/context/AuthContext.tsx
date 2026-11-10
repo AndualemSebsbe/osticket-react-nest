@@ -10,6 +10,7 @@ interface AuthValue {
   loginClient: (email: string, password: string) => Promise<{ user?: User; error?: string }>
   register: (input: { name: string; email: string; password: string; phone?: string; employeeId?: string; branchId?: string }) => Promise<User>
   logout: () => void
+  updateUser: (patch: Partial<User>) => void
 }
 
 const AuthContext = createContext<AuthValue | null>(null)
@@ -78,14 +79,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
     void validate()
-    const unsubscribe = subscribe(() => setUser(currentUser()))
+    const unsubscribe = subscribe(() => {
+      const current = currentUser()
+      setUser(current ? { ...current } : null)
+    })
     const timer = window.setInterval(() => { void validate() }, 60_000)
     return () => { alive = false; unsubscribe(); window.clearInterval(timer) }
   }, [])
 
+  const updateUser = (patch: Partial<User>) => {
+    setUser((prev) => (prev ? { ...prev, ...patch } : null))
+  }
+
   const value = useMemo<AuthValue>(
     () => ({
       user,
+      updateUser,
       ready,
       login: async (email, password) => {
         console.info('[staff-login] starting API sign-in', { identifierProvided: Boolean(email.trim()), passwordProvided: Boolean(password) })

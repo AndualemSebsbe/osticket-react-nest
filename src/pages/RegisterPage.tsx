@@ -28,12 +28,17 @@ export function RegisterPage() {
       setError('Passwords do not match.')
       return
     }
+    const phone = String(form.get('phone') || '').trim().replace(/\D/g, '')
+    if (phone && !/^0[79]\d{8}$/.test(phone)) {
+      setError('Phone number must be in the format 0909090909 or 0707070707 (10 digits starting with 09 or 07).')
+      return
+    }
     try {
       await register({
         name: String(form.get('name')),
         email: String(form.get('email')),
         password,
-        phone: String(form.get('phone') || ''),
+        phone,
         employeeId: String(form.get('employeeId') || ''),
         branchId: String(form.get('branchId') || ''),
       })
@@ -65,7 +70,17 @@ export function RegisterPage() {
         </label>
         <label className="block text-sm font-medium">
           Phone
-          <input name="phone" className={inputClass + " mt-1"} />
+          <input
+            name="phone"
+            inputMode="numeric"
+            maxLength={10}
+            placeholder="Please enter your phone number"
+            className={inputClass + " mt-1"}
+            onInput={(e) => {
+              const el = e.currentTarget
+              el.value = el.value.replace(/\D/g, '').slice(0, 10)
+            }}
+          />
         </label>
         <label className="block text-sm font-medium">
           Employee ID

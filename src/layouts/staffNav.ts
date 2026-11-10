@@ -11,7 +11,6 @@ export const agentNav: NavItem[] = [
   { to: '/scp/kb', label: 'Knowledgebase' },
   { to: '/scp/canned', label: 'Canned responses' },
   { to: '/scp/directory', label: 'Directory' },
-  { to: '/scp/profile', label: 'My profile' },
 ]
 
 export const agentTabs: { id: string; label: string; to: string }[] = [

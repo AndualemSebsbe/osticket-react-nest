@@ -30,6 +30,7 @@ export interface User {
   teamIds?: string[]
   active?: boolean
   verificationStatus?: 'pending' | 'approved' | 'rejected'
+  avatar?: string
 }
 
 export interface Department {

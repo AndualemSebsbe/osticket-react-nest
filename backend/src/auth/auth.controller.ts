@@ -20,7 +20,9 @@ export class UsersController {
   async register(@Body() body: any) {
     const name = this.security.clean(body.name, 128), email = this.security.email(body.email), password = String(body.password || '');
     if (!name || !this.security.validEmail(email) || password.length < 8) throw new BadRequestException('Name, valid email, and password of at least 8 characters are required.');
-    await this.auth.register({ name, email, password, phone: this.security.clean(body.phone, 64), employeeId: this.security.clean(body.employeeId, 64), branchId: this.security.clean(body.branchId, 32) });
+    const regPhone = this.security.clean(body.phone, 64).replace(/\D/g, '');
+    if (regPhone && !/^0[79]\d{8}$/.test(regPhone)) throw new BadRequestException('Phone number must be in the format 0909090909 or 0707070707 (10 digits starting with 09 or 07).');
+    await this.auth.register({ name, email, password, phone: regPhone, employeeId: this.security.clean(body.employeeId, 64), branchId: this.security.clean(body.branchId, 32) });
     return { submitted: true, verificationStatus: 'pending' };
   }
   @Get('session')
@@ -33,20 +35,22 @@ export class UsersController {
   @Get('profile')
   async profile(@Headers('x-user-session') token: string) { return { user: await this.auth.profileFromSession(token) }; }
   @Patch('profile')
-  async updateProfile(@Body() body: any, @Headers('x-user-session') token: string) {
-    const session = this.security.readSession(token);
+  async updateProfile(@Body() body: any, @Headers('x-user-session') token: string, @Headers('authorization') authorization: string) {
+    const session = this.security.readSession(token || authorization?.replace(/^Bearer\s+/i, ''));
     const account = session ? await this.auth.validateClient(session.email) : null;
     if (!this.auth.sessionAccount(account, session, 'client')) throw new UnauthorizedException('Session expired.');
-    await this.auth.updateProfile(session!.email, { name: this.security.clean(body.name, 128), phone: this.security.clean(body.phone, 64), org: this.security.clean(body.org, 128), title: this.security.clean(body.title, 128) });
+    const phone = this.security.clean(body.phone, 64).replace(/\D/g, '');
+    if (phone && !/^0[79]\d{8}$/.test(phone)) throw new BadRequestException('Phone number must be in the format 0909090909 or 0707070707 (10 digits starting with 09 or 07).');
+    await this.auth.updateProfile(session!.email, { name: this.security.clean(body.name, 128), phone, org: this.security.clean(body.org, 128), title: this.security.clean(body.title, 128), avatar: typeof body.avatar === 'string' ? body.avatar : undefined });
     return { user: (await this.auth.findClient(session!.email))!.user };
   }
   @Patch('password')
-  async password(@Body() body: any, @Headers('x-user-session') token: string, @Res({ passthrough: true }) res: any) {
-    const session = this.security.readSession(token);
-    const account = session ? await this.auth.validateClient(session.email) : null;
-    if (!this.auth.sessionAccount(account, session, 'client')) throw new UnauthorizedException('Session expired.');
+  async password(@Body() body: any, @Headers('x-user-session') token: string, @Headers('authorization') authorization: string, @Res({ passthrough: true }) res: any) {
+    const session = this.security.readSession(token || authorization?.replace(/^Bearer\s+/i, ''));
+    const account = session ? (await this.auth.validateClient(session.email) || await this.auth.validateStaff(session.email)) : null;
+    if (!account || account.status !== 'approved') throw new UnauthorizedException('Session expired.');
     if (String(body.password || '').length < 8) throw new BadRequestException('Password must be at least 8 characters.');
-    await this.auth.changePassword(session!.email, body.password);
+    await this.auth.changePassword(session!.email, body.password, body.currentPassword);
     res.setHeader('x-session-refresh-required', 'true');
     return { updated: true };
   }
@@ -70,6 +74,30 @@ export class StaffController {
     const account = session ? await this.auth.validateStaff(session.email) : null;
     if (!this.auth.sessionAccount(account, session, 'staff')) throw new UnauthorizedException('Session expired.');
     return { status: account!.status, role: account!.role, user: account!.user };
+  }
+  @Patch('profile')
+  async updateProfile(@Body() body: any, @Headers('x-user-session') token: string) {
+    const session = this.security.readSession(token);
+    const account = session ? await this.auth.validateStaff(session.email) : null;
+    if (!this.auth.sessionAccount(account, session, 'staff')) throw new UnauthorizedException('Session expired.');
+    const staffPhone = this.security.clean(body.phone, 64).replace(/\D/g, '');
+    if (staffPhone && !/^0[79]\d{8}$/.test(staffPhone)) throw new BadRequestException('Phone number must be in the format 0909090909 or 0707070707 (10 digits starting with 09 or 07).');
+    await this.auth.updateStaffProfile(session!.email, {
+      name: this.security.clean(body.name, 128),
+      phone: staffPhone,
+      title: this.security.clean(body.title, 128),
+      avatar: typeof body.avatar === 'string' ? body.avatar : undefined,
+    });
+    return { user: (await this.auth.findStaff(session!.email))!.user };
+  }
+  @Patch('password')
+  async updatePassword(@Body() body: any, @Headers('x-user-session') token: string, @Headers('authorization') authorization: string) {
+    const session = this.security.readSession(token || authorization?.replace(/^Bearer\s+/i, ''));
+    const account = session ? await this.auth.validateStaff(session.email) : null;
+    if (!account || account.status !== 'approved') throw new UnauthorizedException('Session expired.');
+    if (String(body.password || '').length < 8) throw new BadRequestException('Password must be at least 8 characters.');
+    await this.auth.changePassword(session!.email, body.password, body.currentPassword);
+    return { updated: true };
   }
   @Get('assignable') async assignable() { return { staff: await this.auth.listAssignableStaff() }; }
   @Get('departments') async departments() { return { departments: await this.auth.listStaffDepartments(), slas: [] }; }

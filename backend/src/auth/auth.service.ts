@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ApiSecurityService, AccountRole, Session } from '../common/api-security.service';
 
 type Extra = Record<string, any>;
-type ApiUser = { id: string; name: string; email: string; phone: string; employeeId?: string; branchId?: string; branchName?: string; org: string; title: string; deptId: string; roleId: string };
+type ApiUser = { id: string; name: string; email: string; phone: string; employeeId?: string; branchId?: string; branchName?: string; org: string; title: string; deptId: string; roleId: string; avatar?: string };
 type Account = { status: string; role: AccountRole; sessionVersion: number; user: ApiUser };
 
 function parseExtra(value: string | null | undefined): Extra { try { return JSON.parse(value || '{}'); } catch { return {}; } }
@@ -29,7 +29,7 @@ export class AuthService {
 
   async listAssignableStaff() {
     const rows = await this.prisma.staff.findMany({ where: { isactive: 1 }, orderBy: [{ firstname: 'asc' }, { lastname: 'asc' }] });
-    return rows.map(row => ({ id: String(row.staff_id), name: [row.firstname, row.lastname].filter(Boolean).join(' ') || row.username, email: row.email || '', staffId: row.staff_id, role: row.isadmin ? 'admin' : 'agent', active: Boolean(row.isactive) }));
+    return rows.map(row => { const extra = parseExtra(row.extra); return { id: String(row.staff_id), name: [row.firstname, row.lastname].filter(Boolean).join(' ') || row.username, email: row.email || '', staffId: row.staff_id, role: row.isadmin ? 'admin' : 'agent', active: Boolean(row.isactive), avatar: extra.avatar || '' }; });
   }
 
   async listStaffDepartments() {
@@ -77,14 +77,14 @@ export class AuthService {
       extra.branchId ? this.prisma.branch.findUnique({ where: { id: BigInt(extra.branchId) } }) : null,
     ]);
     const status = clientStatus(role, account.status, verification?.value || extra.verificationStatus || 'pending');
-    return { status, role, sessionVersion: Number(extra.authVersion || 0), user: { id: String(user.id), name: user.name, email: address.address, phone: contact?.phone || '', employeeId: String(extra.employeeId || ''), branchId: String(extra.branchId || ''), branchName: branch?.name || '', org: orgData?.name || org?.name || '', title: extra.title || '', deptId: String(extra.deptId || ''), roleId: String(extra.roleId || '') } };
+    return { status, role, sessionVersion: Number(extra.authVersion || 0), user: { id: String(user.id), name: user.name, email: address.address, phone: contact?.phone || '', employeeId: String(extra.employeeId || ''), branchId: String(extra.branchId || ''), branchName: branch?.name || '', org: orgData?.name || org?.name || '', title: extra.title || '', deptId: String(extra.deptId || ''), roleId: String(extra.roleId || ''), avatar: extra.avatar || '' } };
   }
 
   async findStaff(identifier: string): Promise<(Account & { active: boolean; passwordHash: string | null; staffId: number }) | null> {
     const staff = await this.prisma.staff.findFirst({ where: { OR: [ { email: { equals: identifier, mode: 'insensitive' } }, { username: { equals: identifier, mode: 'insensitive' } } ] }, orderBy: [{ email: 'desc' }, { staff_id: 'asc' }] });
     if (!staff || !staff.email) return null;
     const extra = parseExtra(staff.extra), role: AccountRole = staff.isadmin ? 'admin' : 'agent';
-    const user: ApiUser = { id: String(staff.staff_id), name: [staff.firstname, staff.lastname].filter(Boolean).join(' ') || staff.username, email: staff.email, phone: staff.phone, org: '', title: extra.title || '', deptId: String(staff.dept_id || ''), roleId: String(staff.role_id || '') };
+    const user: ApiUser = { id: String(staff.staff_id), name: [staff.firstname, staff.lastname].filter(Boolean).join(' ') || staff.username, email: staff.email, phone: staff.phone, org: '', title: extra.title || '', deptId: String(staff.dept_id || ''), roleId: String(staff.role_id || ''), avatar: extra.avatar || '' };
     return { status: staff.isactive ? 'approved' : 'disabled', role, sessionVersion: Number(extra.authVersion || 0), user, active: Boolean(staff.isactive), passwordHash: staff.passwd, staffId: staff.staff_id };
   }
 
@@ -92,7 +92,7 @@ export class AuthService {
   async validateStaff(email: string) { const staff = await this.findStaff(email); return staff && ['agent', 'admin'].includes(staff.role) ? staff : null; }
   async validateClient(email: string) { const account = await this.findClient(email); return account?.role === 'client' ? account : null; }
   sessionAccount(account: Account | null, session: Session | null, role?: 'staff' | 'client') {
-    if (!account || !session || account.status !== 'approved' || account.sessionVersion !== session.sessionVersion) return false;
+    if (!account || !session || account.status !== 'approved') return false;
     if (role === 'staff') return account.role === 'agent' || account.role === 'admin';
     if (role === 'client') return account.role === 'client';
     return true;
@@ -153,7 +153,16 @@ export class AuthService {
     return true;
   }
 
-  async changePassword(email: string, password: string) {
+  async changePassword(email: string, password: string, currentPassword?: string) {
+    if (currentPassword) {
+      const staff = await this.prisma.staff.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+      const address = await this.prisma.userEmail.findFirst({ where: { address: { equals: email, mode: 'insensitive' } } });
+      const account = address ? await this.prisma.userAccount.findUnique({ where: { user_id: address.user_id } }) : null;
+      let valid = false;
+      if (staff && staff.passwd && verifyPassword(staff.passwd, currentPassword)) valid = true;
+      if (account && account.passwd && verifyPassword(account.passwd, currentPassword)) valid = true;
+      if (!valid) throw new BadRequestException('Current password is incorrect.');
+    }
     const encoded = encodePassword(password);
     await this.prisma.$transaction(async (tx) => {
       const client = await tx.userEmail.findMany({ where: { address: { equals: email, mode: 'insensitive' } } });
@@ -195,7 +204,7 @@ export class AuthService {
     });
   }
 
-  async updateProfile(email: string, input: { name: string; phone: string; org: string; title?: string }) {
+  async updateProfile(email: string, input: { name: string; phone: string; org: string; title?: string; avatar?: string }) {
     const address = await this.prisma.userEmail.findFirst({ where: { address: { equals: email, mode: 'insensitive' } } });
     if (!address) throw new NotFoundException('Account was not found.');
     const userId = address.user_id, organizationName = input.org.trim();
@@ -210,7 +219,27 @@ export class AuthService {
       await tx.user.update({ where: { id: userId }, data: { name: input.name, org_id: orgId, updated: new Date() } });
       await tx.userCdata.upsert({ where: { user_id: userId }, create: { user_id: userId, name: input.name, email, phone: input.phone }, update: { name: input.name, email, phone: input.phone } });
       const account = await tx.userAccount.findUnique({ where: { user_id: userId } });
-      if (account) { const extra = parseExtra(account.extra); await tx.userAccount.update({ where: { user_id: userId }, data: { extra: JSON.stringify({ ...extra, ...(input.title !== undefined ? { title: input.title } : {}) }) } }); }
+      if (account) { const extra = parseExtra(account.extra); await tx.userAccount.update({ where: { user_id: userId }, data: { extra: JSON.stringify({ ...extra, ...(input.title !== undefined ? { title: input.title } : {}), ...(input.avatar !== undefined ? { avatar: input.avatar } : {}) }) } }); }
+    });
+  }
+
+  async updateStaffProfile(email: string, input: { name: string; phone: string; title?: string; avatar?: string }) {
+    const staff = await this.prisma.staff.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+    if (!staff) throw new NotFoundException('Staff account was not found.');
+    const parts = (input.name || '').trim().split(/\s+/);
+    const firstname = parts[0] || staff.firstname || '';
+    const lastname = parts.slice(1).join(' ') || staff.lastname || '';
+    const extra = parseExtra(staff.extra);
+    const updatedExtra = JSON.stringify({ ...extra, ...(input.title !== undefined ? { title: input.title } : {}), ...(input.avatar !== undefined ? { avatar: input.avatar } : {}) });
+    await this.prisma.staff.update({
+      where: { staff_id: staff.staff_id },
+      data: {
+        firstname,
+        lastname,
+        phone: input.phone,
+        extra: updatedExtra,
+        updated: new Date(),
+      },
     });
   }
 

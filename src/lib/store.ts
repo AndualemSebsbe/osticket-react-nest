@@ -268,12 +268,14 @@ export function currentUser(): User | null {
     const raw = localStorage.getItem(SESSION)
     if (!raw) return null
     const { userId } = JSON.parse(raw) as { userId: string }
-    const user = getUser(userId) ?? null
+    const db = load()
+    let user = db.users.find((u) => u.id === userId)
+    if (!user) user = getUser(userId) ?? undefined
     if (user?.role === 'client' && user.verificationStatus && user.verificationStatus !== 'approved') {
       localStorage.removeItem(SESSION)
       return null
     }
-    return user
+    return user ? { ...user } : null
   } catch {
     return null
   }
@@ -346,9 +348,9 @@ export function establishApiClientSession(account: ApiClientUser, accessToken: s
   const db = load()
   let user = db.users.find((item) => item.email.toLowerCase() === account.email.toLowerCase())
   if (user) {
-    Object.assign(user, { name: account.name, email: account.email, phone: account.phone || user.phone, employeeId: account.employeeId || '', branchId: account.branchId || '', branchName: account.branchName || '', org: account.org || '', role: 'client' as const, active: true, verificationStatus: 'approved' as const, password: '' })
+    Object.assign(user, { name: account.name, email: account.email, phone: account.phone || user.phone, employeeId: account.employeeId || '', branchId: account.branchId || '', branchName: account.branchName || '', org: account.org || '', avatar: account.avatar || user.avatar, role: 'client' as const, active: true, verificationStatus: 'approved' as const, password: '' })
   } else {
-    user = { id: `react-${account.id}`, name: account.name, email: account.email, phone: account.phone, employeeId: account.employeeId, branchId: account.branchId, branchName: account.branchName, org: account.org, password: '', role: 'client', active: true, verificationStatus: 'approved' }
+    user = { id: `react-${account.id}`, name: account.name, email: account.email, phone: account.phone, employeeId: account.employeeId, branchId: account.branchId, branchName: account.branchName, org: account.org, avatar: account.avatar, password: '', role: 'client', active: true, verificationStatus: 'approved' }
     db.users.push(user)
   }
   save(db)
@@ -363,7 +365,7 @@ export function establishApiStaffSession(account: ApiClientUser & { role: 'agent
   appStateHydrated = false
   const db = load()
   let user = db.users.find((item) => item.email.toLowerCase() === account.email.toLowerCase())
-  const value: User = { id: String(account.id), name: account.name, email: account.email, phone: account.phone, title: account.title, deptId: account.deptId, roleId: account.roleId, password: '', role: account.role, active: true }
+  const value: User = { id: String(account.id), name: account.name, email: account.email, phone: account.phone, title: account.title, deptId: account.deptId, roleId: account.roleId, avatar: account.avatar, password: '', role: account.role, active: true }
   if (user) Object.assign(user, value)
   else { user = value; db.users.push(user) }
   save(db)
@@ -385,9 +387,12 @@ export function clientSessionToken() {
 }
 export const accountSessionToken = clientSessionToken
 
-export function updateProfile(userId: string, patch: Partial<Pick<User, 'name' | 'phone' | 'org' | 'title' | 'password'>>) {
+export function updateProfile(userId: string, patch: Partial<Pick<User, 'name' | 'phone' | 'org' | 'title' | 'password' | 'avatar'>>, email?: string) {
   const db = load()
-  const user = db.users.find((u) => u.id === userId)
+  let user = db.users.find((u) => u.id === userId || (email && u.email && u.email.toLowerCase() === email.toLowerCase()))
+  if (!user && patch.name) {
+    user = db.users.find((u) => u.name.toLowerCase() === patch.name!.toLowerCase())
+  }
   if (!user) return
   Object.assign(user, patch)
   save(db)
@@ -622,7 +627,7 @@ export async function hydrateAssignableStaffFromApi(token: string) {
   for (const person of result.staff) {
     const email = normalizedEmail(person.email)
     const account = db.users.find((user) => user.id === person.id || (email && normalizedEmail(user.email) === email))
-    const value: User = { id: person.id, name: person.name, email: person.email, phone: person.phone, title: person.title, deptId: person.deptId, roleId: person.roleId, password: '', role: person.role, active: person.active }
+    const value: User = { id: person.id, name: person.name, email: person.email, phone: person.phone, title: person.title, deptId: person.deptId, roleId: person.roleId, avatar: (person as any).avatar || account?.avatar || '', password: '', role: person.role, active: person.active }
     if (account) {
       const previousId = account.id
       Object.assign(account, value)

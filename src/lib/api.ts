@@ -556,7 +556,7 @@ export function getMailLog() { return request<{ messages: Array<Record<string, u
 export function registerApiUser(input: { name: string; email: string; password: string; phone?: string; employeeId?: string; branchId?: string }) {
   return request<{ submitted: boolean; verificationStatus: 'pending' }>('/users/register', { method: 'POST', body: JSON.stringify(input) })
 }
-export interface ApiClientUser { id: string; name: string; email: string; phone?: string; employeeId?: string; branchId?: string; branchName?: string; org?: string; title?: string; deptId?: string; roleId?: string }
+export interface ApiClientUser { id: string; name: string; email: string; phone?: string; employeeId?: string; branchId?: string; branchName?: string; org?: string; title?: string; deptId?: string; roleId?: string; avatar?: string }
 export function apiClientLogin(email: string, password: string) {
   return request<{ found: boolean; status?: 'pending' | 'approved' | 'rejected' | 'disabled'; user?: ApiClientUser; sessionToken?: string }>('/users/login', { method: 'POST', body: JSON.stringify({ email, password }) })
 }
@@ -571,12 +571,17 @@ export function apiValidateStaffSession(token: string) {
 }
 export function requestPasswordReset(email: string) { return request<{ sent: boolean }>('/auth/password-reset/request', { method: 'POST', body: JSON.stringify({ email }) }) }
 export function completePasswordReset(token: string, password: string) { return request<{ updated: boolean }>('/auth/password-reset/complete', { method: 'POST', body: JSON.stringify({ token, password }) }) }
-export function updateApiAccountPassword(token: string, password: string) {
-  return request<{ updated: boolean }>('/users/password', { method: 'PATCH', headers: { 'x-user-session': token }, body: JSON.stringify({ password }) })
+export function updateApiAccountPassword(token: string, password: string, currentPassword?: string, role?: 'client' | 'agent' | 'admin') {
+  const endpoint = role && role !== 'client' ? '/staff/password' : '/users/password'
+  return request<{ updated: boolean }>(endpoint, { method: 'PATCH', headers: { 'x-user-session': token }, body: JSON.stringify({ password, currentPassword }) })
 }
 export const updateApiClientPassword = updateApiAccountPassword
-export function updateApiProfile(token: string, input: { name: string; phone: string; org: string; title?: string }) {
-  return request<{ user: ApiClientUser & { role: User['role'] } }>('/users/profile', { method: 'PATCH', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+export function updateApiProfile(token: string, input: { name: string; phone: string; org: string; title?: string; avatar?: string }, role?: 'client' | 'agent' | 'admin') {
+  const endpoint = role && role !== 'client' ? '/staff/profile' : '/users/profile'
+  return request<{ user: ApiClientUser & { role: User['role'] } }>(endpoint, { method: 'PATCH', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+}
+export function updateApiStaffProfile(token: string, input: { name: string; phone: string; title?: string; avatar?: string }) {
+  return request<{ user: ApiClientUser & { role: 'agent' | 'admin' } }>('/staff/profile', { method: 'PATCH', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
 }
 export interface ApiStaffAccount extends ApiClientUser { role: 'agent' | 'admin'; active: boolean; deptName?: string; departmentAccess?: string[]; roleName?: string }
 export function listApiStaff(token: string) {

@@ -1,7 +1,9 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { StatusBadge } from '../../components/Badges'
 import { btnGhost, btnPrimary, Card, Field, inputClass, PageHeader } from '../../components/ui'
+import { UserAvatar, AVATAR_COLORS } from '../../components/UserAvatar'
+import { PasswordInput, generateSecurePassword } from '../../components/PasswordInput'
 import { useAuth } from '../../context/AuthContext'
 import { createApiFaqArticle, deleteApiFaqArticle, deleteApiOrganization, listApiDirectoryUsers, listApiFaqArticles, listApiOrganizations, saveApiDirectoryUser, saveApiOrganization, updateApiAccountPassword, updateApiFaqArticle, updateApiProfile, type ApiDirectoryUser, type ApiOrganization } from '../../lib/api'
 import { useDb } from '../../hooks/useDb'
@@ -600,61 +602,319 @@ export function StaffCannedPage() {
 }
 
 export function StaffProfilePage() {
-  const { user } = useAuth()
+  const { user, updateUser } = useAuth()
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [avatar, setAvatar] = useState(user?.avatar || '')
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [generated, setGenerated] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   if (!user) return null
   const staffUser = user
+
+  function onGeneratePassword() {
+    const pwd = generateSecurePassword(12)
+    setNewPassword(pwd)
+    setConfirmPassword(pwd)
+    setGenerated(true)
+    setTimeout(() => setGenerated(false), 3000)
+  }
+
+  function onAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Image must be under 2MB')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '')
+      setAvatar(dataUrl)
+      setError('')
+      setSaved(false)
+      // Instant update across the UI (navbar, dropdown, header)
+      updateUser?.({ avatar: dataUrl })
+      updateProfile(staffUser.id, { avatar: dataUrl })
+    }
+    reader.readAsDataURL(file)
+  }
+
+  function resetAvatar() {
+    setAvatar('')
+    updateUser?.({ avatar: '' })
+    updateProfile(staffUser.id, { avatar: '' })
+  }
+
+  function selectAvatarColor(hex: string) {
+    const colorAvatar = 'color:' + hex
+    setAvatar(colorAvatar)
+    setError('')
+    setSaved(false)
+    updateUser?.({ avatar: colorAvatar })
+    updateProfile(staffUser.id, { avatar: colorAvatar })
+  }
+
   async function onSave(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const form = new FormData(e.currentTarget)
-    const password = String(form.get('password'))
-    const token = accountSessionToken()
-    if (!token) { setError('Your session expired. Sign in again before saving your profile.'); return }
-    try { await updateApiProfile(token, { name: String(form.get('name')), phone: String(form.get('phone')), org: staffUser.org || '', title: String(form.get('title')) }) }
-    catch (err) { setError(err instanceof Error ? err.message : 'Could not save profile.'); return }
-    if (password) {
-      try { await updateApiAccountPassword(token, password) }
-      catch (err) { setError(err instanceof Error ? err.message : 'Could not update password.'); return }
+    const name = String(form.get('name') || '').trim()
+    const phone = String(form.get('phone') || '').trim().replace(/\D/g, '')
+    const title = String(form.get('title') || '').trim()
+
+    if (phone && !/^0[79]\d{8}$/.test(phone)) {
+      setError('Phone number must be in the format 0909090909 or 0707070707 (10 digits starting with 09 or 07).')
+      setSaved(false)
+      return
     }
-    updateProfile(staffUser.id, {
-      name: String(form.get('name')),
-      phone: String(form.get('phone')),
-      title: String(form.get('title')),
-    })
+    const currentPassword = String(form.get('currentPassword') || '').trim()
+    const newPassword = String(form.get('newPassword') || '').trim()
+    const confirmPassword = String(form.get('confirmPassword') || '').trim()
+
+    // Validate password fields if any are filled
+    if (currentPassword || newPassword || confirmPassword) {
+      if (!currentPassword) {
+        setError('Please enter your current password.')
+        setSaved(false)
+        return
+      }
+      if (!newPassword || newPassword.length < 8) {
+        setError('New password must be at least 8 characters long.')
+        setSaved(false)
+        return
+      }
+      if (newPassword !== confirmPassword) {
+        setError('New password and confirmation password do not match.')
+        setSaved(false)
+        return
+      }
+    }
+
+    // 1. Instantly update the current authenticated user & local store
+    const patch = { name: name || staffUser.name, phone, title, avatar: avatar || '' }
+    updateUser?.(patch)
+    updateProfile(staffUser.id, patch, staffUser.email)
+
+    // 2. Synchronize to PostgreSQL backend
+    const token = accountSessionToken()
+    if (token) {
+      try {
+        await updateApiProfile(
+          token,
+          {
+            name: name || staffUser.name,
+            phone,
+            org: staffUser.org || '',
+            title,
+            avatar: avatar || '',
+          },
+          staffUser.role
+        )
+      } catch (err) {
+        console.warn('[StaffProfilePage] API sync warning:', err)
+      }
+      if (newPassword) {
+        try {
+          await updateApiAccountPassword(token, newPassword, currentPassword, staffUser.role)
+          setCurrentPassword('')
+          setNewPassword('')
+          setConfirmPassword('')
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Could not update password.')
+          setSaved(false)
+          return
+        }
+      }
+    }
     setError('')
     setSaved(true)
   }
   return (
     <div>
       <PageHeader title="My profile" subtitle="Your agent account, saved to the help desk database." />
+      {saved ? (
+        <div className="mb-4 max-w-xl rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 shadow-sm flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">✓</span>
+            <span className="font-medium">Profile changes saved successfully.</span>
+          </div>
+          <button
+            type="button"
+            className="text-xs font-semibold text-emerald-800 underline hover:text-emerald-950"
+            onClick={() => setSaved(false)}
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+      {error ? (
+        <div role="alert" className="mb-4 max-w-xl rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+          {error}
+        </div>
+      ) : null}
       <Card className="max-w-xl">
-        {error ? <p role="alert" className="mb-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
         <form onSubmit={onSave} className="grid gap-4">
+          <div>
+            <span className="block mb-1 text-sm font-medium text-ink-800">Profile Picture & Avatar Color</span>
+            <div className="flex flex-col gap-3 py-1">
+              <div className="flex items-center gap-4">
+                <UserAvatar name={staffUser.name} avatar={avatar} size="xl" />
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={onAvatarChange}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="inline-flex cursor-pointer items-center justify-center rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink-700 shadow-sm transition hover:bg-paper"
+                    >
+                      Change picture
+                    </button>
+                    {avatar ? (
+                      <button
+                        type="button"
+                        onClick={resetAvatar}
+                        className="inline-flex items-center justify-center rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                      >
+                        Reset to default
+                      </button>
+                    ) : null}
+                  </div>
+                  <span className="text-[11px] text-ink-400">Upload a custom image or pick from 12 colors below</span>
+                </div>
+              </div>
+
+              <div>
+                <span className="block text-xs font-semibold text-ink-700 mb-2">
+                  Choose avatar color (12 standard colors)
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {AVATAR_COLORS.map((c) => {
+                    const isSelected =
+                      avatar === `color:${c.hex}` ||
+                      avatar === c.hex ||
+                      (!avatar && c.id === 'emerald')
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        title={c.name}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          selectAvatarColor(c.hex)
+                        }}
+                        style={{ backgroundColor: c.hex }}
+                        className={`h-7 w-7 rounded-full shadow-sm transition-transform hover:scale-110 flex items-center justify-center text-white text-xs font-bold ring-2 ${
+                          isSelected ? 'ring-offset-2 ring-brand-600 dark:ring-white scale-110' : 'ring-transparent'
+                        }`}
+                      >
+                        {isSelected ? '✓' : ''}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
           <Field label="Name">
             <input name="name" defaultValue={staffUser.name} required className={inputClass} />
           </Field>
           <Field label="Email">
             <input readOnly value={staffUser.email} className={inputClass} />
           </Field>
-          <Field label="Title">
-            <input name="title" defaultValue={staffUser.title} className={inputClass} />
+          <Field label="Job Title">
+            <input name="title" defaultValue={staffUser.title} placeholder="e.g. Support Agent, Team Lead" className={inputClass} />
           </Field>
           <Field label="Phone">
-            <input name="phone" defaultValue={staffUser.phone} className={inputClass} />
+            <input
+              name="phone"
+              defaultValue={staffUser.phone}
+              inputMode="numeric"
+              maxLength={10}
+              placeholder="Please enter your phone number"
+              className={inputClass}
+              onInput={(e) => {
+                const el = e.currentTarget
+                el.value = el.value.replace(/\D/g, '').slice(0, 10)
+              }}
+            />
           </Field>
-          <Field label="New password">
-            <input name="password" type="password" minLength={8} placeholder="Leave blank to keep" className={inputClass} />
-          </Field>
+          <div className="border-t border-line pt-4">
+            <h3 className="text-sm font-semibold text-ink-800 mb-1">Change Password</h3>
+            <p className="text-xs text-ink-500 mb-3">
+              Write your current password first, then enter or generate a new password and confirm it.
+            </p>
+
+            <div className="grid gap-3">
+              <Field label="Current password">
+                <PasswordInput
+                  name="currentPassword"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Type your current password"
+                  autoComplete="off"
+                  readOnly
+                  onFocus={(e) => {
+                    e.currentTarget.readOnly = false
+                  }}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                />
+              </Field>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="block text-sm font-medium text-ink-800">New password</span>
+                  <div className="flex items-center gap-2">
+                    {generated ? (
+                      <span className="text-xs font-semibold text-emerald-600">✓ Generated & filled</span>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={onGeneratePassword}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-semibold text-brand-700 shadow-sm transition hover:bg-paper"
+                    >
+                      <span>⚡</span> Generate Password
+                    </button>
+                  </div>
+                </div>
+                <PasswordInput
+                  name="newPassword"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  minLength={8}
+                  placeholder="Enter or generate new password"
+                  autoComplete="new-password"
+                />
+              </div>
+
+              <Field label="Confirm new password">
+                <PasswordInput
+                  name="confirmPassword"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter the new password"
+                  autoComplete="new-password"
+                />
+              </Field>
+            </div>
+          </div>
           <p className="text-sm text-ink-400">Signed in {relativeTime(new Date().toISOString())} · role {staffUser.role}</p>
           <button className={btnPrimary}>Save profile</button>
-          {saved ? <p className="text-sm text-emerald-700">Saved.</p> : null}
         </form>
       </Card>
     </div>
   )
 }
-
 export function StaffUserPage() {
   const { id } = useParams()
   const db = useDb()
