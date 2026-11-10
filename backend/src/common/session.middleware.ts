@@ -1,5 +1,5 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
-import { sessionTokenFromCookieHeader } from './session.constants';
+import { SESSION_COOKIE_NAME, sessionCookieOptions, sessionTokenFromCookieHeader } from './session.constants';
 
 /**
  * Promotes the HTTP-only session cookie into the x-user-session header used by
@@ -9,11 +9,16 @@ import { sessionTokenFromCookieHeader } from './session.constants';
  * The token is still verified against ost_session by ApiSecurityService on the
  * first authenticated access; this middleware only normalizes request input.
  */
-export function sessionCookieMiddleware(req: any, _res: any, next: () => void) {
+export function sessionCookieMiddleware(req: any, res: any, next: () => void) {
   const cookieToken = sessionTokenFromCookieHeader(req.headers?.cookie);
   if (cookieToken) {
     req.headers['x-user-session'] = cookieToken;
     req.sessionToken = cookieToken;
+    // Keep the browser cookie alive while the client is active. The server-side
+    // idle timeout in ost_session is the authority on expiration; without this
+    // refresh the cookie would expire on the original login lifetime even
+    // though readSession() keeps sliding the stored session forward.
+    if (res?.cookie) res.cookie(SESSION_COOKIE_NAME, cookieToken, sessionCookieOptions());
   }
   next();
 }
