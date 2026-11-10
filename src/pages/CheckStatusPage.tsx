@@ -30,7 +30,7 @@ export function CheckStatusPage() {
 
   return (
     <div className="mx-auto max-w-md">
-      <h1 className="text-2xl font-semibold dark:text-slate-500">Check ticket status</h1>
+      <h1 className="text-2xl font-semibold">Check ticket status</h1>
       <p className="mt-1 text-sm text-ink-600">Enter the email used on the ticket and the ticket number.</p>
       {params.get('number') ? (
         <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -38,7 +38,7 @@ export function CheckStatusPage() {
         </p>
       ) : null}
       {error ? <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</p> : null}
-      <form onSubmit={onSubmit} className="mt-6 space-y-4 rounded-2xl border-4 dark:border-slate-600 border-slate-200 p-5 shadow-sm">
+      <form onSubmit={onSubmit} className="mt-6 space-y-4 rounded-2xl border border-line bg-surface p-5 shadow-sm">
         <label className="block text-sm font-medium dark:text-slate-400">
           Email
           <input

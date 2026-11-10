@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { btnPrimary, Card, Field, inputClass, PageHeader } from '../components/ui'
 import { completePasswordReset, requestPasswordReset } from '../lib/api'
+import { ThemeToggle } from '../components/ThemeToggle'
 
 export function ForgotPasswordPage({ staff = false }: { staff?: boolean }) {
   const [error, setError] = useState('')
@@ -26,8 +27,13 @@ export function ForgotPasswordPage({ staff = false }: { staff?: boolean }) {
   }
 
   return (
-    <div className={staff ? 'grid min-h-dvh place-items-center bg-ink-950 px-4' : 'mx-auto max-w-md'}>
-      <div className={staff ? 'w-full max-w-md rounded-3xl bg-surface p-6 shadow-xl sm:p-8' : ''}>
+    <div className={staff ? 'relative grid min-h-dvh place-items-center bg-paper px-4' : 'mx-auto max-w-md'}>
+      {staff ? (
+        <div className="absolute top-4 right-4 z-50">
+          <ThemeToggle variant="floating" />
+        </div>
+      ) : null}
+      <div className={staff ? 'w-full max-w-md rounded-3xl bg-surface p-6 shadow-xl border border-line sm:p-8' : ''}>
         <PageHeader
           title={staff ? 'Reset agent password' : 'Forgot password'}
           subtitle="We will email a one-time reset code to your account address."

@@ -49,7 +49,7 @@ export function TicketsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl text-slate-700">
+    <div className="mx-auto max-w-4xl text-ink-800">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">My tickets</h1>
@@ -77,7 +77,7 @@ export function TicketsPage() {
               key={s}
               type="button"
               onClick={() => setStatus(s)}
-              className={`rounded-full px-3 py-1.5 text-sm capitalize ${status === s ? "bg-brand-600 text-white" : "bg-white ring-1 ring-slate-200"}`}
+              className={`rounded-full px-3 py-1.5 text-sm capitalize transition ${status === s ? "bg-brand-600 text-white font-medium" : "bg-surface text-ink-700 ring-1 ring-line hover:bg-paper"}`}
             >
               {s}
               {s !== "all" ? ` (${counts[s]})` : ""}
@@ -95,12 +95,12 @@ export function TicketsPage() {
           />
         </div>
       ) : (
-        <ul className="mt-6 overflow-hidden rounded-2xl border-4 border-slate-200 dark:border-slate-600">
+        <ul className="mt-6 overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
           {tickets.map((t) => (
             <li key={t.id} className="border-b border-slate-100 dark:border-slate-700 last:border-0">
               <Link
                 to={`/tickets/${t.id}`}
-                className="flex flex-col gap-2 px-4 py-4 hover:bg-slate-50 dark:hover:bg-slate-300 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-2 px-4 py-4 hover:bg-paper sm:flex-row sm:items-center sm:justify-between"
               >
                 <div>
                   <p className="font-medium">
@@ -108,7 +108,7 @@ export function TicketsPage() {
                     {t.subject}
                     {t.collaboratorIds?.includes(user.id) ? <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700" title="You are a collaborator" aria-label="You are a collaborator">♧ Collaborator</span> : null}
                   </p>
-                  <p className="text-sm text-slate-700">
+                  <p className="text-sm text-ink-600">
                     {db.topics.find((x) => x.id === t.topicId)?.name} ·{" "}
                     {t.branchName ? `${t.branchName} · ` : ''}
                     {relativeTime(t.updatedAt)}

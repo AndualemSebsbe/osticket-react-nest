@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useLogo } from '../../hooks/useLogo'
 import { useDb } from '../../hooks/useDb'
 import { hydratePublicBrandingFromApi } from '../../lib/store'
+import { ThemeToggle } from '../../components/ThemeToggle'
 
 function maskIdentifier(value: string) {
   const at = value.indexOf('@')
@@ -151,6 +152,9 @@ export function StaffLoginPage() {
       onMouseLeave={handleMouseLeave}
       className="relative flex min-h-dvh items-center justify-center p-4 sm:p-6 md:p-10 overflow-hidden bg-slate-100 dark:bg-[#070b14] select-none"
     >
+      <div className="absolute top-4 right-4 z-50">
+        <ThemeToggle variant="floating" />
+      </div>
       {/* =========================================================================
           INTERACTIVE BACKDROP SYSTEM
           Prominently displays any uploaded backdrop with interactive parallax & lighting

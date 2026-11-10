@@ -1,32 +1,33 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 
-export type Theme = 'light' | 'dark' | 'system'
+export type Theme = 'light' | 'dark'
 
 const KEY = 'osticket-react-theme'
 
 function readTheme(): Theme {
-  const raw = localStorage.getItem(KEY)
-  if (raw === 'light' || raw === 'dark' || raw === 'system') return raw
-  return 'system'
-}
-
-function isDark(theme: Theme) {
-  if (theme === 'dark') return true
-  if (theme === 'light') return false
-  return window.matchMedia('(prefers-color-scheme: dark)').matches
+  try {
+    const raw = localStorage.getItem(KEY)
+    if (raw === 'light' || raw === 'dark') return raw
+    if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      return 'dark'
+    }
+  } catch {
+    // ignore localStorage errors
+  }
+  return 'light'
 }
 
 function apply(theme: Theme) {
-  const dark = isDark(theme)
+  const dark = theme === 'dark'
   document.documentElement.classList.toggle('dark', dark)
   document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
-  document.body.style.color = dark ? '#fff' : ''
 }
 
 interface ThemeValue {
   theme: Theme
   dark: boolean
   setTheme: (theme: Theme) => void
+  toggle: () => void
   cycle: () => void
 }
 
@@ -34,37 +35,36 @@ const ThemeContext = createContext<ThemeValue | null>(null)
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(readTheme)
-  const [dark, setDark] = useState(() => isDark(readTheme()))
 
   useEffect(() => {
     apply(theme)
-    setDark(isDark(theme))
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = () => {
-      apply(theme)
-      setDark(isDark(theme))
-    }
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
   }, [theme])
 
-  const value = useMemo<ThemeValue>(
-    () => ({
+  const value = useMemo<ThemeValue>(() => {
+    const dark = theme === 'dark'
+    const toggle = () => {
+      const next: Theme = theme === 'dark' ? 'light' : 'dark'
+      try {
+        localStorage.setItem(KEY, next)
+      } catch {
+        // ignore storage errors
+      }
+      setThemeState(next)
+    }
+
+    return {
       theme,
       dark,
-      setTheme: (next) => {
-        localStorage.setItem(KEY, next)
+      setTheme: (next: Theme) => {
+        try {
+          localStorage.setItem(KEY, next)
+        } catch {}
         setThemeState(next)
       },
-      cycle: () => {
-        const order: Theme[] = ['system', 'light', 'dark']
-        const next = order[(order.indexOf(theme) + 1) % order.length]
-        localStorage.setItem(KEY, next)
-        setThemeState(next)
-      },
-    }),
-    [theme, dark],
-  )
+      toggle,
+      cycle: toggle,
+    }
+  }, [theme])
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
 }

@@ -68,12 +68,12 @@ th {
 input,
 textarea,
 select {
-  color: #334155;
+  color: var(--color-ink-800);
 }
 
 input::placeholder,
 textarea::placeholder {
-  color: #334155;
+  color: var(--color-ink-400);
   opacity: 1;
 }
 
@@ -82,15 +82,15 @@ textarea::placeholder {
 }
 
 .dark label {
-  @apply text-slate-400;
+  color: var(--color-ink-400);
 }
 
 .dark h1 {
-  @apply text-slate-200;
+  color: var(--color-ink-800);
 }
 
 .dark p {
-  @apply text-slate-400;
+  color: var(--color-ink-600);
 }
 
 .dark input,
@@ -100,12 +100,13 @@ textarea::placeholder {
 }
 
 .dark option {
-  @apply text-slate-400;
+  background-color: var(--color-surface);
+  color: var(--color-ink-800);
 }
 
 .dark input::placeholder,
 .dark textarea::placeholder {
-  color: var(--color-ink-600);
+  color: var(--color-ink-400);
   opacity: 1;
 }
 

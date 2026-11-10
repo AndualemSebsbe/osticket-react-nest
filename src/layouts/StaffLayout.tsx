@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
+import { ThemeToggle } from '../components/ThemeToggle'
 import { AdminBar } from './AdminBar'
 import { AgentBar } from './AgentBar'
 import { adminGroups, agentNav, type NavItem } from './staffNav'
@@ -206,9 +207,7 @@ export function StaffLayout() {
                   </button>
                 )
               ) : null}
-              <button type="button" onClick={cycle} className="text-sm capitalize text-ink-600">
-                {theme}
-              </button>
+              <ThemeToggle variant="ghost" />
               <button
                 type="button"
                 className="text-sm text-brand-600"

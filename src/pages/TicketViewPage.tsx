@@ -93,7 +93,7 @@ export function TicketViewPage() {
         {orgPeer ? <p className="mt-2 text-sm text-ink-600">Organization ticket — visible because you share an org with {owner?.name}.</p> : null}
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        <section className="rounded-2xl border-2 border-slate-200 dark:border-slate-600 p-4">
+        <section className="rounded-2xl border border-line bg-surface p-4">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-400">Ticket</h2>
           <dl className="mt-3 grid grid-cols-1 gap-y-2 text-sm sm:grid-cols-[7rem_1fr]">
             <dt className="text-ink-600 ">Department</dt>
@@ -108,7 +108,7 @@ export function TicketViewPage() {
             <dd className="capitalize dark:text-white">{ticket.source}</dd>
           </dl>
         </section>
-        <section className="rounded-2xl border-2 border-slate-200 dark:border-slate-600 p-4">
+        <section className="rounded-2xl border border-line bg-surface p-4">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-400">User</h2>
           <dl className="mt-3 grid grid-cols-1 gap-y-2 text-sm sm:grid-cols-[7rem_1fr]">
             <dt className="text-ink-600">Name</dt>

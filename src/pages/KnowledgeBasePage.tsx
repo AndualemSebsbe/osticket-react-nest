@@ -14,7 +14,7 @@ export function KnowledgeBasePage() {
   if (!db.settings.kbEnabled) {
     return (
       <div>
-        <h1 className="text-2xl font-semibold dark:text-slate-500">Knowledge base</h1>
+        <h1 className="text-2xl font-semibold">Knowledge base</h1>
         <p className="mt-2 text-sm text-ink-600">The knowledge base is disabled in admin settings.</p>
       </div>
     )
@@ -22,7 +22,7 @@ export function KnowledgeBasePage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold dark:text-slate-500">Knowledge base</h1>
+      <h1 className="text-2xl font-semibold">Knowledge base</h1>
       <p className="mt-1 text-sm text-ink-600">Click a category or search questions and answers.</p>
       <input
         value={q}
@@ -34,7 +34,7 @@ export function KnowledgeBasePage() {
         <ul className="mt-6 space-y-3">
           {results.length === 0 ? <li className="text-sm text-ink-600">No articles matched.</li> : null}
           {results.map((faq) => (
-            <li key={faq.id} className="rounded-2xl dark:text-slate-500 border dark:border-slate-600 border-slate-200 p-4">
+            <li key={faq.id} className="rounded-2xl border border-line bg-surface p-4">
               <Link to={`/kb/${faq.id}`} className="font-medium text-brand-700">
                 {faq.question}
               </Link>
@@ -48,7 +48,7 @@ export function KnowledgeBasePage() {
             const items = faqs.filter((f) => f.categoryId === c.id)
             const count = items.length
             return (
-              <li key={c.id} className="rounded-2xl dark:text-slate-500 border dark:border-slate-600 border-slate-200 p-5">
+              <li key={c.id} className="rounded-2xl border border-line bg-surface p-5">
                 <h2 className="font-semibold">
                   {c.name} <span className="text-ink-400">({count})</span>
                 </h2>

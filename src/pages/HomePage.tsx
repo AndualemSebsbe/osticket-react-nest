@@ -17,7 +17,7 @@ export function HomePage() {
   }
 
   return (
-    <div className="space-y-10 text-slate-700">
+    <div className="space-y-10 text-ink-800">
       <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-brand-700 via-brand-600 to-sky-500 p-6 text-white shadow-lg sm:p-10">
         <p className="text-sm font-medium text-blue-100">
           Support ticket system

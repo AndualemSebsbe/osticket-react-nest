@@ -61,8 +61,8 @@ export function OpenTicketPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl text-slate-700">
-      <h1 className="text-2xl font-semibold dark:text-slate-500">Open a new ticket</h1>
+    <div className="mx-auto max-w-2xl text-ink-800">
+      <h1 className="text-2xl font-semibold">Open a new ticket</h1>
       <p className="mt-1 text-sm text-ink-600">
         Please fill in the form below. Required fields are marked.
       </p>
@@ -73,7 +73,7 @@ export function OpenTicketPage() {
       ) : null}
       <form
         onSubmit={onSubmit}
-        className="mt-6 space-y-4 rounded-2xl border-4 dark:border-slate-600 border-slate-200  p-5 shadow-sm sm:p-6"
+        className="mt-6 space-y-4 rounded-2xl border border-line bg-surface p-5 shadow-sm sm:p-6"
       >
         {!user || user.role !== "client" ? (
           <div className="grid gap-4  sm:grid-cols-2">
@@ -103,7 +103,7 @@ export function OpenTicketPage() {
             </label>
           </div>
         ) : (
-          <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm">
+          <p className="rounded-xl border border-line bg-paper px-3 py-2 text-sm text-ink-700">
             Opening as <strong>{user.name}</strong> ({user.email})
           </p>
         )}
@@ -116,11 +116,11 @@ export function OpenTicketPage() {
             onChange={(e) => setTopicId(e.target.value)}
             className={inputClass + " mt-1"}
           >
-            <option className="dark:text-slate-400 text-slate-700" value="">
+            <option value="">
               — Select a help topic —
             </option>
             {topics.filter((t) => t.active !== false).map((t) => (
-              <option className="dark:text-slate-400 text-slate-700" key={t.id} value={t.id}>
+              <option key={t.id} value={t.id}>
                 {t.name}
               </option>
             ))}
@@ -134,16 +134,16 @@ export function OpenTicketPage() {
             defaultValue="normal"
             className={inputClass + " mt-1"}
           >
-            <option className="text-slate-700" value="low">
+            <option value="low">
               Low
             </option>
-            <option className="text-slate-700" value="normal">
+            <option value="normal">
               Normal
             </option>
-            <option className="text-slate-700" value="high">
+            <option value="high">
               High
             </option>
-            <option className="text-slate-700" value="emergency">
+            <option value="emergency">
               Emergency
             </option>
           </select>

@@ -34,15 +34,15 @@ export function LoginPage() {
             className="mb-4 h-12 w-auto max-w-[14rem] object-contain"
           />
         ) : null}
-        <h1 className="text-2xl font-semibold dark:text-500">Sign in</h1>
+        <h1 className="text-2xl font-semibold">Sign in</h1>
         <p className="mt-2 text-sm text-ink-600">
           Register for an account to track every ticket in one place. Guests can still open a ticket or check status.
         </p>
-        <p className="mt-4 text-sm dark:text-500">
+        <p className="mt-4 text-sm text-ink-600">
           I am an agent — <Link to="/scp/login" className="font-medium text-brand-600">sign in here</Link>
         </p>
       </div>
-      <form onSubmit={onSubmit} className="space-y-4 rounded-2xl border-4 border-slate-300 dark:border-slate-600 p-5 shadow-sm">
+      <form onSubmit={onSubmit} className="space-y-4 rounded-2xl border border-line bg-surface p-5 shadow-sm">
         {error ? <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
         <label className="block text-sm font-medium dark:text-slate-400">
           Email or username

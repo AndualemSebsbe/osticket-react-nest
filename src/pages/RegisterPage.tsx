@@ -53,7 +53,7 @@ export function RegisterPage() {
           <Link to="/login" className="inline-flex font-semibold text-brand-700">Go to sign in</Link>
         </div>
       ) : (
-      <form onSubmit={onSubmit} className="mt-6 space-y-4 rounded-2xl border-4 border-slate-300 dark:border-slate-600 p-5 shadow-sm">
+      <form onSubmit={onSubmit} className="mt-6 space-y-4 rounded-2xl border border-line bg-surface p-5 shadow-sm">
         {error ? <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
         <label className="block text-sm font-medium">
           Full name

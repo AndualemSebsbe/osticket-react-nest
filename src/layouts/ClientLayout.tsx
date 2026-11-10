@@ -1,6 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
+import { ThemeToggle } from '../components/ThemeToggle'
 import { ticketsForUser } from '../lib/store'
 import { useDb } from '../hooks/useDb'
 import { useLogo } from '../hooks/useLogo'
@@ -26,7 +27,7 @@ export function ClientLayout({ children }: { children: ReactNode }) {
   }, [location.pathname])
 
   return (
-    <div className="min-h-dvh bg-paper text-slate-700">
+    <div className="min-h-dvh bg-paper text-ink-800">
       <header className="sticky top-0 z-40 bg-brand-700 pt-[env(safe-area-inset-top)] text-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
           <NavLink to="/" className="flex min-w-0 items-center gap-2 font-semibold tracking-tight">
@@ -81,14 +82,7 @@ export function ClientLayout({ children }: { children: ReactNode }) {
             ) : null}
           </nav>
           <div className="hidden items-center gap-3 text-sm md:flex">
-            <button
-              type="button"
-              onClick={cycle}
-              className="rounded-lg bg-white/15 px-2.5 py-1.5 text-xs font-medium capitalize text-white hover:bg-white/25"
-              title="Cycle theme (system / light / dark)"
-            >
-              {theme}
-            </button>
+            <ThemeToggle variant="header" />
             {isClient ? (
               <>
                 <NavLink to="/profile" className="text-blue-100 hover:text-white">
@@ -130,9 +124,7 @@ export function ClientLayout({ children }: { children: ReactNode }) {
                 Knowledge base
               </NavLink>
             ) : null}
-            <button type="button" className="min-h-11 rounded-lg px-3 py-2 text-left text-sm text-blue-100" onClick={cycle}>
-              Theme: {theme}
-            </button>
+            <ThemeToggle variant="nav" />
             {isClient ? (
               <>
                 <NavLink to="/tickets" className={linkClass}>
