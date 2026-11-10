@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 const asId = (value: unknown) => BigInt(String(value || 0));
@@ -10,7 +10,7 @@ const timeText = (value: Date | null) => value ? value.toISOString().slice(11, 1
 
 @Injectable()
 export class SchedulesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async list() {
     const [schedules, slas, departments, tickets, configs] = await Promise.all([
