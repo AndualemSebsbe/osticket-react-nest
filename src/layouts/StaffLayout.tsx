@@ -3,8 +3,6 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { UserAvatar } from '../components/UserAvatar'
-import { AdminBar } from './AdminBar'
-import { AgentBar } from './AgentBar'
 import { adminGroupForPath, adminGroups, agentNav, type NavItem } from './staffNav'
 import { useLogo } from '../hooks/useLogo'
 import { useDb } from '../hooks/useDb'
@@ -285,14 +283,6 @@ export function StaffLayout() {
                 )}
               </button>
             </div>
-            <p className="min-w-0 flex-1 truncate text-sm text-ink-600">
-              Welcome, <strong className="text-ink-800">{user?.name}</strong>
-              {isAdmin ? (
-                <span className="ml-2 hidden rounded-full bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700 xs:inline sm:inline">
-                  Admin
-                </span>
-              ) : null}
-            </p>
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               <ThemeToggle variant="ghost" />
               {/* Avatar dropdown — right side */}
@@ -363,7 +353,6 @@ export function StaffLayout() {
               </div>
             </div>
           </div>
-          {isAdmin && inAdmin ? <AdminBar showGroups={!sidebarVisible} /> : <AgentBar />}
         </header>
         <main className="min-w-0 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 md:p-8">
           <Outlet />
