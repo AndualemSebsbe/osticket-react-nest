@@ -29,7 +29,6 @@ import {
   AdminEmailSettingsPage,
   AdminEmailsPage,
   AdminFiltersPage,
-  AdminFormsPage,
   AdminInfoPage,
   AdminListsPage,
   AdminLogsPage,
@@ -46,6 +45,7 @@ import {
   RequireAdmin,
 } from './pages/admin/AdminPages'
 import { AdminHelpTopicsPage } from './pages/admin/AdminHelpTopicsPage'
+import { AdminFormsPage } from './pages/admin/AdminFormsPage'
 import { StaffDashboardPage } from './pages/staff/StaffDashboardPage'
 import { AdminQueuesPage } from './pages/admin/AdminQueuesPage'
 import { StaffDirectoryPage } from './pages/staff/StaffDirectoryPage'

@@ -14,9 +14,38 @@ import { SystemInfoController } from './system-info.controller';
 import { SystemInfoService } from './system-info.service';
 import { HelpTopicsService } from './help-topics.service';
 import { TeamsService } from './teams.service';
+import { FormsController } from './forms.controller';
+import { FormsService } from './forms.service';
 import { MailModule } from '../mail/mail.module';
 import { AdminGuard } from '../common/admin.guard';
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../prisma/prisma.module';
-@Module({ imports:[MailModule,AuthModule,PrismaModule], controllers:[AdminController, CompanyController, CompanyPublicController, SystemSettingsController, SystemLogsController, SystemInfoController], providers:[AdminService, AgentsService, RolesService, SchedulesService, CompanyService, SystemSettingsService, SystemLogsService, SystemInfoService, HelpTopicsService, TeamsService, AdminGuard] })
+
+@Module({
+  imports: [MailModule, AuthModule, PrismaModule],
+  controllers: [
+    AdminController,
+    CompanyController,
+    CompanyPublicController,
+    SystemSettingsController,
+    SystemLogsController,
+    SystemInfoController,
+    FormsController,
+  ],
+  providers: [
+    AdminService,
+    AgentsService,
+    RolesService,
+    SchedulesService,
+    CompanyService,
+    SystemSettingsService,
+    SystemLogsService,
+    SystemInfoService,
+    HelpTopicsService,
+    TeamsService,
+    FormsService,
+    AdminGuard,
+  ],
+  exports: [FormsService],
+})
 export class AdminModule {}

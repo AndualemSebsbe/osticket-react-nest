@@ -674,28 +674,7 @@ export function AdminPagesPage() {
   )
 }
 
-export function AdminFormsPage() {
-  const db = useDb()
-  return (
-    <EntityManager
-      title="Custom forms"
-      subtitle="Dynamic fields on tickets, users, organizations, and tasks."
-      collection="forms"
-      rows={db.forms}
-      columns={[
-        { key: 'name', label: 'Name' },
-        { key: 'type', label: 'Type' },
-        { key: 'fields', label: 'Fields' },
-      ]}
-      fields={[
-        { name: 'name', label: 'Name', type: 'text', required: true },
-        { name: 'type', label: 'Type', type: 'select', options: ['ticket', 'user', 'org', 'task'].map((v) => ({ value: v, label: v })) },
-        { name: 'fields', label: 'Fields (comma separated)', type: 'textarea', span2: true },
-      ]}
-      defaults={{ name: '', type: 'ticket', fields: '' }}
-    />
-  )
-}
+export { AdminFormsPage } from './AdminFormsPage'
 
 export function AdminListsPage() {
   const db = useDb()

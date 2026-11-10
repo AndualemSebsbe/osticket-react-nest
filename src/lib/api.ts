@@ -40,7 +40,7 @@ function currentSessionHeaders(): Record<string, string> {
   return Object.create(null) as Record<string, string>
 }
 export function apiHealth() { return request<ApiHealth>('/health') }
-export function listApiTickets(token?: string) { return request<{ tickets: Array<Record<string, any>> }>('/tickets', { headers: token ? { 'x-user-session': token } : currentSessionHeaders() }) }
+export function listApiTickets(token?: string | null) { return request<{ tickets: Array<Record<string, any>> }>('/tickets', { headers: token ? { 'x-user-session': token } : currentSessionHeaders() }) }
 export interface ApiQueueDefinition { id: string; title: string; parentId: string; filter: string; root: string; sort: number; flags?: number; staffId?: string; builtin?: boolean; columns: Array<{ id: string; heading: string; field: string; width: string; sort: number }>; sorting: Array<{ id: string; name: string; field: string; sort: number; direction?: 'asc' | 'desc' }> }
 export function listApiQueues() { return request<{ queues: ApiQueueDefinition[]; customQueues: import('../types').TicketQueue[] }>('/tickets/queues', { headers: currentSessionHeaders() }) }
 
@@ -695,13 +695,13 @@ export function apiClientLogin(email: string, password: string) {
 export function apiStaffLogin(email: string, password: string) {
   return request<{ user: ApiClientUser & { role: 'agent' | 'admin' } }>('/staff/login', { method: 'POST', body: JSON.stringify({ email, password }) })
 }
-function sessionHeaders(token?: string): Record<string, string> {
+function sessionHeaders(token?: string | null): Record<string, string> {
   return token && token !== 'cookie' ? { 'x-user-session': token } : Object.create(null) as Record<string, string>
 }
-export function apiValidateClientSession(token?: string) {
+export function apiValidateClientSession(token?: string | null) {
   return request<{ status: 'approved'; role: User['role']; user: ApiClientUser & { role: User['role'] } }>('/users/session', { headers: sessionHeaders(token) })
 }
-export function apiValidateStaffSession(token?: string) {
+export function apiValidateStaffSession(token?: string | null) {
   return request<{ status: 'approved'; role: 'agent' | 'admin'; user: ApiClientUser & { role: 'agent' | 'admin' } }>('/staff/session', { headers: sessionHeaders(token) })
 }
 export function apiCurrentSession() {
@@ -886,7 +886,7 @@ export interface DashboardOverview {
   }
 }
 
-export function getDashboardOverview(start?: string, period?: string, token?: string) {
+export function getDashboardOverview(start?: string, period?: string, token?: string | null) {
   const params = new URLSearchParams()
   if (start) params.set('start', start)
   if (period) params.set('period', period)
@@ -1608,5 +1608,188 @@ export interface ApiSystemInformation {
 export function getApiSystemInformation() {
   return request<ApiSystemInformation>('/admin/system-info', {
     headers: currentSessionHeaders(),
+  })
+}
+
+
+// ==========================================
+// ADMIN FORMS API (Manage Forms)
+// ==========================================
+export type ApiRequirementMode = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g'
+
+export interface ApiFormField {
+  id?: string
+  formId?: string
+  label: string
+  name: string
+  type: string
+  sort: number
+  flags?: number
+  enabled: boolean
+  visibilityMode: ApiRequirementMode
+  hint?: string
+  configuration?: Record<string, any>
+  deletable?: boolean
+  nameEditable?: boolean
+  typeEditable?: boolean
+  delete?: boolean
+}
+
+export interface ApiFormListItem {
+  id: string
+  value: string
+  sort: number
+  status: number
+}
+
+export interface ApiFormList {
+  id: string
+  name: string
+  namePlural?: string
+  type?: string
+  sortMode?: string
+  items?: ApiFormListItem[]
+}
+
+export interface ApiFormHelpTopicLink {
+  id?: string
+  topicId: string
+  topicName?: string
+  sort?: number
+}
+
+export interface ApiFormSummary {
+  id: string
+  title: string
+  instructions: string
+  name: string
+  type: string
+  isBuiltIn: boolean
+  builtInLabel: string
+  icon: string
+  flags: number
+  enabled: boolean
+  deletable: boolean
+  notes: string
+  fieldCount: number
+  topicCount: number
+  entryCount: number
+  updated: string
+  created: string
+  fieldsSummary: string[]
+}
+
+export interface ApiFormDetail {
+  id: string
+  title: string
+  instructions: string
+  name: string
+  type: string
+  isBuiltIn: boolean
+  builtInLabel: string
+  icon: string
+  flags: number
+  enabled: boolean
+  deletable: boolean
+  notes: string
+  entryCount: number
+  created: string
+  updated: string
+}
+
+export interface ApiFormEntryAttachment {
+  id: string
+  fileId: string
+  name: string
+  size: number
+  type: string
+}
+
+export interface ApiFormEntry {
+  id: string
+  objectId: string
+  objectType: string
+  created: string
+  updated?: string
+  values: Record<string, any>
+  attachments: ApiFormEntryAttachment[]
+}
+
+export interface ApiFormsResponse {
+  forms: ApiFormSummary[]
+  lists: ApiFormList[]
+  helpTopics: Array<{ id: string; name: string }>
+}
+
+export interface ApiFormDetailResponse {
+  form: ApiFormDetail
+  fields: ApiFormField[]
+  helpTopics: ApiFormHelpTopicLink[]
+  allHelpTopics: Array<{ id: string; name: string }>
+  recentEntries: ApiFormEntry[]
+  lists: ApiFormList[]
+}
+
+export interface ApiFormInput {
+  title: string
+  instructions?: string
+  notes?: string
+  enabled?: boolean
+  fields?: Partial<ApiFormField>[]
+  helpTopicIds?: string[]
+}
+
+export function listApiForms(token?: string | null) {
+  return request<ApiFormsResponse>('/admin/forms', {
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+  })
+}
+
+export function getApiForm(id: string, token?: string | null) {
+  return request<ApiFormDetailResponse>('/admin/forms/' + encodeURIComponent(id), {
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+  })
+}
+
+export function createApiForm(input: ApiFormInput, token?: string | null) {
+  return request<ApiFormDetailResponse>('/admin/forms', {
+    method: 'POST',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateApiForm(id: string, input: ApiFormInput, token?: string | null) {
+  return request<ApiFormDetailResponse>('/admin/forms/' + encodeURIComponent(id), {
+    method: 'PUT',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteApiForm(id: string, token?: string | null) {
+  return request<{ deleted: boolean; id: string }>('/admin/forms/' + encodeURIComponent(id), {
+    method: 'DELETE',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+  })
+}
+
+export function massApiFormAction(action: 'enable' | 'disable' | 'delete', ids: string[], token?: string | null) {
+  return request<{ updated?: number; deleted?: number }>('/admin/forms/mass-action', {
+    method: 'POST',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify({ action, ids }),
+  })
+}
+
+export function listApiFormEntries(id: string, page = 1, limit = 50, token?: string | null) {
+  return request<{
+    entries: ApiFormEntry[]
+    total: number
+    page: number
+    limit: number
+    fields: Array<{ id: string; label: string; name: string; type: string }>
+  }>(`/admin/forms/${encodeURIComponent(id)}/entries?page=${page}&limit=${limit}`, {
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
   })
 }
