@@ -103,7 +103,7 @@ export class StaffController {
 export class AuthSessionController {
   constructor(@Inject(AuthService) private auth: AuthService, @Inject(ApiSecurityService) private security: ApiSecurityService) {}
   @Get('session')
-  async session(@Headers('x-user-session') token: string) {
+  async session(@Headers('x-user-session') token: string, @Res({ passthrough: true }) res: any) {
     const session = await this.security.readSession(token);
     const account = session
       ? session.role === 'client'
@@ -112,7 +112,12 @@ export class AuthSessionController {
           ? await this.auth.validateStaff(session.email)
           : await this.auth.validate(session.email)
       : null;
-    if (!this.auth.sessionAccount(account, session)) throw new UnauthorizedException('Session expired.');
+    if (!this.auth.sessionAccount(account, session)) {
+      // Drop a cookie whose server-side session has expired or been revoked so
+      // the browser stops presenting a token that can never authenticate.
+      this.security.clearSessionCookie(res);
+      throw new UnauthorizedException('Session expired.');
+    }
     return { authenticated: true, status: account!.status, role: account!.role, user: account!.user };
   }
   @Post('logout') @HttpCode(200)
