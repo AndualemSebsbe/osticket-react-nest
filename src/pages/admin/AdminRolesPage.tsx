@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { btnGhost, btnPrimary, Card, Field, inputClass, PageHeader } from '../../components/ui'
+import { useDialogs } from '../../context/DialogContext'
 import { formatDate } from '../../lib/format'
 import { accountSessionToken } from '../../lib/store'
 import {
@@ -39,6 +40,7 @@ function selectedGroupCount(group: ApiRolePermissionGroup, selected: string[]) {
 }
 
 export function AdminRolesPage() {
+  const { confirm } = useDialogs()
   const [roles, setRoles] = useState<ApiRole[]>([])
   const [permissionGroups, setPermissionGroups] = useState<ApiRolePermissionGroup[]>([])
   const [loading, setLoading] = useState(true)
@@ -170,7 +172,11 @@ export function AdminRolesPage() {
       setError('Administrator session expired. Sign in again.')
       return
     }
-    if (!window.confirm(`Delete “${role.name}”? Roles assigned to agents cannot be deleted.`)) return
+    if (!(await confirm({
+      title: 'Delete role',
+      description: `Delete “${role.name}”? Roles assigned to agents cannot be deleted.`,
+      confirmLabel: 'Delete',
+    }))) return
     setSaving(true)
     setError('')
     setSuccess('')
@@ -196,7 +202,11 @@ export function AdminRolesPage() {
       setError('Select at least one role.')
       return
     }
-    if (action === 'delete' && !window.confirm(`Delete ${selectedIds.length} selected ${selectedIds.length === 1 ? 'role' : 'roles'}? Roles assigned to agents will be skipped.`)) return
+    if (action === 'delete' && !(await confirm({
+      title: 'Delete roles',
+      description: `Delete ${selectedIds.length} selected ${selectedIds.length === 1 ? 'role' : 'roles'}? Roles assigned to agents will be skipped.`,
+      confirmLabel: 'Delete',
+    }))) return
 
     setSaving(true)
     setError('')

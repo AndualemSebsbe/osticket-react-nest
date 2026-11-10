@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { btnGhost, btnPrimary, Card, Field, inputClass, PageHeader } from '../../components/ui'
+import { useDialogs } from '../../context/DialogContext'
 import { formatDate } from '../../lib/format'
 import { accountSessionToken } from '../../lib/store'
 import {
@@ -59,6 +60,7 @@ function usageSummary(team: ApiTeam) {
 }
 
 export function AdminTeamsPage() {
+  const { confirm } = useDialogs()
   const [data, setData] = useState<ApiTeamsResponse>({ teams: [], staff: [] })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -207,7 +209,11 @@ export function AdminTeamsPage() {
       setError('Administrator session expired. Sign in again.')
       return
     }
-    if (!window.confirm(`Delete “${team.name}”? Its members will be removed and tickets, tasks, help topics, and filter actions assigned to this team will be unassigned.`)) return
+    if (!(await confirm({
+      title: 'Delete team',
+      description: `Delete “${team.name}”? Its members will be removed and tickets, tasks, help topics, and filter actions assigned to this team will be unassigned.`,
+      confirmLabel: 'Delete',
+    }))) return
     setSaving(true)
     setError('')
     setSuccess('')
@@ -233,7 +239,11 @@ export function AdminTeamsPage() {
       setError('Select at least one team.')
       return
     }
-    if (action === 'delete' && !window.confirm(`Delete ${selectedIds.length} selected ${selectedIds.length === 1 ? 'team' : 'teams'}? Their members will be removed and assignments cleared.`)) return
+    if (action === 'delete' && !(await confirm({
+      title: 'Delete teams',
+      description: `Delete ${selectedIds.length} selected ${selectedIds.length === 1 ? 'team' : 'teams'}? Their members will be removed and assignments cleared.`,
+      confirmLabel: 'Delete',
+    }))) return
 
     setSaving(true)
     setError('')

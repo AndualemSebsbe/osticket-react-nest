@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Card } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
+import { useDialogs } from '../../context/DialogContext'
 import {
   checkApiSystemLogsAuth,
   createApiSystemLog,
@@ -21,6 +22,7 @@ type SortOrder = 'asc' | 'desc'
 export function AdminSystemLogsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const { confirm } = useDialogs()
 
   // Authorization state
   const [authChecking, setAuthChecking] = useState(true)
@@ -50,8 +52,6 @@ export function AdminSystemLogsPage() {
 
   // Modals
   const [activeLog, setActiveLog] = useState<ApiSystemLog | null>(null)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [logToDelete, setLogToDelete] = useState<string | null>(null)
   const [showPurgeModal, setShowPurgeModal] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -196,25 +196,33 @@ export function AdminSystemLogsPage() {
   }
 
   // Deletions
-  async function confirmDelete() {
+  async function confirmDelete(logId?: string) {
+    const confirmed = await confirm({
+      title: 'Please Confirm',
+      description: (
+        <>
+          Are you sure you want to DELETE {logId ? 'this log entry' : `${selectedIds.length} selected log entries`}?
+          <span className="mt-2 block text-xs text-ink-500">Deleted log entries CANNOT be recovered.</span>
+        </>
+      ),
+      confirmLabel: 'Yes, Do it!',
+      cancelLabel: 'No, Cancel',
+    })
+    if (!confirmed) return
     try {
-      if (logToDelete) {
-        await deleteApiSystemLog(logToDelete)
+      if (logId) {
+        await deleteApiSystemLog(logId)
         setSuccessNotice('System log entry deleted successfully.')
-        setSelectedIds(prev => prev.filter(id => id !== logToDelete))
-        if (activeLog?.id === logToDelete) setActiveLog(null)
+        setSelectedIds(prev => prev.filter(id => id !== logId))
+        if (activeLog?.id === logId) setActiveLog(null)
       } else if (selectedIds.length > 0) {
         const res = await massDeleteApiSystemLogs(selectedIds)
         setSuccessNotice(`Successfully deleted ${res.deleted} selected log ${res.deleted === 1 ? 'entry' : 'entries'}.`)
         setSelectedIds([])
       }
-      setShowDeleteConfirm(false)
-      setLogToDelete(null)
       void fetchLogs()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete log entries.')
-      setShowDeleteConfirm(false)
-      setLogToDelete(null)
     }
   }
 
@@ -652,10 +660,7 @@ export function AdminSystemLogsPage() {
           {selectedIds.length > 0 && (
             <button
               type="button"
-              onClick={() => {
-                setLogToDelete(null)
-                setShowDeleteConfirm(true)
-              }}
+              onClick={() => void confirmDelete()}
               className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-rose-700"
             >
               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -849,10 +854,7 @@ export function AdminSystemLogsPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              setLogToDelete(log.id)
-                              setShowDeleteConfirm(true)
-                            }}
+                            onClick={() => void confirmDelete(log.id)}
                             className="rounded-lg p-1 text-rose-500 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/30"
                             title="Delete this log"
                           >
@@ -1013,10 +1015,7 @@ export function AdminSystemLogsPage() {
             <div className="flex items-center justify-between border-t border-line bg-paper/40 p-4 sm:p-5">
               <button
                 type="button"
-                onClick={() => {
-                  setLogToDelete(activeLog.id)
-                  setShowDeleteConfirm(true)
-                }}
+                onClick={() => void confirmDelete(activeLog.id)}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-3.5 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1038,47 +1037,7 @@ export function AdminSystemLogsPage() {
       )}
 
       {/* 10. Delete Confirmation Dialog (osTicket prompt: Are you sure you want to DELETE...?) */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl border border-line bg-surface p-6 shadow-2xl">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400">
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-bold text-ink-900">Please Confirm</h3>
-            </div>
-            <hr className="my-4 border-line" />
-            <p className="text-sm font-semibold text-rose-600">
-              Are you sure you want to DELETE{' '}
-              {logToDelete ? 'this log entry' : `${selectedIds.length} selected log entries`}?
-            </p>
-            <p className="mt-2 text-xs text-ink-500">
-              Deleted log entries CANNOT be recovered.
-            </p>
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowDeleteConfirm(false)
-                  setLogToDelete(null)
-                }}
-                className="rounded-xl border border-line bg-surface px-4 py-2 text-xs font-semibold text-ink-800 hover:bg-paper"
-              >
-                No, Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void confirmDelete()}
-                className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-700"
-              >
-                Yes, Do it!
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Now provided by the shared shadcn/ui AlertDialog from DialogProvider (useDialogs().confirm). */}
 
       {/* 11. Purge Logs Modal */}
       {showPurgeModal && (

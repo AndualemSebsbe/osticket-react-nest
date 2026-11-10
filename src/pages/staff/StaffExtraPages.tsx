@@ -4,6 +4,7 @@ import { StatusBadge } from '../../components/Badges'
 import { CollaboratorModal } from '../../components/CollaboratorModal'
 import { btnGhost, btnPrimary, Card, Field, inputClass, PageHeader } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
+import { useDialogs } from '../../context/DialogContext'
 import {
   closeApiTask,
   createApiFaqArticle,
@@ -55,6 +56,7 @@ import type { CannedResponse, Faq } from '../../types'
 
 export function StaffTasksPage() {
   const { user } = useAuth()
+  const { alert } = useDialogs()
   const [options, setOptions] = useState<ApiTaskOptions | null>(null)
   const [result, setResult] = useState<ApiTaskListResult | null>(null)
   const [queue, setQueue] = useState<NonNullable<ApiTaskQuery['queue']>>('open')
@@ -122,7 +124,7 @@ export function StaffTasksPage() {
       setPage(1)
       await refresh()
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Could not create the task.')
+      await alert(err instanceof Error ? err.message : 'Could not create the task.')
     } finally {
       setBusy('')
     }
@@ -135,7 +137,7 @@ export function StaffTasksPage() {
       else await reopenApiTask(task.id)
       await refresh()
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Could not update the task.')
+      await alert(err instanceof Error ? err.message : 'Could not update the task.')
     } finally {
       setBusy('')
     }
@@ -148,7 +150,7 @@ export function StaffTasksPage() {
       await updateApiTask(task.id, { assigneeId: user.id })
       await refresh()
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Could not claim the task.')
+      await alert(err instanceof Error ? err.message : 'Could not claim the task.')
     } finally {
       setBusy('')
     }
@@ -388,6 +390,7 @@ export function StaffTasksPage() {
 
 export function StaffUsersPage() {
   const db = useDb()
+  const { alert, confirm, prompt } = useDialogs()
   const [clients, setClients] = useState<any[]>([])
   const [organizations, setOrganizations] = useState<ApiOrganization[]>([])
   const [q, setQ] = useState('')
@@ -449,17 +452,34 @@ export function StaffUsersPage() {
   }
 
   async function massAction(action: string) {
-    if (selected.size === 0) { window.alert('You need to select at least one item'); return }
+    if (selected.size === 0) { await alert('You need to select at least one item'); return }
     let options: any = {}
     if (action === 'add-to-org') {
-      const orgList = organizations.map(o => `${o.id}: ${o.name}`).join('\n') || '(no organizations)'
-      const picked = window.prompt(`Enter Organization ID to add selected users to:\n\n${orgList}`, '')
+      const picked = await prompt({
+        title: 'Add users to organization',
+        description: (
+          <>
+            <p>Enter the Organization ID to add the selected users to:</p>
+            <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-paper p-2 font-mono text-xs text-ink-600">
+              {organizations.length
+                ? organizations.map(o => `${o.id}: ${o.name}`).join('\n')
+                : '(no organizations)'}
+            </div>
+          </>
+        ),
+        label: 'Organization ID',
+      })
       if (picked == null) return
       const orgId = picked.trim()
-      if (!orgId) { window.alert('Organization ID is required.'); return }
+      if (!orgId) { await alert('Organization ID is required.'); return }
       options = { orgId }
     }
-    if (!confirm('You sure?')) return
+    const confirmed = await confirm({
+      title: 'Apply mass action',
+      description: `Apply this action to ${selected.size} selected user${selected.size === 1 ? '' : 's'}?`,
+      confirmLabel: 'Apply',
+    })
+    if (!confirmed) return
     const token = accountSessionToken()
     if (!token) { setError('Staff session expired. Sign in again.'); return }
     try {
@@ -700,6 +720,7 @@ function OrgForm({ onSubmit, onCancel }: { onSubmit: (e: FormEvent<HTMLFormEleme
 
 export function StaffKbManagePage() {
   const db = useDb()
+  const { confirm } = useDialogs()
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<Faq | null>(null)
   const [loading, setLoading] = useState(true)
@@ -737,7 +758,11 @@ export function StaffKbManagePage() {
     } finally { setSaving(false) }
   }
   async function onDelete(id: string) {
-    if (!window.confirm('Delete this FAQ article? This action cannot be undone.')) return
+    if (!(await confirm({
+      title: 'Delete FAQ article',
+      description: 'Delete this FAQ article? This action cannot be undone.',
+      confirmLabel: 'Delete',
+    }))) return
     setSaving(true)
     setError('')
     try {
@@ -956,6 +981,7 @@ export function StaffProfilePage() {
 export function StaffUserPage() {
   const { id } = useParams()
   const db = useDb()
+  const { alert } = useDialogs()
   const [organizations, setOrganizations] = useState<ApiOrganization[]>([])
   const [organizationError, setOrganizationError] = useState('')
   const [saved, setSaved] = useState(false)
@@ -1031,7 +1057,7 @@ export function StaffUserPage() {
       const result = await saveApiDirectoryUser({ id, name: String(form.get('name')), email: String(form.get('email')), phone: String(form.get('phone')), org: String(form.get('org')), orgId: String(form.get('orgId')) }, token)
       upsertUser({ ...(result.user as any), password: '', active: true, role: 'client' })
       setSaved(true)
-    } catch (err) { window.alert(err instanceof Error ? err.message : 'Could not save user.') }
+    } catch (err) { await alert(err instanceof Error ? err.message : 'Could not save user.') }
   }
 
   return (
@@ -1121,6 +1147,7 @@ export function StaffUserPage() {
 export function StaffOrgPage() {
   const { id } = useParams()
   const db = useDb()
+  const { alert } = useDialogs()
   const [saved, setSaved] = useState(false)
   const org = db.organizations.find((o) => o.id === id)
   if (!org) {
@@ -1145,7 +1172,7 @@ export function StaffOrgPage() {
       const updated = result.organization
       upsertRecord('organizations', { id: updated.id, name: updated.name, address: updated.address, domain: updated.domain, phone: updated.phone, website: updated.website, notes: updated.notes })
       setSaved(true)
-    } catch (err) { window.alert(err instanceof Error ? err.message : 'Could not save organization.') }
+    } catch (err) { await alert(err instanceof Error ? err.message : 'Could not save organization.') }
   }
 
   return (
@@ -1203,6 +1230,7 @@ export function StaffTaskPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { alert, confirm } = useDialogs()
   const [task, setTask] = useState<ApiTask | null>(null)
   const [options, setOptions] = useState<ApiTaskOptions | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1258,7 +1286,7 @@ export function StaffTaskPage() {
       await reload()
       setToast('Task updated.')
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : fallback)
+      await alert(err instanceof Error ? err.message : fallback)
     } finally {
       setBusy('')
     }
@@ -1296,7 +1324,7 @@ export function StaffTaskPage() {
       const token = accountSessionToken()
       if (token) await hydrateTasksFromApi(token).catch(() => undefined)
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Could not save the task.')
+      await alert(err instanceof Error ? err.message : 'Could not save the task.')
     } finally {
       setBusy('')
     }
@@ -1324,7 +1352,7 @@ export function StaffTaskPage() {
       const token = accountSessionToken()
       if (token) await hydrateTasksFromApi(token).catch(() => undefined)
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Could not post the message.')
+      await alert(err instanceof Error ? err.message : 'Could not post the message.')
     } finally {
       setBusy('')
     }
@@ -1332,7 +1360,11 @@ export function StaffTaskPage() {
 
   async function onDelete() {
     if (!task) return
-    if (!window.confirm(`Delete task #${task.number || task.id}? This cannot be undone.`)) return
+    if (!(await confirm({
+      title: 'Delete task',
+      description: `Delete task #${task.number || task.id}? This cannot be undone.`,
+      confirmLabel: 'Delete',
+    }))) return
     setBusy('delete')
     try {
       await deleteApiTask(task.id)
@@ -1340,7 +1372,7 @@ export function StaffTaskPage() {
       if (token) await hydrateTasksFromApi(token).catch(() => undefined)
       navigate('/scp/tasks')
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Could not delete the task.')
+      await alert(err instanceof Error ? err.message : 'Could not delete the task.')
       setBusy('')
     }
   }
@@ -1499,7 +1531,9 @@ export function StaffTaskPage() {
                           <button
                             type="button"
                             className={btnGhost + ' text-xs'}
-                            onClick={() => { void downloadApiTaskAttachment(task.id, attachment.id, attachment.name).catch((err: unknown) => window.alert(err instanceof Error ? err.message : 'Could not download the attachment.')) }}
+                            onClick={() => { void downloadApiTaskAttachment(task.id, attachment.id, attachment.name).catch(async (err: unknown) => {
+                              await alert(err instanceof Error ? err.message : 'Could not download the attachment.')
+                            }) }}
                           >
                             {attachment.name} ({Math.max(1, Math.round(attachment.size / 1024))} KB)
                           </button>

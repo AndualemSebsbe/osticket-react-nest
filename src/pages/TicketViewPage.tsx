@@ -4,6 +4,7 @@ import { PriorityBadge, StatusBadge } from '../components/Badges'
 import { EmptyState, TicketThread } from '../components/TicketThread'
 import { btnGhost, inputClass} from '../components/ui'
 import { useAuth } from '../context/AuthContext'
+import { useDialogs } from '../context/DialogContext'
 import { formatDate } from '../lib/format'
 import { printTicket } from '../lib/printTicket'
 import { addReply, canAccessTicket, getDb, getTicket, messagesFor, reopenTicket, subscribe } from '../lib/store'
@@ -12,6 +13,7 @@ export function TicketViewPage() {
   const { id } = useParams()
   const [params] = useSearchParams()
   const { user } = useAuth()
+  const { alert } = useDialogs()
   const [, setTick] = useState(0)
   useEffect(() => subscribe(() => setTick((n) => n + 1)), [])
 
@@ -51,13 +53,17 @@ export function TicketViewPage() {
       body: String(data.get('body')),
       attachments: files.filter((f) => f.name).map((f) => f.name),
       files: files.filter((f) => f.name),
-    }).catch((error: unknown) => window.alert(error instanceof Error ? error.message : 'Could not post the reply.'))
+    }).catch(async (error: unknown) => {
+      await alert(error instanceof Error ? error.message : 'Could not post the reply.')
+    })
     form.reset()
   }
 
   function onReopen() {
     if (!user || !canReopen) return
-    void reopenTicket(ticket!.id, user).catch((error: unknown) => window.alert(error instanceof Error ? error.message : 'Could not reopen the ticket.'))
+    void reopenTicket(ticket!.id, user).catch(async (error: unknown) => {
+      await alert(error instanceof Error ? error.message : 'Could not reopen the ticket.')
+    })
   }
 
   return (

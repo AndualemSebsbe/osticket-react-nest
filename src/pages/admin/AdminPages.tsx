@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { btnGhost, btnPrimary, Card, DataTable, Field, inputClass, PageHeader } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
+import { useDialogs } from '../../context/DialogContext'
 import { useDb } from '../../hooks/useDb'
 import { adminGroups } from '../../layouts/staffNav'
 import { createApiBranch, listApiSlaPlans, createApiSlaPlan, updateApiSlaPlan, deleteApiSlaPlan, createApiFaqCategory, createApiAgent, updateApiAgent, deleteApiBranch, deleteApiFaqCategory, deleteApiAgent, listApiAdminBranches, listApiUsers, listApiAgents, getApiAgentOptions, saveApiTicketVisibility, sendMailTest, updateApiBranch, updateApiFaqCategory, updateApiUserVerification, massAgentAction, listApiSchedules, createApiSchedule, updateApiSchedule, cloneApiSchedule, deleteApiSchedule, setApiDefaultSchedule, type ApiBranch, type ApiSlaPlan, type ApiSchedule, type ApiScheduleEntry, type ApiSchedulesResponse, type ApiAgent, type ApiAgentOptions, type ApiDeptAccess, type ApiTeamMembership } from '../../lib/api'
@@ -84,6 +85,7 @@ export function AdminDashboardPage() {
 }
 
 export function AdminBranchesPage() {
+  const { confirm } = useDialogs()
   const [branches, setBranches] = useState<ApiBranch[]>([])
   const [editing, setEditing] = useState<ApiBranch | 'new' | null>(null)
   const [loading, setLoading] = useState(true)
@@ -119,7 +121,11 @@ export function AdminBranchesPage() {
   }
 
   async function deleteBranch(id: string) {
-    if (!window.confirm('Delete this branch? This action cannot be undone.')) return
+    if (!(await confirm({
+      title: 'Delete branch',
+      description: 'Delete this branch? This action cannot be undone.',
+      confirmLabel: 'Delete',
+    }))) return
     setSaving(true)
     setError('')
     try {
@@ -195,6 +201,7 @@ function VerificationStatusBadge({ status }: { status: VerificationClient['verif
 
 export function AdminUserVerificationPage() {
   const { user: actor } = useAuth()
+  const { confirm } = useDialogs()
   const [filter, setFilter] = useState<'pending' | 'all'>('pending')
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
@@ -228,9 +235,17 @@ export function AdminUserVerificationPage() {
       return
     }
     const prompt = status === 'approved'
-      ? `Approve ${person.name} (${person.email})?\n\nThey will be able to sign in and use their client account.`
-      : `Reject ${person.name} (${person.email})?\n\nThey will not be able to sign in until an administrator approves the account.`
-    if (!window.confirm(prompt)) return
+      ? `Approve ${person.name} (${person.email})?`
+      : `Reject ${person.name} (${person.email})?`
+    const confirmed = await confirm({
+      title: prompt,
+      description: status === 'approved'
+        ? 'They will be able to sign in and use their client account.'
+        : 'They will not be able to sign in until an administrator approves the account.',
+      confirmLabel: status === 'approved' ? 'Approve' : 'Reject',
+      destructive: status === 'rejected',
+    })
+    if (!confirmed) return
     try {
       const token = accountSessionToken()
       if (!token) throw new Error('Administrator session expired. Sign in again.')
@@ -291,7 +306,7 @@ export function AdminUserVerificationPage() {
           />
           <select aria-label="Filter accounts" value={filter} onChange={(e) => setFilter(e.target.value as 'pending' | 'all')} className={`${inputClass} sm:w-auto`}>
             <option value="pending">Pending review</option>
-            <option value="all">All client accounts</option>
+            <option value="all">All accounts</option>
           </select>
           <button type="button" className={btnGhost} onClick={() => { setLoading(true); void refresh() }}>Refresh</button>
         </div>
@@ -436,6 +451,7 @@ export function AdminFiltersPage() {
 }
 
 export function AdminSlasPage() {
+  const { confirm } = useDialogs()
   const [slas, setSlas] = useState<ApiSlaPlan[]>([])
   const [schedules, setSchedules] = useState<Array<{ id: string; name: string; timezone: string; description: string }>>([])
   const [editing, setEditing] = useState<ApiSlaPlan | 'new' | null>(null)
@@ -461,7 +477,12 @@ export function AdminSlasPage() {
     catch (err) { setError(err instanceof Error ? err.message : 'Could not save the SLA plan.') } finally { setSaving(false) }
   }
   async function remove(id: string) {
-    if (!token || !window.confirm('Delete this SLA plan? Plans assigned to tickets, departments, or help topics cannot be deleted.')) return
+    if (!token) return
+    if (!(await confirm({
+      title: 'Delete SLA plan',
+      description: 'Delete this SLA plan? Plans assigned to tickets, departments, or help topics cannot be deleted.',
+      confirmLabel: 'Delete',
+    }))) return
     setSaving(true); setError('')
     try { await deleteApiSlaPlan(id, token); setSlas(rows => rows.filter(row => row.id !== id)) }
     catch (err) { setError(err instanceof Error ? err.message : 'Could not delete the SLA plan.') } finally { setSaving(false) }
@@ -485,6 +506,7 @@ export function AdminSlasPage() {
 }
 
 export function AdminSchedulesPage() {
+  const { confirm, prompt } = useDialogs()
   const token = accountSessionToken() || ''
   const [data, setData] = useState<ApiSchedulesResponse>({ schedules: [], defaultScheduleId: '0', slas: [] })
   const [editing, setEditing] = useState<ApiSchedule | 'new' | null>(null)
@@ -523,14 +545,23 @@ export function AdminSchedulesPage() {
     finally { setSaving(false) }
   }
   async function removeSchedule(id: string) {
-    if (!window.confirm('Delete this schedule and its entries?')) return
+    if (!(await confirm({
+      title: 'Delete schedule',
+      description: 'Delete this schedule and its entries?',
+      confirmLabel: 'Delete',
+    }))) return
     setSaving(true); setError('')
     try { await deleteApiSchedule(id, token); await refresh() }
     catch (e) { setError(e instanceof Error ? e.message : 'Could not delete the schedule.') }
     finally { setSaving(false) }
   }
   async function cloneSchedule(schedule: ApiSchedule) {
-    const name = window.prompt('Name for the cloned schedule', `${schedule.name} (copy)`)
+    const name = await prompt({
+      title: 'Clone schedule',
+      description: 'Name for the cloned schedule',
+      defaultValue: `${schedule.name} (copy)`,
+      confirmLabel: 'Clone',
+    })
     if (!name?.trim()) return
     setSaving(true); setError('')
     try { await cloneApiSchedule(schedule.id, { name: name.trim() }, token); await refresh() }
@@ -790,6 +821,7 @@ type AgentTab = 'account' | 'access' | 'permissions' | 'teams'
 type MassActionType = 'enable' | 'disable' | 'delete' | 'change-department' | null
 
 export function AdminAgentsPage() {
+  const { confirm } = useDialogs()
   const [agents, setAgents] = useState<ApiAgent[]>([])
   const [options, setOptions] = useState<ApiAgentOptions>({ departments: [], roles: [], teams: [] })
   const [loading, setLoading] = useState(true)
@@ -967,7 +999,11 @@ export function AdminAgentsPage() {
 
   async function onDelete(agent: ApiAgent) {
     if (!token) return
-    if (!window.confirm(`Delete agent ${agent.name}? This cannot be undone.`)) return
+    if (!(await confirm({
+      title: 'Delete agent',
+      description: `Delete agent ${agent.name}? This cannot be undone.`,
+      confirmLabel: 'Delete',
+    }))) return
     try {
       await deleteApiAgent(agent.id, token)
       setSuccess('Agent deleted.')
@@ -1582,6 +1618,7 @@ const labels: Record<string, string> = {
 }
 
 export function AdminSettingsPage() {
+  const { alert } = useDialogs()
   const db = useDb()
   const [params, setParams] = useSearchParams()
   const tab = params.get('t') || 'company'
@@ -1598,7 +1635,9 @@ export function AdminSettingsPage() {
       else (patch as Record<string, unknown>)[key] = String(form.get(key))
     }
     saveSettings(patch)
-    if (typeof patch.hideCollaboratorTickets === 'boolean') void saveApiTicketVisibility(patch.hideCollaboratorTickets).catch((error) => window.alert(error instanceof Error ? error.message : 'Could not save collaborator visibility.'))
+    if (typeof patch.hideCollaboratorTickets === 'boolean') void saveApiTicketVisibility(patch.hideCollaboratorTickets).catch(async (error) => {
+      await alert(error instanceof Error ? error.message : 'Could not save collaborator visibility.')
+    })
   }
 
   return (

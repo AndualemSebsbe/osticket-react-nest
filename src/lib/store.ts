@@ -61,6 +61,8 @@ function migrate(raw: Partial<Database>): Database {
 }
 
 let cache: Database | null = null
+/** Bumped on every persist so subscribers can detect changes even though the cached database object is mutated in place. */
+let revision = 0
 let appStateHydrated = false
 let hydratingAppState = false
 let appStateSaveTimer: number | undefined
@@ -112,6 +114,7 @@ function load(): Database {
 
 function persist(data: Database) {
   cache = data
+  revision++
   localStorage.setItem(KEY, JSON.stringify(data))
   queuePostgresStateSave(data)
 }
@@ -135,6 +138,11 @@ export function subscribe(fn: () => void) {
 
 export function getDb(): Database {
   return load()
+}
+
+/** Snapshot value for useSyncExternalStore: changes on every store mutation. */
+export function getRevision(): number {
+  return revision
 }
 
 export function resetDemo() {

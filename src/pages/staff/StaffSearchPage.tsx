@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PriorityBadge, StatusBadge } from '../../components/Badges'
 import { btnGhost, btnPrimary, Card, Field, inputClass, PageHeader } from '../../components/ui'
+import { useDialogs } from '../../context/DialogContext'
 import {
   createApiSavedSearch,
   deleteApiSavedSearch,
@@ -77,6 +78,7 @@ function timestamp(value: string) {
 }
 
 export function StaffSearchPage() {
+  const { confirm } = useDialogs()
   const [options, setOptions] = useState<ApiAdvancedSearchOptions | null>(null)
   const [optionsError, setOptionsError] = useState('')
   const [savedSearches, setSavedSearches] = useState<ApiSavedSearch[]>([])
@@ -298,7 +300,11 @@ export function StaffSearchPage() {
   }
 
   async function removeSaved(search: ApiSavedSearch) {
-    if (!window.confirm(`Delete the saved search “${search.title}”?`)) return
+    if (!(await confirm({
+      title: 'Delete saved search',
+      description: `Delete the saved search “${search.title}”?`,
+      confirmLabel: 'Delete',
+    }))) return
     setError('')
     try {
       await deleteApiSavedSearch(search.id)
