@@ -676,26 +676,7 @@ export function AdminPagesPage() {
 
 export { AdminFormsPage } from './AdminFormsPage'
 
-export function AdminListsPage() {
-  const db = useDb()
-  return (
-    <EntityManager
-      title="Custom lists"
-      subtitle="Reusable option lists for custom forms."
-      collection="lists"
-      rows={db.lists}
-      columns={[
-        { key: 'name', label: 'Name' },
-        { key: 'items', label: 'Items' },
-      ]}
-      fields={[
-        { name: 'name', label: 'Name', type: 'text', required: true },
-        { name: 'items', label: 'Items', type: 'textarea', span2: true },
-      ]}
-      defaults={{ name: '', items: '' }}
-    />
-  )
-}
+export { AdminListsPage } from './AdminListsPage'
 
 export function AdminPluginsPage() {
   const db = useDb()

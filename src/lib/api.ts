@@ -1793,3 +1793,289 @@ export function listApiFormEntries(id: string, page = 1, limit = 50, token?: str
     headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
   })
 }
+
+
+// ==========================================
+// ADMIN LISTS & TICKET STATUSES API
+// ==========================================
+
+export type ApiListSortMode = 'Alpha' | '-Alpha' | 'SortCol'
+export type ApiTicketState = 'open' | 'closed' | 'archived' | 'deleted'
+
+export interface ApiListSummary {
+  id: string
+  name: string
+  namePlural: string
+  sortMode: ApiListSortMode
+  masks: number
+  type: string
+  notes: string
+  itemCount: number
+  enabledItemCount: number
+  formsCount: number
+  formsUsing: Array<{
+    formId: string
+    formTitle: string
+    fieldLabel: string
+    fieldName: string
+  }>
+  created: string
+  updated: string
+}
+
+export interface ApiListItem {
+  id: string
+  listId: string
+  value: string
+  extra: string
+  status: number
+  enabled: boolean
+  sort: number
+  properties: Record<string, any>
+}
+
+export interface ApiListPropertyField {
+  id: string
+  formId: string
+  label: string
+  name: string
+  type: string
+  sort: number
+  flags: number
+  hint: string
+  configuration: Record<string, any>
+}
+
+export interface ApiListFormUsage {
+  formId: string
+  formTitle: string
+  formType: string
+  fieldLabel: string
+  fieldName: string
+}
+
+export interface ApiListDetail {
+  id: string
+  name: string
+  namePlural: string
+  sortMode: ApiListSortMode
+  masks: number
+  type: string
+  notes: string
+  configuration: string
+  created: string
+  updated: string
+  itemCount: number
+  items: ApiListItem[]
+  formsCount: number
+  formsUsing: ApiListFormUsage[]
+  properties: ApiListPropertyField[]
+}
+
+export interface ApiListInput {
+  name: string
+  name_plural?: string
+  sort_mode?: ApiListSortMode
+  notes?: string
+  configuration?: string | Record<string, any>
+  items?: Array<{
+    value: string
+    extra?: string
+    status?: number
+    sort?: number
+    properties?: Record<string, any>
+  }>
+  properties?: ApiListPropertyFieldInput[]
+}
+
+export interface ApiListItemInput {
+  value?: string
+  extra?: string
+  status?: number
+  sort?: number
+  properties?: Record<string, any>
+}
+
+export interface ApiListPropertyFieldInput {
+  id?: string
+  label: string
+  name: string
+  type: string
+  sort?: number
+  flags?: number
+  hint?: string
+  configuration?: Record<string, any>
+  delete?: boolean
+}
+
+export function listApiLists(token?: string | null) {
+  return request<{ lists: ApiListSummary[] }>('/admin/lists', {
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+  })
+}
+
+export function getApiList(id: string, token?: string | null) {
+  return request<{ list: ApiListDetail }>('/admin/lists/' + encodeURIComponent(id), {
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+  })
+}
+
+export function createApiList(input: ApiListInput, token?: string | null) {
+  return request<{ list: ApiListDetail }>('/admin/lists', {
+    method: 'POST',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateApiList(id: string, input: ApiListInput, token?: string | null) {
+  return request<{ list: ApiListDetail }>('/admin/lists/' + encodeURIComponent(id), {
+    method: 'PUT',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteApiList(id: string, token?: string | null) {
+  return request<{ deleted: boolean; id: string }>('/admin/lists/' + encodeURIComponent(id), {
+    method: 'DELETE',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+  })
+}
+
+export function massApiListAction(action: string, ids: string[], token?: string | null) {
+  return request<{ affected: number }>('/admin/lists/mass-action', {
+    method: 'POST',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify({ action, ids }),
+  })
+}
+
+export function addApiListItem(listId: string, input: ApiListItemInput, token?: string | null) {
+  return request<ApiListItem>(`/admin/lists/${encodeURIComponent(listId)}/items`, {
+    method: 'POST',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateApiListItem(listId: string, itemId: string, input: ApiListItemInput, token?: string | null) {
+  return request<ApiListItem>(`/admin/lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(itemId)}`, {
+    method: 'PUT',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteApiListItem(listId: string, itemId: string, token?: string | null) {
+  return request<{ deleted: boolean; id: string }>(`/admin/lists/${encodeURIComponent(listId)}/items/${encodeURIComponent(itemId)}`, {
+    method: 'DELETE',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+  })
+}
+
+export function massApiListItemAction(listId: string, action: 'enable' | 'disable' | 'delete', ids: string[], token?: string | null) {
+  return request<{ affected: number }>(`/admin/lists/${encodeURIComponent(listId)}/items/mass-action`, {
+    method: 'POST',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify({ action, ids }),
+  })
+}
+
+export function importApiListItems(listId: string, items: Array<{ value: string; extra?: string }>, token?: string | null) {
+  return request<{ imported: number }>(`/admin/lists/${encodeURIComponent(listId)}/items/import`, {
+    method: 'POST',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify({ items }),
+  })
+}
+
+export function reorderApiListItems(listId: string, itemIds: string[], token?: string | null) {
+  return request<{ reordered: boolean; count: number }>(`/admin/lists/${encodeURIComponent(listId)}/items/reorder`, {
+    method: 'PUT',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify({ itemIds }),
+  })
+}
+
+export function saveApiListProperties(listId: string, fields: ApiListPropertyFieldInput[], token?: string | null) {
+  return request<{ saved: boolean }>(`/admin/lists/${encodeURIComponent(listId)}/properties`, {
+    method: 'POST',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify({ fields }),
+  })
+}
+
+// --- Ticket Statuses API ---
+
+export interface ApiTicketStatus {
+  id: string
+  name: string
+  state: ApiTicketState
+  mode: number
+  flags: number
+  sort: number
+  isSystem: boolean
+  reopenable: boolean
+  description: string
+  properties: Record<string, any>
+  ticketCount: number
+  created: string
+  updated: string
+}
+
+export interface ApiTicketStatusInput {
+  name: string
+  state?: ApiTicketState
+  sort?: number
+  properties?: {
+    description?: string
+    reopenable?: boolean
+    notes?: string
+    [key: string]: any
+  }
+  flags?: number
+}
+
+export function listApiTicketStatuses(token?: string | null) {
+  return request<{ statuses: ApiTicketStatus[] }>('/admin/ticket-statuses', {
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+  })
+}
+
+export function getApiTicketStatus(id: string, token?: string | null) {
+  return request<{ status: ApiTicketStatus }>('/admin/ticket-statuses/' + encodeURIComponent(id), {
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+  })
+}
+
+export function createApiTicketStatus(input: ApiTicketStatusInput, token?: string | null) {
+  return request<{ status: ApiTicketStatus }>('/admin/ticket-statuses', {
+    method: 'POST',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateApiTicketStatus(id: string, input: ApiTicketStatusInput, token?: string | null) {
+  return request<{ status: ApiTicketStatus }>('/admin/ticket-statuses/' + encodeURIComponent(id), {
+    method: 'PUT',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteApiTicketStatus(id: string, token?: string | null) {
+  return request<{ deleted: boolean; id: string }>('/admin/ticket-statuses/' + encodeURIComponent(id), {
+    method: 'DELETE',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+  })
+}
+
+export function massApiTicketStatusAction(action: string, ids: string[], token?: string | null) {
+  return request<{ affected: number }>('/admin/ticket-statuses/mass-action', {
+    method: 'POST',
+    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
+    body: JSON.stringify({ action, ids }),
+  })
+}

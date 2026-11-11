@@ -16,6 +16,10 @@ import { HelpTopicsService } from './help-topics.service';
 import { TeamsService } from './teams.service';
 import { FormsController } from './forms.controller';
 import { FormsService } from './forms.service';
+import { ListsController } from './lists.controller';
+import { ListsService } from './lists.service';
+import { TicketStatusesController } from './ticket-statuses.controller';
+import { TicketStatusesService } from './ticket-statuses.service';
 import { MailModule } from '../mail/mail.module';
 import { AdminGuard } from '../common/admin.guard';
 import { AuthModule } from '../auth/auth.module';
@@ -31,6 +35,8 @@ import { PrismaModule } from '../prisma/prisma.module';
     SystemLogsController,
     SystemInfoController,
     FormsController,
+    ListsController,
+    TicketStatusesController,
   ],
   providers: [
     AdminService,
@@ -44,8 +50,10 @@ import { PrismaModule } from '../prisma/prisma.module';
     HelpTopicsService,
     TeamsService,
     FormsService,
+    ListsService,
+    TicketStatusesService,
     AdminGuard,
   ],
-  exports: [FormsService],
+  exports: [FormsService, ListsService, TicketStatusesService],
 })
 export class AdminModule {}
