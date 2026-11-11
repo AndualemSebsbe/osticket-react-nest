@@ -4,7 +4,6 @@ export const agentNav: NavItem[] = [
   { to: "/scp", label: "Dashboard", end: true },
   { to: "/scp/tickets", label: "Tickets" },
 
-  { to: "/scp/search", label: "Search" },
   { to: "/scp/tasks", label: "Tasks" },
   { to: "/scp/users", label: "Users" },
   { to: "/scp/orgs", label: "Organizations" },
