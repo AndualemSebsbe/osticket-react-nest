@@ -17,18 +17,14 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import {
   createApiFaqArticle,
-  deleteApiDirectoryUser,
   deleteApiFaqArticle,
   deleteApiOrganization,
-  getApiDirectoryUser,
   listApiDirectoryUsers,
   listApiFaqArticles,
   listApiOrganizations,
-  massActionApiDirectoryUsers,
   saveApiDirectoryUser,
   saveApiOrganization,
   updateApiAccountPassword,
-  updateApiDirectoryUser,
   updateApiFaqArticle,
   updateApiProfile,
   type ApiDirectoryUser,
