@@ -2,7 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { agentTabs } from './staffNav'
 
 function tabActive(pathname: string, id: string) {
-  if (id === 'dashboard') return pathname === '/scp' || pathname === '/scp/directory' || pathname === '/scp/profile'
+  if (id === 'dashboard') return pathname === '/scp' || pathname === '/scp/profile'
   if (id === 'users') return pathname.startsWith('/scp/users') || pathname.startsWith('/scp/orgs')
   if (id === 'tasks') return pathname.startsWith('/scp/tasks')
   if (id === 'tickets') return pathname.startsWith('/scp/tickets') || pathname.startsWith('/scp/search')

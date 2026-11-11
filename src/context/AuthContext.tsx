@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ApiRequestError, apiClientLogin, apiStaffLogin, apiValidateClientSession, apiValidateStaffSession } from '../lib/api'
-import { accountSessionToken, currentUser, establishApiSession, hydrateAppStateFromApi, hydrateAssignableStaffFromApi, hydrateTasksFromApi, hydrateTicketsFromApi, logout as doLogout, register as doRegister, subscribe } from '../lib/store'
+import { accountSessionToken, currentUser, establishApiSession, hydrateAppStateFromApi, hydrateAssignableStaffFromApi, hydratePublicAppStateFromApi, hydrateTasksFromApi, hydrateTicketsFromApi, logout as doLogout, register as doRegister, subscribe } from '../lib/store'
 import type { User } from '../types'
 
 interface AuthValue {
@@ -41,27 +41,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.info('[auth-session] validating stored session', { role: saved.role, tokenPresent: true })
       try {
         const isStaff = saved.role === 'agent' || saved.role === 'admin'
-        const result = isStaff
-          ? await apiValidateStaffSession(token)
-          : await apiValidateClientSession(token)
+        const result = await (async () => {
+          try {
+            return isStaff ? await apiValidateStaffSession(token) : await apiValidateClientSession(token)
+          } catch (error) {
+            // The locally stored role can be stale after a client/staff id
+            // collision. Try the other portal before rejecting the token.
+            if (error instanceof ApiRequestError && (error.status === 401 || error.status === 403)) {
+              return isStaff ? await apiValidateClientSession(token) : await apiValidateStaffSession(token)
+            }
+            throw error
+          }
+        })()
         if (revision !== authRevision.current) return
+        let activeUser = saved
         if (saved.role !== result.role) {
-          console.warn('[auth-session] session role mismatch; clearing session', { savedRole: saved.role, serverRole: result.role })
-          doLogout()
-          if (alive) setUser(null)
-          return
+          // The server has already validated this token, so repair the local
+          // identity instead of signing the user out over a stale/duplicate record.
+          console.warn('[auth-session] repairing local session identity from validated account', { savedRole: saved.role, serverRole: result.role })
+          activeUser = establishApiSession(result.user, token)
         }
         console.info('[auth-session] session accepted', { role: result.role, userId: result.user.id })
         try {
-          if (result.role === 'agent' || result.role === 'admin') await hydrateAssignableStaffFromApi(token)
+          if (result.role === 'agent' || result.role === 'admin') await hydrateAssignableStaffFromApi(token, { id: result.user.id, email: result.user.email, role: result.role })
           await hydrateTicketsFromApi(token)
-          await hydrateAppStateFromApi(token, result.role)
+          if (result.role === 'client') await hydratePublicAppStateFromApi()
+          else await hydrateAppStateFromApi(token, result.role)
           if (result.role === 'agent' || result.role === 'admin') await hydrateTasksFromApi(token)
         } catch (error) {
           // A failed data refresh does not mean the signed-in account is invalid.
           console.warn('[helpdesk session refresh]', error instanceof Error ? error.message : error)
         }
-        if (alive && revision === authRevision.current) setUser(currentUser() || saved)
+        if (alive && revision === authRevision.current) setUser(currentUser() || activeUser)
       } catch (error) {
         // Only clear credentials when the API explicitly rejects the session.
         // Network errors and server errors should not sign the user out.
@@ -108,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(next)
           void (async () => {
             try {
-              await hydrateAssignableStaffFromApi(result.sessionToken)
+              await hydrateAssignableStaffFromApi(result.sessionToken, { id: result.user.id, email: result.user.email, role: result.user.role })
               console.info('[staff-login] staff directory loaded')
               await hydrateTicketsFromApi(result.sessionToken)
               console.info('[staff-login] ticket data loaded')
@@ -138,7 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(next)
             try {
               await hydrateTicketsFromApi(result.sessionToken)
-              await hydrateAppStateFromApi(result.sessionToken, 'client')
+              await hydratePublicAppStateFromApi()
             } catch (error) {
               console.warn('[helpdesk initial ticket refresh]', error instanceof Error ? error.message : error)
             }

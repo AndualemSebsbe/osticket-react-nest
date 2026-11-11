@@ -340,16 +340,45 @@ export class AdminService {
     }
   }
 
+  private faqViews(faqs: Array<{ faq_id: bigint; category_id: bigint; question: string; answer: string; ispublished: number }>) {
+    return faqs.map(f => ({ id: String(f.faq_id), categoryId: String(f.category_id), question: f.question, answer: f.answer, published: Boolean(f.ispublished) }));
+  }
+
+  private categoryViews(categories: Array<{ category_id: bigint; name: string | null; description: string; ispublic: number }>) {
+    return categories.map(c => ({ id: String(c.category_id), name: c.name || '', description: c.description, published: Boolean(c.ispublic) }));
+  }
+
+  private async savedState() {
+    const rows = await this.prisma.config.findMany({ where: { namespace: 'react_app_state' } });
+    const state: Record<string, any> = {};
+    for (const row of rows) { try { state[row.key] = JSON.parse(row.value); } catch { state[row.key] = row.value; } }
+    return state;
+  }
+
   async publicState() {
-    const [faqs, categories, pages, settings] = await Promise.all([
+    const [faqs, categories, state] = await Promise.all([
       this.prisma.faq.findMany({ where: { ispublished: 1 }, orderBy: { question: 'asc' } }),
       this.prisma.faqCategory.findMany({ where: { ispublic: 1 }, orderBy: { name: 'asc' } }),
-      this.prisma.content.findMany({ where: { isactive: 1 }, orderBy: { name: 'asc' } }),
-      this.prisma.config.findMany({ where: { namespace: 'react_app_state' } }),
+      this.savedState(),
     ]);
-    const state: Record<string, any> = {};
-    for (const row of settings) { try { state[row.key] = JSON.parse(row.value); } catch { state[row.key] = row.value; } }
-    return Object.keys(state).length ? state : { faqs, categories, pages };
+    return {
+      ...state,
+      faqs: this.faqViews(faqs),
+      categories: this.categoryViews(categories),
+    };
+  }
+
+  async appState() {
+    const [faqs, categories, state] = await Promise.all([
+      this.prisma.faq.findMany({ orderBy: { updated: 'desc' } }),
+      this.prisma.faqCategory.findMany({ orderBy: { name: 'asc' } }),
+      this.savedState(),
+    ]);
+    return {
+      ...state,
+      faqs: state.faqs ?? this.faqViews(faqs),
+      categories: this.categoryViews(categories),
+    };
   }
 
   async create(kind: string, data: any): Promise<any> {

@@ -10,6 +10,7 @@ import { useDb } from '../../hooks/useDb'
 import { formatDate, relativeTime } from '../../lib/format'
 import {
   accountSessionToken,
+  clientRecordId,
   createTask,
   removeCanned,
   removeFaq,
@@ -188,6 +189,7 @@ export function StaffUsersPage() {
   }
   useEffect(() => { void refreshUsers() }, [])
   const filtered = clients.filter((u) => `${u.name} ${u.email} ${u.org}`.toLowerCase().includes(q.toLowerCase()))
+  const localClientId = (u: ApiDirectoryUser) => db.users.find((person) => person.role === 'client' && (person.id === clientRecordId(u.id) || person.email.toLowerCase() === u.email.toLowerCase()))?.id ?? clientRecordId(u.id)
 
   async function onAdd(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -252,20 +254,23 @@ export function StaffUsersPage() {
         </Card>
       ) : null}
       <ul className="grid gap-3 lg:hidden">
-        {filtered.map((u) => (
+        {filtered.map((u) => {
+          const clientId = localClientId(u)
+          return (
           <li key={u.id}>
             <Card>
-              <Link to={`/scp/users/${u.id}`} className="font-medium hover:text-brand-600">
+              <Link to={`/scp/users/${clientId}`} className="font-medium hover:text-brand-600">
                 {u.name}
               </Link>
               <p className="text-sm text-ink-600">
                 {u.email}
                 {u.org ? ` · ${u.org}` : ''}
               </p>
-              <p className="text-xs text-ink-400">{db.tickets.filter((t) => t.userId === u.id).length} tickets</p>
+              <p className="text-xs text-ink-400">{db.tickets.filter((t) => t.userId === clientId).length} tickets</p>
             </Card>
           </li>
-        ))}
+          )
+        })}
       </ul>
       <div className="-mx-3 hidden overflow-x-auto px-3 lg:mx-0 lg:block lg:px-0">
         <div className="overflow-hidden rounded-2xl border border-line bg-surface">
@@ -279,18 +284,21 @@ export function StaffUsersPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((u) => (
+            {filtered.map((u) => {
+              const clientId = localClientId(u)
+              return (
               <tr key={u.id} className="border-t border-line">
                 <td className="px-4 py-3">
-                  <Link to={`/scp/users/${u.id}`} className="text-brand-600">
+                  <Link to={`/scp/users/${clientId}`} className="text-brand-600">
                     {u.name}
                   </Link>
                 </td>
                 <td className="px-4 py-3">{u.email}</td>
                 <td className="px-4 py-3">{u.org ?? db.organizations.find((o) => o.id === u.orgId)?.name ?? '—'}</td>
-                <td className="px-4 py-3">{db.tickets.filter((t) => t.userId === u.id).length}</td>
+                <td className="px-4 py-3">{db.tickets.filter((t) => t.userId === clientId).length}</td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
         </div>
@@ -947,7 +955,7 @@ export function StaffUserPage() {
     void loadOrganizations()
     return () => { active = false }
   }, [])
-  const person = db.users.find((u) => u.id === id)
+  const person = db.users.find((u) => u.role === 'client' && (u.id === id || u.id === clientRecordId(String(id ?? ''))))
   if (!person) {
     return (
       <div>

@@ -47,7 +47,6 @@ import {
 import { AdminHelpTopicsPage } from './pages/admin/AdminHelpTopicsPage'
 import { StaffDashboardPage } from './pages/staff/StaffDashboardPage'
 import { AdminQueuesPage } from './pages/admin/AdminQueuesPage'
-import { StaffDirectoryPage } from './pages/staff/StaffDirectoryPage'
 import {
   StaffCannedPage,
   StaffKbManagePage,
@@ -141,7 +140,6 @@ export default function App() {
             <Route path="orgs/:id" element={<StaffOrgPage />} />
             <Route path="kb" element={<StaffKbManagePage />} />
             <Route path="canned" element={<StaffCannedPage />} />
-            <Route path="directory" element={<StaffDirectoryPage />} />
             <Route path="profile" element={<StaffProfilePage />} />
             <Route path="admin" element={<AdminShell />}>
               <Route index element={<AdminDashboardPage />} />

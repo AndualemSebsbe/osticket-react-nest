@@ -10,7 +10,6 @@ export const agentNav: NavItem[] = [
   { to: '/scp/orgs', label: 'Organizations' },
   { to: '/scp/kb', label: 'Knowledgebase' },
   { to: '/scp/canned', label: 'Canned responses' },
-  { to: '/scp/directory', label: 'Directory' },
 ]
 
 export const agentTabs: { id: string; label: string; to: string }[] = [

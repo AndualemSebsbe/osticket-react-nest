@@ -24,7 +24,7 @@ export class AdminController {
   private check(_req:any) { }
   @Get('health') health() { return { ok: true, mailConfigured: this.mail.isConfigured(), storage: 'postgresql' }; }
   @Get('public-state') async publicState() { return { state: await this.admin.publicState() }; }
-  @Get('app-state') async appState() { return { state: await this.admin.publicState() }; }
+  @Get('app-state') async appState() { return { state: await this.admin.appState() }; }
   @Put('app-state') async saveState(@Body() body:any) { await this.admin.saveState(body.state || body); return { saved: true }; }
   @Get('branches') async branches() { return { branches: await this.admin.list('branches') }; }
   @Get('help-topics') async publicHelpTopics() { return await this.helpTopics.publicList(); }

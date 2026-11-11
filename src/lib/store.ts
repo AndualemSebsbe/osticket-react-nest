@@ -178,8 +178,18 @@ export async function hydrateAppStateFromApi(token: string, _role: User['role'])
   appStateHydrated = true
 }
 
+function staffSessionActive() {
+  try {
+    const raw = localStorage.getItem(SESSION)
+    const role = raw ? (JSON.parse(raw) as { role?: string }).role : undefined
+    return role === 'agent' || role === 'admin'
+  } catch {
+    return false
+  }
+}
+
 export async function hydratePublicAppStateFromApi() {
-  if (clientSessionToken()) return
+  if (staffSessionActive()) return
   const { state } = await getApiPublicAppState()
   if (!state) return
   const db = load()
@@ -263,13 +273,39 @@ export function logout() {
   localStorage.removeItem(SESSION)
 }
 
+/**
+ * Client accounts and staff accounts come from separate database sequences, so
+ * their numeric ids can collide. Prefix API client ids so a client can never
+ * share a local id with an agent/administrator.
+ */
+export function clientRecordId(apiId: string) {
+  return /^\d+$/.test(apiId) ? `client-${apiId}` : apiId
+}
+
+function rekeyClientRecord(db: Database, fromId: string, toId: string) {
+  if (!fromId || fromId === toId) return
+  const client = db.users.find((user) => user.role === 'client' && user.id === fromId)
+  if (!client) return
+  client.id = toId
+  for (const ticket of db.tickets) {
+    if (ticket.userId === fromId) ticket.userId = toId
+    if (ticket.collaboratorIds?.includes(fromId)) ticket.collaboratorIds = ticket.collaboratorIds.map((value) => value === fromId ? toId : value)
+  }
+  for (const message of db.messages) {
+    if (message.authorId === fromId) message.authorId = toId
+  }
+}
+
 export function currentUser(): User | null {
   try {
     const raw = localStorage.getItem(SESSION)
     if (!raw) return null
-    const { userId } = JSON.parse(raw) as { userId: string }
+    const { userId, role } = JSON.parse(raw) as { userId: string; role?: User['role'] }
     const db = load()
-    let user = db.users.find((u) => u.id === userId)
+    // Prefer an exact role match so a stale duplicate id can never turn a staff
+    // session into a client session (or the other way around).
+    let user = role ? db.users.find((u) => u.id === userId && u.role === role) : undefined
+    if (!user) user = db.users.find((u) => u.id === userId)
     if (!user) user = getUser(userId) ?? undefined
     if (user?.role === 'client' && user.verificationStatus && user.verificationStatus !== 'approved') {
       localStorage.removeItem(SESSION)
@@ -346,15 +382,18 @@ export function establishApiClientSession(account: ApiClientUser, accessToken: s
   lastPostgresStateSnapshot = null
   appStateHydrated = false
   const db = load()
-  let user = db.users.find((item) => item.email.toLowerCase() === account.email.toLowerCase())
+  const email = account.email.toLowerCase()
+  const localId = clientRecordId(String(account.id))
+  let user = db.users.find((item) => item.role === 'client' && item.email.toLowerCase() === email)
   if (user) {
-    Object.assign(user, { name: account.name, email: account.email, phone: account.phone || user.phone, employeeId: account.employeeId || '', branchId: account.branchId || '', branchName: account.branchName || '', org: account.org || '', avatar: account.avatar || user.avatar, role: 'client' as const, active: true, verificationStatus: 'approved' as const, password: '' })
+    if (user.id !== localId) rekeyClientRecord(db, user.id, localId)
+    Object.assign(user, { name: account.name, email: account.email, phone: account.phone || user.phone, employeeId: account.employeeId || '', branchId: account.branchId || '', branchName: account.branchName || '', org: account.org || '', avatar: account.avatar || user.avatar, role: 'client' as const, active: true, verificationStatus: 'approved' as const, password: '', id: localId })
   } else {
-    user = { id: `react-${account.id}`, name: account.name, email: account.email, phone: account.phone, employeeId: account.employeeId, branchId: account.branchId, branchName: account.branchName, org: account.org, avatar: account.avatar, password: '', role: 'client', active: true, verificationStatus: 'approved' }
+    user = { id: localId, name: account.name, email: account.email, phone: account.phone, employeeId: account.employeeId, branchId: account.branchId, branchName: account.branchName, org: account.org, avatar: account.avatar, password: '', role: 'client', active: true, verificationStatus: 'approved' }
     db.users.push(user)
   }
   save(db)
-  localStorage.setItem(SESSION, JSON.stringify({ userId: user.id, accessToken }))
+  localStorage.setItem(SESSION, JSON.stringify({ userId: user.id, accessToken, role: user.role }))
   emit()
   return user
 }
@@ -364,12 +403,15 @@ export function establishApiStaffSession(account: ApiClientUser & { role: 'agent
   lastPostgresStateSnapshot = null
   appStateHydrated = false
   const db = load()
-  let user = db.users.find((item) => item.email.toLowerCase() === account.email.toLowerCase())
+  const email = account.email.toLowerCase()
+  let user = db.users.find((item) => (item.role === 'agent' || item.role === 'admin') && item.email.toLowerCase() === email)
   const value: User = { id: String(account.id), name: account.name, email: account.email, phone: account.phone, title: account.title, deptId: account.deptId, roleId: account.roleId, avatar: account.avatar, password: '', role: account.role, active: true }
+  // A client record may already use this numeric id; move it aside first.
+  rekeyClientRecord(db, value.id, clientRecordId(value.id))
   if (user) Object.assign(user, value)
   else { user = value; db.users.push(user) }
   save(db)
-  localStorage.setItem(SESSION, JSON.stringify({ userId: user.id, accessToken }))
+  localStorage.setItem(SESSION, JSON.stringify({ userId: user.id, accessToken, role: user.role }))
   emit()
   return user
 }
@@ -401,20 +443,49 @@ export function updateProfile(userId: string, patch: Partial<Pick<User, 'name' |
 
 export function upsertUser(input: Partial<User> & { name: string; email: string; role: User['role'] }) {
   const db = load()
-  if (input.id) {
-    const existing = db.users.find((u) => u.id === input.id)
+  const email = String(input.email || '').trim().toLowerCase()
+  const isClient = input.role === 'client'
+  const localId = input.id ? (isClient ? clientRecordId(String(input.id)) : String(input.id)) : undefined
+
+  if (isClient) {
+    // Directory/client syncs must never overwrite an agent or administrator
+    // account, even when both database sequences produced the same numeric id.
+    let existing = email ? db.users.find((u) => u.role === 'client' && u.email.toLowerCase() === email) : undefined
+    if (!existing && localId) existing = db.users.find((u) => u.role === 'client' && u.id === localId)
     if (existing) {
-      Object.assign(existing, input)
+      if (localId && existing.id !== localId) rekeyClientRecord(db, existing.id, localId)
+      Object.assign(existing, input, { id: localId || existing.id, role: 'client' as const })
       save(db)
       emit()
       return existing
     }
+    const user: User = {
+      password: input.password || 'demo123',
+      active: true,
+      ...input,
+      id: localId || id(),
+      role: 'client',
+    }
+    db.users.push(user)
+    save(db)
+    emit()
+    return user
   }
+
+  let existing = input.id ? db.users.find((u) => u.id === input.id && u.role !== 'client') : undefined
+  if (existing) {
+    Object.assign(existing, input)
+    save(db)
+    emit()
+    return existing
+  }
+  // A staff record with this id replaces any colliding client record.
+  if (localId) rekeyClientRecord(db, localId, clientRecordId(localId))
   const user: User = {
-    id: id(),
     password: input.password || 'demo123',
     active: true,
     ...input,
+    id: localId || id(),
   }
   db.users.push(user)
   save(db)
@@ -615,28 +686,55 @@ function staffTaskSession() {
   return Boolean(accountSessionToken()) && (role === 'agent' || role === 'admin')
 }
 
-export async function hydrateAssignableStaffFromApi(token: string) {
+export async function hydrateAssignableStaffFromApi(token: string, signedIn?: { id?: string; email?: string; role?: User['role'] }) {
   const result = await listApiAssignableStaff(token)
   const db = load()
-  let session: { userId?: string; accessToken?: string } | null = null
+  let session: { userId?: string; accessToken?: string; role?: string } | null = null
   try { session = JSON.parse(localStorage.getItem(SESSION) || 'null') } catch {}
   let sessionUserIdChanged = false
   const normalizedEmail = (email: string | null | undefined) => String(email || '').trim().toLowerCase()
   const assignableEmails = new Set(result.staff.map((person) => normalizedEmail(person.email)).filter(Boolean))
-  db.users = db.users.filter((person) => person.role === 'client' || !person.email || assignableEmails.has(person.email.toLowerCase()))
+  const sessionUserId = session?.userId
+  // Keep every client and every assignable staff member, and never drop the
+  // account that is currently signed in (even if the API omits it).
+  db.users = db.users.filter((person) =>
+    person.role === 'client' ||
+    !person.email ||
+    assignableEmails.has(normalizedEmail(person.email)) ||
+    person.id === sessionUserId
+  )
   for (const person of result.staff) {
     const email = normalizedEmail(person.email)
-    const account = db.users.find((user) => user.id === person.id || (email && normalizedEmail(user.email) === email))
+    const account = db.users.find((user) => (user.role === 'agent' || user.role === 'admin') && email && normalizedEmail(user.email) === email)
+      ?? db.users.find((user) => (user.role === 'agent' || user.role === 'admin') && user.id === person.id)
     const value: User = { id: person.id, name: person.name, email: person.email, phone: person.phone, title: person.title, deptId: person.deptId, roleId: person.roleId, avatar: (person as any).avatar || account?.avatar || '', password: '', role: person.role, active: person.active }
     if (account) {
       const previousId = account.id
+      // Move any client that happens to share this staff id out of the way.
+      rekeyClientRecord(db, value.id, clientRecordId(value.id))
       Object.assign(account, value)
       if (session?.userId === previousId && previousId !== value.id) {
         session.userId = value.id
         sessionUserIdChanged = true
       }
     }
-    else db.users.push(value)
+    else {
+      rekeyClientRecord(db, value.id, clientRecordId(value.id))
+      db.users.push(value)
+    }
+  }
+  if (signedIn?.email) {
+    const signedInStaff = db.users.find((user) => (user.role === 'agent' || user.role === 'admin') && normalizedEmail(user.email) === normalizedEmail(signedIn.email))
+    if (signedInStaff && session) {
+      if (session.userId !== signedInStaff.id) {
+        session.userId = signedInStaff.id
+        sessionUserIdChanged = true
+      }
+      if (signedIn.role && session.role !== signedIn.role) {
+        session.role = signedIn.role
+        sessionUserIdChanged = true
+      }
+    }
   }
   save(db)
   if (sessionUserIdChanged && session) localStorage.setItem(SESSION, JSON.stringify(session))
