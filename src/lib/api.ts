@@ -1,881 +1,1907 @@
-import type { Ticket, TicketStatusOption, User, Database } from '../types'
+import type { Ticket, TicketStatusOption, User, Database } from "../types";
 
-export interface ApiHealth { ok: boolean; mailConfigured: boolean; storage: string }
-export interface ApiPersistedTicket { id: string; number: string; subject: string; status: Ticket['status']; statusId?: string; statusName?: string; priority: Ticket['priority']; source: string; topic: string; department: string; requesterName: string; requesterEmail: string; employeeId?: string; branchId?: string; branchName?: string; assignee?: string; assigneeEmail?: string; assigneeStaffId?: string; collaborators?: Array<{ userId: string; name: string; email: string; active: boolean }>; fromEmail?: string; collaboratorNotice?: 'all' | 'user' | 'none'; overdue: boolean; createdAt: string; updatedAt: string; parentTicketId?: string; mergedTicketIds?: string[]; dueAt?: string; lockedBy?: string; lockedByName?: string; lockExpires?: string }
-export interface ApiPersistedMessage { id: string; ticketNumber: string; author: string; authorEmail: string; kind: 'client' | 'agent' | 'collaborator' | 'system'; internal: boolean; body: string; attachments: string[]; attachmentFiles?: Array<{ id: string; name: string }>; recipients?: string[]; createdAt: string }
+export interface ApiHealth {
+  ok: boolean;
+  mailConfigured: boolean;
+  storage: string;
+}
+export interface ApiPersistedTicket {
+  id: string;
+  number: string;
+  subject: string;
+  status: Ticket["status"];
+  statusId?: string;
+  statusName?: string;
+  priority: Ticket["priority"];
+  source: string;
+  topic: string;
+  department: string;
+  requesterName: string;
+  requesterEmail: string;
+  employeeId?: string;
+  branchId?: string;
+  branchName?: string;
+  assignee?: string;
+  assigneeEmail?: string;
+  assigneeStaffId?: string;
+  collaborators?: Array<{
+    userId: string;
+    name: string;
+    email: string;
+    active: boolean;
+  }>;
+  fromEmail?: string;
+  collaboratorNotice?: "all" | "user" | "none";
+  overdue: boolean;
+  createdAt: string;
+  updatedAt: string;
+  parentTicketId?: string;
+  mergedTicketIds?: string[];
+  dueAt?: string;
+  lockedBy?: string;
+  lockedByName?: string;
+  lockExpires?: string;
+}
+export interface ApiPersistedMessage {
+  id: string;
+  ticketNumber: string;
+  author: string;
+  authorEmail: string;
+  kind: "client" | "agent" | "collaborator" | "system";
+  internal: boolean;
+  body: string;
+  attachments: string[];
+  attachmentFiles?: Array<{ id: string; name: string }>;
+  recipients?: string[];
+  createdAt: string;
+}
 
 export class ApiRequestError extends Error {
-  constructor(message: string, readonly status: number) {
-    super(message)
-    this.name = 'ApiRequestError'
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
   }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers)
-  if (!(init?.body instanceof FormData)) headers.set('content-type', 'application/json')
-  const response = await fetch('/api/v1' + path, { ...init, headers })
-  const data = await response.json().catch(() => ({}))
+  const headers = new Headers(init?.headers);
+  if (!(init?.body instanceof FormData))
+    headers.set("content-type", "application/json");
+  const response = await fetch("/api/v1" + path, { ...init, headers });
+  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = typeof data.message === 'string' ? data.message : data.error
-    throw new ApiRequestError(message || 'API request failed (' + response.status + ').', response.status)
+    const message =
+      typeof data.message === "string" ? data.message : data.error;
+    throw new ApiRequestError(
+      message || "API request failed (" + response.status + ").",
+      response.status,
+    );
   }
-  return data as T
+  return data as T;
 }
 function background(promise: Promise<unknown>) {
-  void promise.catch((error: unknown) => console.warn('[helpdesk API]', error instanceof Error ? error.message : error))
+  void promise.catch((error: unknown) =>
+    console.warn(
+      "[helpdesk API]",
+      error instanceof Error ? error.message : error,
+    ),
+  );
 }
 function currentSessionHeaders(): Record<string, string> {
   try {
-    const token = (JSON.parse(localStorage.getItem('osticket-react-session') || '{}') as { accessToken?: string }).accessToken
-    return token ? { 'x-user-session': token } : Object.create(null) as Record<string, string>
-  } catch { return Object.create(null) as Record<string, string> }
+    const token = (
+      JSON.parse(localStorage.getItem("osticket-react-session") || "{}") as {
+        accessToken?: string;
+      }
+    ).accessToken;
+    return token
+      ? { "x-user-session": token }
+      : (Object.create(null) as Record<string, string>);
+  } catch {
+    return Object.create(null) as Record<string, string>;
+  }
 }
-export function apiHealth() { return request<ApiHealth>('/health') }
-export function listApiTickets(token?: string) { return request<{ tickets: Array<Record<string, any>> }>('/tickets', { headers: token ? { 'x-user-session': token } : currentSessionHeaders() }) }
-export interface ApiQueueDefinition { id: string; title: string; parentId: string; filter: string; root: string; sort: number; flags?: number; staffId?: string; builtin?: boolean; columns: Array<{ id: string; heading: string; field: string; width: string; sort: number }>; sorting: Array<{ id: string; name: string; field: string; sort: number; direction?: 'asc' | 'desc' }> }
-export function listApiQueues() { return request<{ queues: ApiQueueDefinition[]; customQueues: import('../types').TicketQueue[] }>('/tickets/queues', { headers: currentSessionHeaders() }) }
+export function apiHealth() {
+  return request<ApiHealth>("/health");
+}
+export function listApiTickets(token?: string) {
+  return request<{ tickets: Array<Record<string, any>> }>("/tickets", {
+    headers: token ? { "x-user-session": token } : currentSessionHeaders(),
+  });
+}
+export interface ApiQueueDefinition {
+  id: string;
+  title: string;
+  parentId: string;
+  filter: string;
+  root: string;
+  sort: number;
+  flags?: number;
+  staffId?: string;
+  builtin?: boolean;
+  columns: Array<{
+    id: string;
+    heading: string;
+    field: string;
+    width: string;
+    sort: number;
+  }>;
+  sorting: Array<{
+    id: string;
+    name: string;
+    field: string;
+    sort: number;
+    direction?: "asc" | "desc";
+  }>;
+}
+export function listApiQueues() {
+  return request<{
+    queues: ApiQueueDefinition[];
+    customQueues: import("../types").TicketQueue[];
+  }>("/tickets/queues", { headers: currentSessionHeaders() });
+}
 
-export type ApiSearchFieldType = 'text' | 'number' | 'date' | 'boolean' | 'select'
-export interface ApiSearchFieldOption { value: string; label: string }
-export interface ApiSearchField { path: string; label: string; type: ApiSearchFieldType; group: string; options?: ApiSearchFieldOption[] }
-export interface ApiSearchColumn { path: string; label: string; width?: number; sortable?: boolean; type?: ApiSearchFieldType }
-export interface ApiSearchOperator { value: string; label: string }
-export interface ApiSearchCriterion { field: string; operator?: string; value?: string | number | boolean; value2?: string | number | boolean }
-export interface ApiSearchSort { field: string; direction: 'asc' | 'desc' }
+export type ApiSearchFieldType =
+  | "text"
+  | "number"
+  | "date"
+  | "boolean"
+  | "select";
+export interface ApiSearchFieldOption {
+  value: string;
+  label: string;
+}
+export interface ApiSearchField {
+  path: string;
+  label: string;
+  type: ApiSearchFieldType;
+  group: string;
+  options?: ApiSearchFieldOption[];
+}
+export interface ApiSearchColumn {
+  path: string;
+  label: string;
+  width?: number;
+  sortable?: boolean;
+  type?: ApiSearchFieldType;
+}
+export interface ApiSearchOperator {
+  value: string;
+  label: string;
+}
+export interface ApiSearchCriterion {
+  field: string;
+  operator?: string;
+  value?: string | number | boolean;
+  value2?: string | number | boolean;
+}
+export interface ApiSearchSort {
+  field: string;
+  direction: "asc" | "desc";
+}
 export interface ApiAdvancedSearchInput {
-  q?: string
-  keyword?: string
-  criteria?: ApiSearchCriterion[]
-  filters?: Record<string, string>
-  quickFilters?: Record<string, string>
-  quickFilter?: string
-  quickFilterValue?: string
-  columns?: Array<ApiSearchColumn | string>
-  sort?: ApiSearchSort | string
-  page?: number
-  pageSize?: number
-  savedSearchId?: string
+  q?: string;
+  keyword?: string;
+  criteria?: ApiSearchCriterion[];
+  filters?: Record<string, string>;
+  quickFilters?: Record<string, string>;
+  quickFilter?: string;
+  quickFilterValue?: string;
+  columns?: Array<ApiSearchColumn | string>;
+  sort?: ApiSearchSort | string;
+  page?: number;
+  pageSize?: number;
+  savedSearchId?: string;
 }
 export interface ApiSearchTicket {
-  id: string
-  number: string
-  subject: string
-  status: string
-  statusName: string
-  priority: string
-  source: string
-  department: string
-  departmentId: string
-  topic: string
-  topicId: string
-  requesterName: string
-  requesterEmail: string
-  requesterId: string
-  assignee: string
-  assigneeEmail: string
-  assigneeStaffId: string
-  team: string
-  teamId: string
-  sla: string
-  slaId: string
-  branchId: string
-  branchName: string
-  employeeId: string
-  org: string
-  orgId: string
-  overdue: boolean
-  answered: boolean
-  assigned: boolean
-  createdAt: string
-  updatedAt: string
-  dueAt: string | null
-  estDueAt: string | null
-  closedAt: string | null
-  lastUpdate: string | null
-  threadCount: number
-  attachmentCount: number
-  collaboratorCount: number
-  snippet: string
-  values: Record<string, unknown>
-  custom: Record<string, Record<string, unknown>>
+  id: string;
+  number: string;
+  subject: string;
+  status: string;
+  statusName: string;
+  priority: string;
+  source: string;
+  department: string;
+  departmentId: string;
+  topic: string;
+  topicId: string;
+  requesterName: string;
+  requesterEmail: string;
+  requesterId: string;
+  assignee: string;
+  assigneeEmail: string;
+  assigneeStaffId: string;
+  team: string;
+  teamId: string;
+  sla: string;
+  slaId: string;
+  branchId: string;
+  branchName: string;
+  employeeId: string;
+  org: string;
+  orgId: string;
+  overdue: boolean;
+  answered: boolean;
+  assigned: boolean;
+  createdAt: string;
+  updatedAt: string;
+  dueAt: string | null;
+  estDueAt: string | null;
+  closedAt: string | null;
+  lastUpdate: string | null;
+  threadCount: number;
+  attachmentCount: number;
+  collaboratorCount: number;
+  snippet: string;
+  values: Record<string, unknown>;
+  custom: Record<string, Record<string, unknown>>;
 }
 export interface ApiAdvancedSearchResult {
-  tickets: ApiSearchTicket[]
-  total: number
-  page: number
-  pageSize: number
-  pages: number
-  sort: ApiSearchSort
-  columns: ApiSearchField[]
-  criteria: ApiSearchCriterion[]
-  keyword: string
-  savedSearchId: string
-  tookMs: number
+  tickets: ApiSearchTicket[];
+  total: number;
+  page: number;
+  pageSize: number;
+  pages: number;
+  sort: ApiSearchSort;
+  columns: ApiSearchField[];
+  criteria: ApiSearchCriterion[];
+  keyword: string;
+  savedSearchId: string;
+  tookMs: number;
 }
-export type ApiQueueTicketsInput = Omit<ApiAdvancedSearchInput, 'savedSearchId'>
+export type ApiQueueTicketsInput = Omit<
+  ApiAdvancedSearchInput,
+  "savedSearchId"
+>;
 export interface ApiQueueInfo {
-  id: string
-  title: string
-  parentId: string
-  filter: string
-  root: string
-  flags: number
-  sort: number
-  builtin: boolean
-  columns: ApiSearchField[]
-  sortBy: ApiSearchSort
+  id: string;
+  title: string;
+  parentId: string;
+  filter: string;
+  root: string;
+  flags: number;
+  sort: number;
+  builtin: boolean;
+  columns: ApiSearchField[];
+  sortBy: ApiSearchSort;
 }
 export interface ApiQueueTicketsResult extends ApiAdvancedSearchResult {
-  queue: ApiQueueInfo
+  queue: ApiQueueInfo;
 }
 export interface ApiSavedSearchConfig {
-  q: string
-  criteria: ApiSearchCriterion[]
-  columns: ApiSearchColumn[]
-  sort: ApiSearchSort | null
-  pageSize: number
-  quickFilter: string
-  settings: Record<string, unknown>
-  exportConfig: Record<string, unknown>
+  q: string;
+  criteria: ApiSearchCriterion[];
+  columns: ApiSearchColumn[];
+  sort: ApiSearchSort | null;
+  pageSize: number;
+  quickFilter: string;
+  settings: Record<string, unknown>;
+  exportConfig: Record<string, unknown>;
 }
 export interface ApiSavedSearch {
-  id: string
-  title: string
-  name: string
-  parentId: string
-  root: string
-  filter: string
-  sort: number
-  owner: boolean
-  editable: boolean
-  staffId: string
-  createdAt: string
-  updatedAt: string
-  config: ApiSavedSearchConfig
-  columns: ApiSearchColumn[]
-  sorting: Array<{ id: string; name: string; field: string; sort: number }>
-  exportConfig: Record<string, unknown>
+  id: string;
+  title: string;
+  name: string;
+  parentId: string;
+  root: string;
+  filter: string;
+  sort: number;
+  owner: boolean;
+  editable: boolean;
+  staffId: string;
+  createdAt: string;
+  updatedAt: string;
+  config: ApiSavedSearchConfig;
+  columns: ApiSearchColumn[];
+  sorting: Array<{ id: string; name: string; field: string; sort: number }>;
+  exportConfig: Record<string, unknown>;
 }
 export interface ApiAdvancedSearchOptions {
-  fields: ApiSearchField[]
-  operators: Record<ApiSearchFieldType, ApiSearchOperator[]>
-  columns: ApiSearchField[]
-  sorts: ApiSearchField[]
-  quickFilters: Array<{ path: string; label: string; options: ApiSearchFieldOption[] }>
-  statuses: Array<{ id: string; name: string; state: string }>
-  departments: Array<{ id: string; name: string }>
-  topics: Array<{ id: string; name: string; deptId: string }>
-  priorities: string[]
-  agents: Array<{ id: string; name: string; email: string }>
-  teams: Array<{ id: string; name: string }>
-  slas: Array<{ id: string; name: string }>
-  branches: Array<{ id: string; name: string }>
-  organizations: Array<{ id: string; name: string }>
-  sources: Array<{ id: string; name: string }>
-  defaults: { columns: ApiSearchField[]; sort: ApiSearchSort; pageSize: number; settings: Record<string, unknown> }
-  settings: Record<string, unknown>
-  savedSearches: ApiSavedSearch[]
+  fields: ApiSearchField[];
+  operators: Record<ApiSearchFieldType, ApiSearchOperator[]>;
+  columns: ApiSearchField[];
+  sorts: ApiSearchField[];
+  quickFilters: Array<{
+    path: string;
+    label: string;
+    options: ApiSearchFieldOption[];
+  }>;
+  statuses: Array<{ id: string; name: string; state: string }>;
+  departments: Array<{ id: string; name: string }>;
+  topics: Array<{ id: string; name: string; deptId: string }>;
+  priorities: string[];
+  agents: Array<{ id: string; name: string; email: string }>;
+  teams: Array<{ id: string; name: string }>;
+  slas: Array<{ id: string; name: string }>;
+  branches: Array<{ id: string; name: string }>;
+  organizations: Array<{ id: string; name: string }>;
+  sources: Array<{ id: string; name: string }>;
+  defaults: {
+    columns: ApiSearchField[];
+    sort: ApiSearchSort;
+    pageSize: number;
+    settings: Record<string, unknown>;
+  };
+  settings: Record<string, unknown>;
+  savedSearches: ApiSavedSearch[];
 }
 export interface ApiSavedSearchInput {
-  title: string
-  parentId?: string
-  q?: string
-  criteria?: ApiSearchCriterion[]
-  columns?: ApiSearchColumn[]
-  sort?: ApiSearchSort | null
-  pageSize?: number
-  quickFilter?: string
-  settings?: Record<string, unknown>
-  exportConfig?: Record<string, unknown>
+  title: string;
+  parentId?: string;
+  q?: string;
+  criteria?: ApiSearchCriterion[];
+  columns?: ApiSearchColumn[];
+  sort?: ApiSearchSort | null;
+  pageSize?: number;
+  quickFilter?: string;
+  settings?: Record<string, unknown>;
+  exportConfig?: Record<string, unknown>;
 }
 
-export function advancedSearchApiTickets(input: ApiAdvancedSearchInput) { return request<ApiAdvancedSearchResult>('/tickets/advanced-search', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }) }
-export function searchApiTickets(input: ApiAdvancedSearchInput) { return request<ApiAdvancedSearchResult>('/tickets/search', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }) }
-export function listApiQueueTickets(queueId: string, input: ApiQueueTicketsInput = {}) { return request<ApiQueueTicketsResult>('/tickets/queues/' + encodeURIComponent(queueId) + '/tickets', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }) }
-export function getApiAdvancedSearchOptions() { return request<ApiAdvancedSearchOptions>('/tickets/search/options', { headers: currentSessionHeaders() }) }
-export function listApiSavedSearches() { return request<{ searches: ApiSavedSearch[] }>('/tickets/search/saved', { headers: currentSessionHeaders() }).then((result) => result.searches) }
-export function createApiSavedSearch(input: ApiSavedSearchInput) { return request<{ search: ApiSavedSearch }>('/tickets/search/saved', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }).then((result) => result.search) }
-export function updateApiSavedSearch(id: string, input: ApiSavedSearchInput) { return request<{ search: ApiSavedSearch }>('/tickets/search/saved/' + encodeURIComponent(id), { method: 'PUT', headers: currentSessionHeaders(), body: JSON.stringify(input) }).then((result) => result.search) }
-export function deleteApiSavedSearch(id: string) { return request<{ deleted: boolean }>('/tickets/search/saved/' + encodeURIComponent(id), { method: 'DELETE', headers: currentSessionHeaders() }) }
-export function saveApiSearchSettings(settings: Record<string, unknown>, queueId = '0') { return request<{ saved: boolean; settings: Record<string, unknown> }>('/tickets/search/settings', { method: 'PUT', headers: currentSessionHeaders(), body: JSON.stringify({ queueId, settings }) }) }
+export function advancedSearchApiTickets(input: ApiAdvancedSearchInput) {
+  return request<ApiAdvancedSearchResult>("/tickets/advanced-search", {
+    method: "POST",
+    headers: currentSessionHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+export function searchApiTickets(input: ApiAdvancedSearchInput) {
+  return request<ApiAdvancedSearchResult>("/tickets/search", {
+    method: "POST",
+    headers: currentSessionHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+export function listApiQueueTickets(
+  queueId: string,
+  input: ApiQueueTicketsInput = {},
+) {
+  return request<ApiQueueTicketsResult>(
+    "/tickets/queues/" + encodeURIComponent(queueId) + "/tickets",
+    {
+      method: "POST",
+      headers: currentSessionHeaders(),
+      body: JSON.stringify(input),
+    },
+  );
+}
+export function getApiAdvancedSearchOptions() {
+  return request<ApiAdvancedSearchOptions>("/tickets/search/options", {
+    headers: currentSessionHeaders(),
+  });
+}
+export function listApiSavedSearches() {
+  return request<{ searches: ApiSavedSearch[] }>("/tickets/search/saved", {
+    headers: currentSessionHeaders(),
+  }).then((result) => result.searches);
+}
+export function createApiSavedSearch(input: ApiSavedSearchInput) {
+  return request<{ search: ApiSavedSearch }>("/tickets/search/saved", {
+    method: "POST",
+    headers: currentSessionHeaders(),
+    body: JSON.stringify(input),
+  }).then((result) => result.search);
+}
+export function updateApiSavedSearch(id: string, input: ApiSavedSearchInput) {
+  return request<{ search: ApiSavedSearch }>(
+    "/tickets/search/saved/" + encodeURIComponent(id),
+    {
+      method: "PUT",
+      headers: currentSessionHeaders(),
+      body: JSON.stringify(input),
+    },
+  ).then((result) => result.search);
+}
+export function deleteApiSavedSearch(id: string) {
+  return request<{ deleted: boolean }>(
+    "/tickets/search/saved/" + encodeURIComponent(id),
+    { method: "DELETE", headers: currentSessionHeaders() },
+  );
+}
+export function saveApiSearchSettings(
+  settings: Record<string, unknown>,
+  queueId = "0",
+) {
+  return request<{ saved: boolean; settings: Record<string, unknown> }>(
+    "/tickets/search/settings",
+    {
+      method: "PUT",
+      headers: currentSessionHeaders(),
+      body: JSON.stringify({ queueId, settings }),
+    },
+  );
+}
 
 export function listApiAccountTickets(token: string) {
-  return request<{ tickets: ApiPersistedTicket[]; messages: ApiPersistedMessage[] }>('/users/tickets', { headers: { 'x-user-session': token } })
+  return request<{
+    tickets: ApiPersistedTicket[];
+    messages: ApiPersistedMessage[];
+  }>("/users/tickets", { headers: { "x-user-session": token } });
 }
-export interface ApiAssignableStaff { id: string; name: string; email: string; phone?: string; role: 'agent' | 'admin'; active: boolean; title?: string; deptId?: string; roleId?: string }
+export interface ApiAssignableStaff {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  role: "agent" | "admin";
+  active: boolean;
+  title?: string;
+  deptId?: string;
+  roleId?: string;
+}
 export function listApiAssignableStaff(token: string) {
-  return request<{ staff: ApiAssignableStaff[] }>('/staff/assignable', { headers: { 'x-user-session': token } })
+  return request<{ staff: ApiAssignableStaff[] }>("/staff/assignable", {
+    headers: { "x-user-session": token },
+  });
 }
-export interface ApiDepartmentMember { id: string; name: string; departmentId?: string; primary: boolean; roleId: string; alerts: boolean }
-export interface ApiDepartment { id: string; name: string; parentId?: string; parentName?: string; status: 'active' | 'disabled' | 'archived'; type: 'public' | 'private'; signature: string; emailId: string; emailName?: string; managerId: string; managerName?: string; slaId: string; slaName?: string; scheduleId: string; scheduleName?: string; templateId: string; templateName?: string; autoresponderEmailId: string; autoresponderEmailName?: string; assignment: 'all' | 'members' | 'primary'; disableAutoClaim: boolean; disableReopenAutoAssign: boolean; alertRecipients: number; ticketAutoResponse: boolean; messageAutoResponse: boolean; primaryMembers: ApiDepartmentMember[]; extendedMembers: ApiDepartmentMember[]; isDefault?: boolean; path?: string; active?: boolean }
-export interface ApiDepartmentOptions { departments: ApiDepartment[]; staff: Array<{ id: string; name: string; departmentId: string }>; slas: Array<{ id: string; name: string }>; schedules: Array<{ id: string; name: string }>; emails: Array<{ id: string; name: string }>; templates: Array<{ id: string; name: string }>; roles: Array<{ id: string; name: string }>; defaultDeptId?: string }
-export interface ApiFaqCategory { id: string; name: string; description: string; published: boolean }
-export interface ApiFaqArticle { id: string; categoryId: string; question: string; answer: string; published: boolean }
+export interface ApiDepartmentMember {
+  id: string;
+  name: string;
+  departmentId?: string;
+  primary: boolean;
+  roleId: string;
+  alerts: boolean;
+}
+export interface ApiDepartment {
+  id: string;
+  name: string;
+  parentId?: string;
+  parentName?: string;
+  status: "active" | "disabled" | "archived";
+  type: "public" | "private";
+  signature: string;
+  emailId: string;
+  emailName?: string;
+  managerId: string;
+  managerName?: string;
+  slaId: string;
+  slaName?: string;
+  scheduleId: string;
+  scheduleName?: string;
+  templateId: string;
+  templateName?: string;
+  autoresponderEmailId: string;
+  autoresponderEmailName?: string;
+  assignment: "all" | "members" | "primary";
+  disableAutoClaim: boolean;
+  disableReopenAutoAssign: boolean;
+  alertRecipients: number;
+  ticketAutoResponse: boolean;
+  messageAutoResponse: boolean;
+  primaryMembers: ApiDepartmentMember[];
+  extendedMembers: ApiDepartmentMember[];
+  isDefault?: boolean;
+  path?: string;
+  active?: boolean;
+}
+export interface ApiDepartmentOptions {
+  departments: ApiDepartment[];
+  staff: Array<{ id: string; name: string; departmentId: string }>;
+  slas: Array<{ id: string; name: string }>;
+  schedules: Array<{ id: string; name: string }>;
+  emails: Array<{ id: string; name: string }>;
+  templates: Array<{ id: string; name: string }>;
+  roles: Array<{ id: string; name: string }>;
+  defaultDeptId?: string;
+}
+export interface ApiFaqCategory {
+  id: string;
+  name: string;
+  description: string;
+  published: boolean;
+}
+export interface ApiFaqArticle {
+  id: string;
+  categoryId: string;
+  question: string;
+  answer: string;
+  published: boolean;
+}
 export function listApiFaqArticles() {
-  return request<{ articles: ApiFaqArticle[] }>('/admin/faq-articles', { headers: currentSessionHeaders() }).then(result => result.articles)
+  return request<{ articles: ApiFaqArticle[] }>("/admin/faq-articles", {
+    headers: currentSessionHeaders(),
+  }).then((result) => result.articles);
 }
-export function createApiFaqArticle(input: Omit<ApiFaqArticle, 'id'>) {
-  return request<{ article: ApiFaqArticle }>('/admin/faq-articles', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }).then(result => result.article)
+export function createApiFaqArticle(input: Omit<ApiFaqArticle, "id">) {
+  return request<{ article: ApiFaqArticle }>("/admin/faq-articles", {
+    method: "POST",
+    headers: currentSessionHeaders(),
+    body: JSON.stringify(input),
+  }).then((result) => result.article);
 }
-export function updateApiFaqArticle(id: string, input: Omit<ApiFaqArticle, 'id'>) {
-  return request<{ article: ApiFaqArticle }>('/admin/faq-articles/' + encodeURIComponent(id), { method: 'PUT', headers: currentSessionHeaders(), body: JSON.stringify(input) }).then(result => result.article)
+export function updateApiFaqArticle(
+  id: string,
+  input: Omit<ApiFaqArticle, "id">,
+) {
+  return request<{ article: ApiFaqArticle }>(
+    "/admin/faq-articles/" + encodeURIComponent(id),
+    {
+      method: "PUT",
+      headers: currentSessionHeaders(),
+      body: JSON.stringify(input),
+    },
+  ).then((result) => result.article);
 }
 export function deleteApiFaqArticle(id: string) {
-  return request<{ deleted: boolean }>('/admin/faq-articles/' + encodeURIComponent(id), { method: 'DELETE', headers: currentSessionHeaders() })
+  return request<{ deleted: boolean }>(
+    "/admin/faq-articles/" + encodeURIComponent(id),
+    { method: "DELETE", headers: currentSessionHeaders() },
+  );
 }
-export function createApiFaqCategory(input: Omit<ApiFaqCategory, 'id'>) {
-  return request<{ category: ApiFaqCategory }>('/admin/faq-categories', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }).then(result => result.category)
+export function createApiFaqCategory(input: Omit<ApiFaqCategory, "id">) {
+  return request<{ category: ApiFaqCategory }>("/admin/faq-categories", {
+    method: "POST",
+    headers: currentSessionHeaders(),
+    body: JSON.stringify(input),
+  }).then((result) => result.category);
 }
-export function updateApiFaqCategory(id: string, input: Omit<ApiFaqCategory, 'id'>) {
-  return request<{ category: ApiFaqCategory }>('/admin/faq-categories/' + encodeURIComponent(id), { method: 'PUT', headers: currentSessionHeaders(), body: JSON.stringify(input) }).then(result => result.category)
+export function updateApiFaqCategory(
+  id: string,
+  input: Omit<ApiFaqCategory, "id">,
+) {
+  return request<{ category: ApiFaqCategory }>(
+    "/admin/faq-categories/" + encodeURIComponent(id),
+    {
+      method: "PUT",
+      headers: currentSessionHeaders(),
+      body: JSON.stringify(input),
+    },
+  ).then((result) => result.category);
 }
 export function deleteApiFaqCategory(id: string) {
-  return request<{ deleted: boolean }>('/admin/faq-categories/' + encodeURIComponent(id), { method: 'DELETE', headers: currentSessionHeaders() })
+  return request<{ deleted: boolean }>(
+    "/admin/faq-categories/" + encodeURIComponent(id),
+    { method: "DELETE", headers: currentSessionHeaders() },
+  );
 }
 export function listApiStaffDepartments(token: string) {
-  return request<{ departments: ApiDepartment[] }>('/staff/departments', { headers: { 'x-user-session': token } })
+  return request<{ departments: ApiDepartment[] }>("/staff/departments", {
+    headers: { "x-user-session": token },
+  });
 }
 export function listApiDepartments(token: string) {
-  return request<ApiDepartmentOptions>('/admin/departments', { headers: { 'x-user-session': token } })
+  return request<ApiDepartmentOptions>("/admin/departments", {
+    headers: { "x-user-session": token },
+  });
 }
-export function createApiDepartment(input: Partial<ApiDepartment> & Pick<ApiDepartment, 'name'>, token: string) {
-  return request<{ department: ApiDepartment }>('/admin/departments', {
-    method: 'POST',
-    headers: { 'x-user-session': token },
+export function createApiDepartment(
+  input: Partial<ApiDepartment> & Pick<ApiDepartment, "name">,
+  token: string,
+) {
+  return request<{ department: ApiDepartment }>("/admin/departments", {
+    method: "POST",
+    headers: { "x-user-session": token },
     body: JSON.stringify(input),
-  })
+  });
 }
 export function updateApiDepartment(input: ApiDepartment, token: string) {
-  return request<{ department: ApiDepartment }>('/admin/departments', { method: 'PUT', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+  return request<{ department: ApiDepartment }>("/admin/departments", {
+    method: "PUT",
+    headers: { "x-user-session": token },
+    body: JSON.stringify(input),
+  });
 }
 export function deleteApiDepartment(id: string, token: string) {
-  return request<{ deleted: boolean }>('/admin/departments', { method: 'DELETE', headers: { 'x-user-session': token }, body: JSON.stringify({ id }) })
+  return request<{ deleted: boolean }>("/admin/departments", {
+    method: "DELETE",
+    headers: { "x-user-session": token },
+    body: JSON.stringify({ id }),
+  });
 }
-export interface ApiSlaPlan { id: string; name: string; graceHours: number; active: boolean; transient: boolean; disableAlerts: boolean; scheduleId: string; scheduleName?: string; notes: string }
-export interface ApiSlaOptions { slas: ApiSlaPlan[]; schedules: Array<{ id: string; name: string; timezone: string; description: string }> }
-export function listApiSlaPlans(token: string) { return request<ApiSlaOptions>('/admin/sla-plans', { headers: { 'x-user-session': token } }) }
-export function createApiSlaPlan(input: Omit<ApiSlaPlan, 'id' | 'scheduleName'>, token: string) { return request<{ sla: ApiSlaPlan }>('/admin/sla-plans', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) }).then(r => r.sla) }
-export function updateApiSlaPlan(id: string, input: Omit<ApiSlaPlan, 'id' | 'scheduleName'>, token: string) { return request<{ sla: ApiSlaPlan }>('/admin/sla-plans/' + encodeURIComponent(id), { method: 'PUT', headers: { 'x-user-session': token }, body: JSON.stringify(input) }).then(r => r.sla) }
-export function deleteApiSlaPlan(id: string, token: string) { return request<{ deleted: boolean }>('/admin/sla-plans/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'x-user-session': token } }) }
-export interface ApiScheduleEntry { id?: string; name: string; repeats: string; startsOn: string; startsAt: string; endsOn: string; endsAt: string; stopsOn: string; day?: number | null; week?: number | null; month?: number | null }
-export interface ApiSchedule { id: string; name: string; description: string; timezone: string; type: 'bizhrs' | 'hdays'; holidays: string[]; entries: ApiScheduleEntry[]; slaNames: string[]; departments: string[]; ticketCount: number; isDefault: boolean }
-export interface ApiSchedulesResponse { schedules: ApiSchedule[]; defaultScheduleId: string; slas: Array<{ id: string; name: string; scheduleId: string }> }
-export function listApiSchedules(token: string) { return request<ApiSchedulesResponse>('/admin/schedules', { headers: { 'x-user-session': token } }) }
-export function createApiSchedule(input: Partial<ApiSchedule>, token: string) { return request<ApiSchedule>('/admin/schedules', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) }) }
-export function updateApiSchedule(id: string, input: Partial<ApiSchedule>, token: string) { return request<ApiSchedule>('/admin/schedules/' + encodeURIComponent(id), { method: 'PUT', headers: { 'x-user-session': token }, body: JSON.stringify(input) }) }
-export function cloneApiSchedule(id: string, input: Pick<ApiSchedule, 'name'>, token: string) { return request<ApiSchedule>('/admin/schedules/' + encodeURIComponent(id) + '/clone', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) }) }
-export function deleteApiSchedule(id: string, token: string) { return request<{ deleted: boolean }>('/admin/schedules/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'x-user-session': token } }) }
-export function setApiDefaultSchedule(id: string, token: string) { return request<{ saved: boolean }>('/admin/schedules/default/' + encodeURIComponent(id), { method: 'PUT', headers: { 'x-user-session': token } }) }
-export interface ApiHelpTopicOption { id: string; name: string }
-export interface ApiHelpTopicDepartmentOption extends ApiHelpTopicOption { parentId?: string; public?: boolean; active?: boolean; archived?: boolean }
-export interface ApiHelpTopicStatusOption extends ApiHelpTopicOption { state: string; enabled: boolean }
-export interface ApiHelpTopicPriorityOption extends ApiHelpTopicOption { urgency?: number }
-export interface ApiHelpTopicPageOption extends ApiHelpTopicOption { type?: string }
-export interface ApiHelpTopicSequenceOption extends ApiHelpTopicOption { next: string; increment: number; padding: string }
-export interface ApiHelpTopicStaffOption extends ApiHelpTopicOption { email: string; departmentId: string }
+export interface ApiSlaPlan {
+  id: string;
+  name: string;
+  graceHours: number;
+  active: boolean;
+  transient: boolean;
+  disableAlerts: boolean;
+  scheduleId: string;
+  scheduleName?: string;
+  notes: string;
+}
+export interface ApiSlaOptions {
+  slas: ApiSlaPlan[];
+  schedules: Array<{
+    id: string;
+    name: string;
+    timezone: string;
+    description: string;
+  }>;
+}
+export function listApiSlaPlans(token: string) {
+  return request<ApiSlaOptions>("/admin/sla-plans", {
+    headers: { "x-user-session": token },
+  });
+}
+export function createApiSlaPlan(
+  input: Omit<ApiSlaPlan, "id" | "scheduleName">,
+  token: string,
+) {
+  return request<{ sla: ApiSlaPlan }>("/admin/sla-plans", {
+    method: "POST",
+    headers: { "x-user-session": token },
+    body: JSON.stringify(input),
+  }).then((r) => r.sla);
+}
+export function updateApiSlaPlan(
+  id: string,
+  input: Omit<ApiSlaPlan, "id" | "scheduleName">,
+  token: string,
+) {
+  return request<{ sla: ApiSlaPlan }>(
+    "/admin/sla-plans/" + encodeURIComponent(id),
+    {
+      method: "PUT",
+      headers: { "x-user-session": token },
+      body: JSON.stringify(input),
+    },
+  ).then((r) => r.sla);
+}
+export function deleteApiSlaPlan(id: string, token: string) {
+  return request<{ deleted: boolean }>(
+    "/admin/sla-plans/" + encodeURIComponent(id),
+    { method: "DELETE", headers: { "x-user-session": token } },
+  );
+}
+export interface ApiScheduleEntry {
+  id?: string;
+  name: string;
+  repeats: string;
+  startsOn: string;
+  startsAt: string;
+  endsOn: string;
+  endsAt: string;
+  stopsOn: string;
+  day?: number | null;
+  week?: number | null;
+  month?: number | null;
+}
+export interface ApiSchedule {
+  id: string;
+  name: string;
+  description: string;
+  timezone: string;
+  type: "bizhrs" | "hdays";
+  holidays: string[];
+  entries: ApiScheduleEntry[];
+  slaNames: string[];
+  departments: string[];
+  ticketCount: number;
+  isDefault: boolean;
+}
+export interface ApiSchedulesResponse {
+  schedules: ApiSchedule[];
+  defaultScheduleId: string;
+  slas: Array<{ id: string; name: string; scheduleId: string }>;
+}
+export function listApiSchedules(token: string) {
+  return request<ApiSchedulesResponse>("/admin/schedules", {
+    headers: { "x-user-session": token },
+  });
+}
+export function createApiSchedule(input: Partial<ApiSchedule>, token: string) {
+  return request<ApiSchedule>("/admin/schedules", {
+    method: "POST",
+    headers: { "x-user-session": token },
+    body: JSON.stringify(input),
+  });
+}
+export function updateApiSchedule(
+  id: string,
+  input: Partial<ApiSchedule>,
+  token: string,
+) {
+  return request<ApiSchedule>("/admin/schedules/" + encodeURIComponent(id), {
+    method: "PUT",
+    headers: { "x-user-session": token },
+    body: JSON.stringify(input),
+  });
+}
+export function cloneApiSchedule(
+  id: string,
+  input: Pick<ApiSchedule, "name">,
+  token: string,
+) {
+  return request<ApiSchedule>(
+    "/admin/schedules/" + encodeURIComponent(id) + "/clone",
+    {
+      method: "POST",
+      headers: { "x-user-session": token },
+      body: JSON.stringify(input),
+    },
+  );
+}
+export function deleteApiSchedule(id: string, token: string) {
+  return request<{ deleted: boolean }>(
+    "/admin/schedules/" + encodeURIComponent(id),
+    { method: "DELETE", headers: { "x-user-session": token } },
+  );
+}
+export function setApiDefaultSchedule(id: string, token: string) {
+  return request<{ saved: boolean }>(
+    "/admin/schedules/default/" + encodeURIComponent(id),
+    { method: "PUT", headers: { "x-user-session": token } },
+  );
+}
+export interface ApiHelpTopicOption {
+  id: string;
+  name: string;
+}
+export interface ApiHelpTopicDepartmentOption extends ApiHelpTopicOption {
+  parentId?: string;
+  public?: boolean;
+  active?: boolean;
+  archived?: boolean;
+}
+export interface ApiHelpTopicStatusOption extends ApiHelpTopicOption {
+  state: string;
+  enabled: boolean;
+}
+export interface ApiHelpTopicPriorityOption extends ApiHelpTopicOption {
+  urgency?: number;
+}
+export interface ApiHelpTopicPageOption extends ApiHelpTopicOption {
+  type?: string;
+}
+export interface ApiHelpTopicSequenceOption extends ApiHelpTopicOption {
+  next: string;
+  increment: number;
+  padding: string;
+}
+export interface ApiHelpTopicStaffOption extends ApiHelpTopicOption {
+  email: string;
+  departmentId: string;
+}
 export interface ApiHelpTopicFormField {
-  id: string
-  label: string
-  name: string
-  type: string
-  sort: number
-  flags: string
-  enabled: boolean
-  disabled?: boolean
+  id: string;
+  label: string;
+  name: string;
+  type: string;
+  sort: number;
+  flags: string;
+  enabled: boolean;
+  disabled?: boolean;
 }
 export interface ApiHelpTopicFormOption {
-  id: string
-  title: string
-  instructions: string
-  name: string
-  type: string
-  flags: string
-  deleted: boolean
-  fields: ApiHelpTopicFormField[]
+  id: string;
+  title: string;
+  instructions: string;
+  name: string;
+  type: string;
+  flags: string;
+  deleted: boolean;
+  fields: ApiHelpTopicFormField[];
 }
 export interface ApiHelpTopicFormLink {
-  id?: string
-  formId: string
-  sort: number
-  title: string
-  instructions: string
-  type: string
-  disabledFieldIds: string[]
-  fields: ApiHelpTopicFormField[]
+  id?: string;
+  formId: string;
+  sort: number;
+  title: string;
+  instructions: string;
+  type: string;
+  disabledFieldIds: string[];
+  fields: ApiHelpTopicFormField[];
 }
 export interface ApiPublicHelpTopic {
-  id: string
-  name: string
-  topic?: string
-  parentId?: string
-  deptId: string
-  departmentName?: string
-  priorityId?: string
-  priority: string
-  slaId?: string
-  slaName?: string
-  hint: string
-  active: boolean
-  status?: string
-  isPublic?: boolean
-  public?: boolean
-  forms?: ApiHelpTopicFormLink[]
+  id: string;
+  name: string;
+  topic?: string;
+  parentId?: string;
+  deptId: string;
+  departmentName?: string;
+  priorityId?: string;
+  priority: string;
+  slaId?: string;
+  slaName?: string;
+  hint: string;
+  active: boolean;
+  status?: string;
+  isPublic?: boolean;
+  public?: boolean;
+  forms?: ApiHelpTopicFormLink[];
 }
 export interface ApiHelpTopic {
-  id: string
-  topicId: string
-  name: string
-  topic: string
-  status: 'active' | 'disabled' | 'archived'
-  active: boolean
-  isPublic: boolean
-  public: boolean
-  parentId: string
-  departmentId: string
-  deptId: string
-  departmentName: string
-  statusId: string
-  statusName: string
-  priorityId: string
-  priority: string
-  priorityName: string
-  slaId: string
-  slaName: string
-  pageId: string
-  pageName: string
-  sequenceId: string
-  sequenceName: string
-  numberFormat: string
-  customNumbers: boolean
-  staffId: string
-  teamId: string
-  assign: string
-  assignName: string
-  noautoresp: boolean
-  disableAutoResponse: boolean
-  notes: string
-  hint: string
-  sort: number
-  forms: ApiHelpTopicFormLink[]
-  created?: string
-  updated?: string
+  id: string;
+  topicId: string;
+  name: string;
+  topic: string;
+  status: "active" | "disabled" | "archived";
+  active: boolean;
+  isPublic: boolean;
+  public: boolean;
+  parentId: string;
+  departmentId: string;
+  deptId: string;
+  departmentName: string;
+  statusId: string;
+  statusName: string;
+  priorityId: string;
+  priority: string;
+  priorityName: string;
+  slaId: string;
+  slaName: string;
+  pageId: string;
+  pageName: string;
+  sequenceId: string;
+  sequenceName: string;
+  numberFormat: string;
+  customNumbers: boolean;
+  staffId: string;
+  teamId: string;
+  assign: string;
+  assignName: string;
+  noautoresp: boolean;
+  disableAutoResponse: boolean;
+  notes: string;
+  hint: string;
+  sort: number;
+  forms: ApiHelpTopicFormLink[];
+  created?: string;
+  updated?: string;
 }
 export interface ApiHelpTopicOptions {
-  topics: ApiHelpTopic[]
-  departments: ApiHelpTopicDepartmentOption[]
-  statuses: ApiHelpTopicStatusOption[]
-  priorities: ApiHelpTopicPriorityOption[]
-  slas: ApiHelpTopicOption[]
-  pages: ApiHelpTopicPageOption[]
-  sequences: ApiHelpTopicSequenceOption[]
-  staff: ApiHelpTopicStaffOption[]
-  teams: ApiHelpTopicOption[]
-  forms: ApiHelpTopicFormOption[]
+  topics: ApiHelpTopic[];
+  departments: ApiHelpTopicDepartmentOption[];
+  statuses: ApiHelpTopicStatusOption[];
+  priorities: ApiHelpTopicPriorityOption[];
+  slas: ApiHelpTopicOption[];
+  pages: ApiHelpTopicPageOption[];
+  sequences: ApiHelpTopicSequenceOption[];
+  staff: ApiHelpTopicStaffOption[];
+  teams: ApiHelpTopicOption[];
+  forms: ApiHelpTopicFormOption[];
 }
 export interface ApiHelpTopicInput {
-  name: string
-  parentId?: string
-  departmentId?: string
-  status?: 'active' | 'disabled' | 'archived'
-  isPublic?: boolean
-  statusId?: string
-  priorityId?: string
-  slaId?: string
-  pageId?: string
-  sequenceId?: string
-  numberFormat?: string
-  customNumbers?: boolean
-  staffId?: string
-  teamId?: string
-  noautoresp?: boolean
-  notes?: string
-  forms?: Array<{ formId: string; disabledFieldIds: string[] }>
+  name: string;
+  parentId?: string;
+  departmentId?: string;
+  status?: "active" | "disabled" | "archived";
+  isPublic?: boolean;
+  statusId?: string;
+  priorityId?: string;
+  slaId?: string;
+  pageId?: string;
+  sequenceId?: string;
+  numberFormat?: string;
+  customNumbers?: boolean;
+  staffId?: string;
+  teamId?: string;
+  noautoresp?: boolean;
+  notes?: string;
+  forms?: Array<{ formId: string; disabledFieldIds: string[] }>;
 }
 export function listApiPublicHelpTopics() {
-  return request<{ topics: ApiPublicHelpTopic[]; departments: Array<{ id: string; name: string }> }>('/help-topics')
+  return request<{
+    topics: ApiPublicHelpTopic[];
+    departments: Array<{ id: string; name: string }>;
+  }>("/help-topics");
 }
-export interface ApiBranch { id: string; name: string; active?: boolean }
+export interface ApiBranch {
+  id: string;
+  name: string;
+  active?: boolean;
+}
 export function listApiBranches() {
-  return request<{ branches: ApiBranch[] }>('/branches')
+  return request<{ branches: ApiBranch[] }>("/branches");
 }
 export function listApiAdminBranches() {
-  return request<{ branches: ApiBranch[] }>('/admin/branches', { headers: currentSessionHeaders() }).then(result => result.branches)
+  return request<{ branches: ApiBranch[] }>("/admin/branches", {
+    headers: currentSessionHeaders(),
+  }).then((result) => result.branches);
 }
-export function createApiBranch(input: Pick<ApiBranch, 'name'> & { active: boolean }) {
-  return request<{ branch: ApiBranch }>('/admin/branches', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }).then(result => result.branch)
+export function createApiBranch(
+  input: Pick<ApiBranch, "name"> & { active: boolean },
+) {
+  return request<{ branch: ApiBranch }>("/admin/branches", {
+    method: "POST",
+    headers: currentSessionHeaders(),
+    body: JSON.stringify(input),
+  }).then((result) => result.branch);
 }
-export function updateApiBranch(id: string, input: Pick<ApiBranch, 'name'> & { active: boolean }) {
-  return request<{ branch: ApiBranch }>('/admin/branches/' + encodeURIComponent(id), { method: 'PUT', headers: currentSessionHeaders(), body: JSON.stringify(input) }).then(result => result.branch)
+export function updateApiBranch(
+  id: string,
+  input: Pick<ApiBranch, "name"> & { active: boolean },
+) {
+  return request<{ branch: ApiBranch }>(
+    "/admin/branches/" + encodeURIComponent(id),
+    {
+      method: "PUT",
+      headers: currentSessionHeaders(),
+      body: JSON.stringify(input),
+    },
+  ).then((result) => result.branch);
 }
 export function deleteApiBranch(id: string) {
-  return request<{ deleted: boolean }>('/admin/branches/' + encodeURIComponent(id), { method: 'DELETE', headers: currentSessionHeaders() })
+  return request<{ deleted: boolean }>(
+    "/admin/branches/" + encodeURIComponent(id),
+    { method: "DELETE", headers: currentSessionHeaders() },
+  );
 }
 export function getApiAppState(token: string) {
-  return request<{ state: Partial<Database> | null }>('/app-state', { headers: { 'x-user-session': token } })
+  return request<{ state: Partial<Database> | null }>("/app-state", {
+    headers: { "x-user-session": token },
+  });
 }
 export function getApiPublicAppState() {
-  return request<{ state: Partial<Database> | null }>('/public-state')
+  return request<{ state: Partial<Database> | null }>("/public-state");
 }
 export function saveApiAppState(state: Partial<Database>, token: string) {
-  return request<{ saved: boolean }>('/app-state', { method: 'PUT', headers: { 'x-user-session': token }, body: JSON.stringify({ state }) })
+  return request<{ saved: boolean }>("/app-state", {
+    method: "PUT",
+    headers: { "x-user-session": token },
+    body: JSON.stringify({ state }),
+  });
 }
 export function listApiHelpTopics(token: string) {
-  return request<ApiHelpTopicOptions>('/admin/help-topics', { headers: { 'x-user-session': token } })
+  return request<ApiHelpTopicOptions>("/admin/help-topics", {
+    headers: { "x-user-session": token },
+  });
 }
 export function getApiHelpTopic(id: string, token: string) {
-  return request<{ topic: ApiHelpTopic }>('/admin/help-topics/' + encodeURIComponent(id), { headers: { 'x-user-session': token } })
+  return request<{ topic: ApiHelpTopic }>(
+    "/admin/help-topics/" + encodeURIComponent(id),
+    { headers: { "x-user-session": token } },
+  );
 }
 export function createApiHelpTopic(input: ApiHelpTopicInput, token: string) {
-  return request<{ saved: boolean; id: string; topic: ApiHelpTopic }>('/admin/help-topics', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+  return request<{ saved: boolean; id: string; topic: ApiHelpTopic }>(
+    "/admin/help-topics",
+    {
+      method: "POST",
+      headers: { "x-user-session": token },
+      body: JSON.stringify(input),
+    },
+  );
 }
-export function updateApiHelpTopic(id: string, input: ApiHelpTopicInput, token: string) {
-  return request<{ saved: boolean; id: string; topic: ApiHelpTopic }>('/admin/help-topics/' + encodeURIComponent(id), { method: 'PUT', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+export function updateApiHelpTopic(
+  id: string,
+  input: ApiHelpTopicInput,
+  token: string,
+) {
+  return request<{ saved: boolean; id: string; topic: ApiHelpTopic }>(
+    "/admin/help-topics/" + encodeURIComponent(id),
+    {
+      method: "PUT",
+      headers: { "x-user-session": token },
+      body: JSON.stringify(input),
+    },
+  );
 }
 export function deleteApiHelpTopic(id: string, token: string) {
-  return request<{ deleted: boolean }>('/admin/help-topics/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'x-user-session': token } })
+  return request<{ deleted: boolean }>(
+    "/admin/help-topics/" + encodeURIComponent(id),
+    { method: "DELETE", headers: { "x-user-session": token } },
+  );
 }
-export function massActionApiHelpTopics(action: 'enable' | 'disable' | 'archive' | 'delete', ids: string[], token: string) {
-  return request<{ updated?: number; deleted?: number; skipped?: number }>('/admin/help-topics/mass-action', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify({ action, ids }) })
+export function massActionApiHelpTopics(
+  action: "enable" | "disable" | "archive" | "delete",
+  ids: string[],
+  token: string,
+) {
+  return request<{ updated?: number; deleted?: number; skipped?: number }>(
+    "/admin/help-topics/mass-action",
+    {
+      method: "POST",
+      headers: { "x-user-session": token },
+      body: JSON.stringify({ action, ids }),
+    },
+  );
 }
 export interface ApiStaffTicketOptions {
-  statuses: TicketStatusOption[]
-  topics: Array<{ id: string; name: string }>
-  priorities: Ticket['priority'][]
+  statuses: TicketStatusOption[];
+  topics: Array<{ id: string; name: string }>;
+  priorities: Ticket["priority"][];
 }
 export function getApiStaffTicketOptions(token: string) {
-  return request<ApiStaffTicketOptions>('/staff/ticket-options', { headers: { 'x-user-session': token } })
+  return request<ApiStaffTicketOptions>("/staff/ticket-options", {
+    headers: { "x-user-session": token },
+  });
 }
-export function updateApiTicket(number: string, patch: { status?: Ticket['status'] | string; statusId?: string; priority?: Ticket['priority']; assignee?: string; assigneeEmail?: string; department?: string; topic?: string; overdue?: boolean; subject?: string }) { return request<{ ticket?: { status?: string; statusId?: string; statusName?: string } }>('/tickets/' + encodeURIComponent(number), { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify(patch) }) }
-export function deleteApiTicket(number: string) { return request<{ deleted: boolean }>('/tickets/' + encodeURIComponent(number), { method: 'DELETE', headers: currentSessionHeaders() }) }
-export function banApiTicketEmail(number: string) { return request<{ banned: boolean; email: string; reason: string }>('/tickets/' + encodeURIComponent(number) + '/ban-email', { method: 'POST', headers: currentSessionHeaders() }) }
+export function updateApiTicket(
+  number: string,
+  patch: {
+    status?: Ticket["status"] | string;
+    statusId?: string;
+    priority?: Ticket["priority"];
+    assignee?: string;
+    assigneeEmail?: string;
+    department?: string;
+    topic?: string;
+    overdue?: boolean;
+    subject?: string;
+  },
+) {
+  return request<{
+    ticket?: { status?: string; statusId?: string; statusName?: string };
+  }>("/tickets/" + encodeURIComponent(number), {
+    method: "PATCH",
+    headers: currentSessionHeaders(),
+    body: JSON.stringify(patch),
+  });
+}
+export function deleteApiTicket(number: string) {
+  return request<{ deleted: boolean }>(
+    "/tickets/" + encodeURIComponent(number),
+    { method: "DELETE", headers: currentSessionHeaders() },
+  );
+}
+export function banApiTicketEmail(number: string) {
+  return request<{ banned: boolean; email: string; reason: string }>(
+    "/tickets/" + encodeURIComponent(number) + "/ban-email",
+    { method: "POST", headers: currentSessionHeaders() },
+  );
+}
 export function updateApiTicketBranch(number: string, branchId: string) {
-  return request<{ ticket: { branchId?: string; branchName?: string } }>('/tickets/' + encodeURIComponent(number) + '/branch', { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify({ branchId }) })
+  return request<{ ticket: { branchId?: string; branchName?: string } }>(
+    "/tickets/" + encodeURIComponent(number) + "/branch",
+    {
+      method: "PATCH",
+      headers: currentSessionHeaders(),
+      body: JSON.stringify({ branchId }),
+    },
+  );
 }
-export interface ApiStaffTicketDetail { ticket: Record<string, any>; messages: ApiPersistedMessage[] }
+export interface ApiStaffTicketDetail {
+  ticket: Record<string, any>;
+  messages: ApiPersistedMessage[];
+}
 export async function getApiStaffTicket(number: string) {
-  return request<ApiStaffTicketDetail>('/tickets/' + encodeURIComponent(number) + '/staff', { headers: currentSessionHeaders() })
+  return request<ApiStaffTicketDetail>(
+    "/tickets/" + encodeURIComponent(number) + "/staff",
+    { headers: currentSessionHeaders() },
+  );
 }
 export async function mergeApiTicket(number: string, secondaryNumber: string) {
-  return request<{ ticket: Record<string, any>; merged: Record<string, any> }>('/tickets/' + encodeURIComponent(number) + '/merge', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify({ secondaryNumber }) })
+  return request<{ ticket: Record<string, any>; merged: Record<string, any> }>(
+    "/tickets/" + encodeURIComponent(number) + "/merge",
+    {
+      method: "POST",
+      headers: currentSessionHeaders(),
+      body: JSON.stringify({ secondaryNumber }),
+    },
+  );
 }
 export async function lockApiTicket(number: string) {
-  return request<{ ticket: Record<string, any>; lock: { id: string; code: string; expiresAt: string } }>('/tickets/' + encodeURIComponent(number) + '/lock', { method: 'POST', headers: currentSessionHeaders() })
+  return request<{
+    ticket: Record<string, any>;
+    lock: { id: string; code: string; expiresAt: string };
+  }>("/tickets/" + encodeURIComponent(number) + "/lock", {
+    method: "POST",
+    headers: currentSessionHeaders(),
+  });
 }
 export async function unlockApiTicket(number: string) {
-  return request<{ released: boolean; ticket: Record<string, any> }>('/tickets/' + encodeURIComponent(number) + '/lock', { method: 'DELETE', headers: currentSessionHeaders() })
+  return request<{ released: boolean; ticket: Record<string, any> }>(
+    "/tickets/" + encodeURIComponent(number) + "/lock",
+    { method: "DELETE", headers: currentSessionHeaders() },
+  );
 }
 export async function listApiTasks() {
-  return request<{ tasks: Array<Record<string, any>> }>('/tasks', { headers: currentSessionHeaders() })
+  return request<{ tasks: Array<Record<string, any>> }>("/tasks", {
+    headers: currentSessionHeaders(),
+  });
 }
 export async function createApiTask(input: any) {
-  return request<{ task: Record<string, any> }>('/tasks', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) })
+  return request<{ task: Record<string, any> }>("/tasks", {
+    method: "POST",
+    headers: currentSessionHeaders(),
+    body: JSON.stringify(input),
+  });
 }
 export async function updateApiTask(id: string, input: any) {
-  return request<{ task: Record<string, any> }>('/tasks/' + encodeURIComponent(id), { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify(input) })
+  return request<{ task: Record<string, any> }>(
+    "/tasks/" + encodeURIComponent(id),
+    {
+      method: "PATCH",
+      headers: currentSessionHeaders(),
+      body: JSON.stringify(input),
+    },
+  );
 }
 export function updateApiClientTicketBranch(number: string, branchId: string) {
-  return request<{ ticket: { branchId?: string; branchName?: string } }>('/users/tickets/' + encodeURIComponent(number) + '/branch', { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify({ branchId }) })
+  return request<{ ticket: { branchId?: string; branchName?: string } }>(
+    "/users/tickets/" + encodeURIComponent(number) + "/branch",
+    {
+      method: "PATCH",
+      headers: currentSessionHeaders(),
+      body: JSON.stringify({ branchId }),
+    },
+  );
 }
-export function mirrorTicketUpdate(number: string, patch: Parameters<typeof updateApiTicket>[1]) {
-  background(updateApiTicket(number, patch))
+export function mirrorTicketUpdate(
+  number: string,
+  patch: Parameters<typeof updateApiTicket>[1],
+) {
+  background(updateApiTicket(number, patch));
 }
-export function saveApiTicketCollaborators(number: string, collaborators: NonNullable<Ticket['collaborators']>) {
-  return request<{ collaborators: NonNullable<Ticket['collaborators']> }>('/tickets/' + encodeURIComponent(number) + '/collaborators', { method: 'PUT', headers: currentSessionHeaders(), body: JSON.stringify({ collaborators }) })
+export function saveApiTicketCollaborators(
+  number: string,
+  collaborators: NonNullable<Ticket["collaborators"]>,
+) {
+  return request<{ collaborators: NonNullable<Ticket["collaborators"]> }>(
+    "/tickets/" + encodeURIComponent(number) + "/collaborators",
+    {
+      method: "PUT",
+      headers: currentSessionHeaders(),
+      body: JSON.stringify({ collaborators }),
+    },
+  );
 }
 export function saveApiTicketVisibility(hideCollaboratorTickets: boolean) {
-  return request<{ saved: boolean }>('/admin/ticket-settings', { method: 'PATCH', headers: currentSessionHeaders(), body: JSON.stringify({ hideCollaboratorTickets }) })
+  return request<{ saved: boolean }>("/admin/ticket-settings", {
+    method: "PATCH",
+    headers: currentSessionHeaders(),
+    body: JSON.stringify({ hideCollaboratorTickets }),
+  });
 }
-export function sendMailTest(to: string) { return request<{ sent: boolean; to: string }>('/admin/mail-test', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify({ to }) }) }
-export type ApiSystemLogLevel = 'none' | 'debug' | 'warning' | 'error'
+export function sendMailTest(to: string) {
+  return request<{ sent: boolean; to: string }>("/admin/mail-test", {
+    method: "POST",
+    headers: currentSessionHeaders(),
+    body: JSON.stringify({ to }),
+  });
+}
+export type ApiSystemLogLevel = "none" | "debug" | "warning" | "error";
 export interface ApiSystemSettingsValues {
-  isOnline: boolean
-  helpdeskUrl: string
-  helpdeskTitle: string
-  defaultDeptId: string
-  forceHttps: boolean
-  autolockMinutes: number
-  maxPageSize: number
-  logLevel: ApiSystemLogLevel
-  logGracePeriod: number
-  showAvatars: boolean
-  enableRichText: boolean
-  allowIframes: string
-  embeddedDomainWhitelist: string
-  acl: string
-  aclBackend: string
-  defaultLocale: string
-  defaultTimezone: string
-  dateFormats: '' | '24' | 'custom'
-  timeFormat: string
-  dateFormat: string
-  datetimeFormat: string
-  daydatetimeFormat: string
-  scheduleId: string
-  systemLanguage: string
-  secondaryLanguages: string[]
-  defaultStorageBk: string
-  maxFileSize: number
-  filesRequireAuth: boolean
+  isOnline: boolean;
+  helpdeskUrl: string;
+  helpdeskTitle: string;
+  defaultDeptId: string;
+  forceHttps: boolean;
+  autolockMinutes: number;
+  maxPageSize: number;
+  logLevel: ApiSystemLogLevel;
+  logGracePeriod: number;
+  showAvatars: boolean;
+  enableRichText: boolean;
+  allowIframes: string;
+  embeddedDomainWhitelist: string;
+  acl: string;
+  aclBackend: string;
+  defaultLocale: string;
+  defaultTimezone: string;
+  dateFormats: "" | "24" | "custom";
+  timeFormat: string;
+  dateFormat: string;
+  datetimeFormat: string;
+  daydatetimeFormat: string;
+  scheduleId: string;
+  systemLanguage: string;
+  secondaryLanguages: string[];
+  defaultStorageBk: string;
+  maxFileSize: number;
+  filesRequireAuth: boolean;
 }
-export interface ApiSystemSettingsDepartment { id: string; name: string; isPublic: boolean; active: boolean }
-export interface ApiSystemSettingsSchedule { id: string; name: string; timezone: string }
+export interface ApiSystemSettingsDepartment {
+  id: string;
+  name: string;
+  isPublic: boolean;
+  active: boolean;
+}
+export interface ApiSystemSettingsSchedule {
+  id: string;
+  name: string;
+  timezone: string;
+}
 export interface ApiSystemSettingsResponse {
-  values: ApiSystemSettingsValues
-  departments: ApiSystemSettingsDepartment[]
-  schedules: ApiSystemSettingsSchedule[]
+  values: ApiSystemSettingsValues;
+  departments: ApiSystemSettingsDepartment[];
+  schedules: ApiSystemSettingsSchedule[];
   options: {
-    pageSizes: number[]
-    logLevels: Array<{ value: ApiSystemLogLevel; label: string }>
-    logGracePeriods: Array<{ value: number; label: string }>
-    aclBackends: Array<{ value: string; label: string }>
-    storageBackends: Array<{ value: string; label: string }>
-    maxFileSizes: Array<{ value: number; label: string }>
-    languages: Array<{ value: string; label: string }>
-    timezones: string[]
-  }
+    pageSizes: number[];
+    logLevels: Array<{ value: ApiSystemLogLevel; label: string }>;
+    logGracePeriods: Array<{ value: number; label: string }>;
+    aclBackends: Array<{ value: string; label: string }>;
+    storageBackends: Array<{ value: string; label: string }>;
+    maxFileSizes: Array<{ value: number; label: string }>;
+    languages: Array<{ value: string; label: string }>;
+    timezones: string[];
+  };
   stats: {
-    attachments: { files: number; links: number; chunks: number; bytes: number; storage: string }
-    locks: { total: number; active: number; expired: number; table: string }
-    logs: { total: number; debug: number; warning: number; error: number; newest: string | null; oldest: string | null; table: string }
-  }
+    attachments: {
+      files: number;
+      links: number;
+      chunks: number;
+      bytes: number;
+      storage: string;
+    };
+    locks: { total: number; active: number; expired: number; table: string };
+    logs: {
+      total: number;
+      debug: number;
+      warning: number;
+      error: number;
+      newest: string | null;
+      oldest: string | null;
+      table: string;
+    };
+  };
 }
 export function getApiSystemSettings() {
-  return request<ApiSystemSettingsResponse>('/admin/system-settings', { headers: currentSessionHeaders() })
+  return request<ApiSystemSettingsResponse>("/admin/system-settings", {
+    headers: currentSessionHeaders(),
+  });
 }
 export function saveApiSystemSettings(values: ApiSystemSettingsValues) {
-  return request<ApiSystemSettingsResponse>('/admin/system-settings', { method: 'PUT', headers: currentSessionHeaders(), body: JSON.stringify({ values }) })
+  return request<ApiSystemSettingsResponse>("/admin/system-settings", {
+    method: "PUT",
+    headers: currentSessionHeaders(),
+    body: JSON.stringify({ values }),
+  });
 }
 export function purgeApiSystemLogs() {
-  return request<{ deleted: number; cutoff: string; months: number }>('/admin/system-settings/purge-logs', { method: 'POST', headers: currentSessionHeaders() })
+  return request<{ deleted: number; cutoff: string; months: number }>(
+    "/admin/system-settings/purge-logs",
+    { method: "POST", headers: currentSessionHeaders() },
+  );
 }
 export function purgeApiExpiredLocks() {
-  return request<{ deleted: number }>('/admin/system-settings/purge-expired-locks', { method: 'POST', headers: currentSessionHeaders() })
+  return request<{ deleted: number }>(
+    "/admin/system-settings/purge-expired-locks",
+    { method: "POST", headers: currentSessionHeaders() },
+  );
 }
-export function getMailLog() { return request<{ messages: Array<Record<string, unknown>> }>('/admin/mail-log', { headers: currentSessionHeaders() }) }
-export function registerApiUser(input: { name: string; email: string; password: string; phone?: string; employeeId?: string; branchId?: string }) {
-  return request<{ submitted: boolean; verificationStatus: 'pending' }>('/users/register', { method: 'POST', body: JSON.stringify(input) })
+export function getMailLog() {
+  return request<{ messages: Array<Record<string, unknown>> }>(
+    "/admin/mail-log",
+    { headers: currentSessionHeaders() },
+  );
 }
-export interface ApiClientUser { id: string; name: string; email: string; phone?: string; employeeId?: string; branchId?: string; branchName?: string; org?: string; title?: string; deptId?: string; roleId?: string; avatar?: string }
+export function registerApiUser(input: {
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  employeeId?: string;
+  branchId?: string;
+}) {
+  return request<{ submitted: boolean; verificationStatus: "pending" }>(
+    "/users/register",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+export interface ApiClientUser {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  employeeId?: string;
+  branchId?: string;
+  branchName?: string;
+  org?: string;
+  title?: string;
+  deptId?: string;
+  roleId?: string;
+  avatar?: string;
+}
 export function apiClientLogin(email: string, password: string) {
-  return request<{ found: boolean; status?: 'pending' | 'approved' | 'rejected' | 'disabled'; user?: ApiClientUser; sessionToken?: string }>('/users/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+  return request<{
+    found: boolean;
+    status?: "pending" | "approved" | "rejected" | "disabled";
+    user?: ApiClientUser;
+    sessionToken?: string;
+  }>("/users/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
 }
 export function apiStaffLogin(email: string, password: string) {
-  return request<{ user: ApiClientUser & { role: 'agent' | 'admin' }; sessionToken: string }>('/staff/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+  return request<{
+    user: ApiClientUser & { role: "agent" | "admin" };
+    sessionToken: string;
+  }>("/staff/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
 }
 export function apiValidateClientSession(token: string) {
-  return request<{ status: 'approved'; role: User['role']; user: ApiClientUser & { role: User['role'] } }>('/users/session', { headers: { 'x-user-session': token } })
+  return request<{
+    status: "approved";
+    role: User["role"];
+    user: ApiClientUser & { role: User["role"] };
+  }>("/users/session", { headers: { "x-user-session": token } });
 }
 export function apiValidateStaffSession(token: string) {
-  return request<{ status: 'approved'; role: 'agent' | 'admin'; user: ApiClientUser & { role: 'agent' | 'admin' } }>('/staff/session', { headers: { 'x-user-session': token } })
+  return request<{
+    status: "approved";
+    role: "agent" | "admin";
+    user: ApiClientUser & { role: "agent" | "admin" };
+  }>("/staff/session", { headers: { "x-user-session": token } });
 }
-export function requestPasswordReset(email: string) { return request<{ sent: boolean }>('/auth/password-reset/request', { method: 'POST', body: JSON.stringify({ email }) }) }
-export function completePasswordReset(token: string, password: string) { return request<{ updated: boolean }>('/auth/password-reset/complete', { method: 'POST', body: JSON.stringify({ token, password }) }) }
-export function updateApiAccountPassword(token: string, password: string, currentPassword?: string, role?: 'client' | 'agent' | 'admin') {
-  const endpoint = role && role !== 'client' ? '/staff/password' : '/users/password'
-  return request<{ updated: boolean }>(endpoint, { method: 'PATCH', headers: { 'x-user-session': token }, body: JSON.stringify({ password, currentPassword }) })
+export function requestPasswordReset(email: string) {
+  return request<{ sent: boolean }>("/auth/password-reset/request", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
 }
-export const updateApiClientPassword = updateApiAccountPassword
-export function updateApiProfile(token: string, input: { name: string; phone: string; org: string; title?: string; avatar?: string }, role?: 'client' | 'agent' | 'admin') {
-  const endpoint = role && role !== 'client' ? '/staff/profile' : '/users/profile'
-  return request<{ user: ApiClientUser & { role: User['role'] } }>(endpoint, { method: 'PATCH', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+export function completePasswordReset(token: string, password: string) {
+  return request<{ updated: boolean }>("/auth/password-reset/complete", {
+    method: "POST",
+    body: JSON.stringify({ token, password }),
+  });
 }
-export function updateApiStaffProfile(token: string, input: { name: string; phone: string; title?: string; avatar?: string }) {
-  return request<{ user: ApiClientUser & { role: 'agent' | 'admin' } }>('/staff/profile', { method: 'PATCH', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+export function updateApiAccountPassword(
+  token: string,
+  password: string,
+  currentPassword?: string,
+  role?: "client" | "agent" | "admin",
+) {
+  const endpoint =
+    role && role !== "client" ? "/staff/password" : "/users/password";
+  return request<{ updated: boolean }>(endpoint, {
+    method: "PATCH",
+    headers: { "x-user-session": token },
+    body: JSON.stringify({ password, currentPassword }),
+  });
 }
-export interface ApiStaffAccount extends ApiClientUser { role: 'agent' | 'admin'; active: boolean; deptName?: string; departmentAccess?: string[]; roleName?: string }
+export const updateApiClientPassword = updateApiAccountPassword;
+export function updateApiProfile(
+  token: string,
+  input: {
+    name: string;
+    phone: string;
+    org: string;
+    title?: string;
+    avatar?: string;
+  },
+  role?: "client" | "agent" | "admin",
+) {
+  const endpoint =
+    role && role !== "client" ? "/staff/profile" : "/users/profile";
+  return request<{ user: ApiClientUser & { role: User["role"] } }>(endpoint, {
+    method: "PATCH",
+    headers: { "x-user-session": token },
+    body: JSON.stringify(input),
+  });
+}
+export function updateApiStaffProfile(
+  token: string,
+  input: { name: string; phone: string; title?: string; avatar?: string },
+) {
+  return request<{ user: ApiClientUser & { role: "agent" | "admin" } }>(
+    "/staff/profile",
+    {
+      method: "PATCH",
+      headers: { "x-user-session": token },
+      body: JSON.stringify(input),
+    },
+  );
+}
+export interface ApiStaffAccount extends ApiClientUser {
+  role: "agent" | "admin";
+  active: boolean;
+  deptName?: string;
+  departmentAccess?: string[];
+  roleName?: string;
+}
 export function listApiStaff(token: string) {
-  return request<{ staff: ApiStaffAccount[]; departments: Array<{ id: string; name: string }>; roles: Array<{ id: string; name: string }> }>('/admin/staff', { headers: { 'x-user-session': token } })
+  return request<{
+    staff: ApiStaffAccount[];
+    departments: Array<{ id: string; name: string }>;
+    roles: Array<{ id: string; name: string }>;
+  }>("/admin/staff", { headers: { "x-user-session": token } });
 }
-export interface ApiOrganization { id: string; name: string; manager?: string; status: number; domain?: string; address?: string; phone?: string; website?: string; notes?: string }
-export interface ApiDirectoryUser extends ApiClientUser { role: 'client'; orgId: string }
+export interface ApiOrganization {
+  id: string;
+  name: string;
+  manager?: string;
+  status: number;
+  domain?: string;
+  address?: string;
+  phone?: string;
+  website?: string;
+  notes?: string;
+}
+export interface ApiDirectoryUser extends ApiClientUser {
+  role: "client";
+  orgId: string;
+}
 export function listApiOrganizations(token: string) {
-  return request<{ organizations: ApiOrganization[] }>('/admin/organizations', { headers: { 'x-user-session': token } })
+  return request<{ organizations: ApiOrganization[] }>("/admin/organizations", {
+    headers: { "x-user-session": token },
+  });
 }
-export function saveApiOrganization(input: Partial<ApiOrganization> & Pick<ApiOrganization, 'name'>, token: string) {
-  return request<{ organization: ApiOrganization }>('/admin/organizations', { method: input.id ? 'PUT' : 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+export function saveApiOrganization(
+  input: Partial<ApiOrganization> & Pick<ApiOrganization, "name">,
+  token: string,
+) {
+  return request<{ organization: ApiOrganization }>("/admin/organizations", {
+    method: input.id ? "PUT" : "POST",
+    headers: { "x-user-session": token },
+    body: JSON.stringify(input),
+  });
 }
 export function deleteApiOrganization(id: string, token: string) {
-  return request<{ deleted: boolean }>('/admin/organizations/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'x-user-session': token } })
+  return request<{ deleted: boolean }>(
+    "/admin/organizations/" + encodeURIComponent(id),
+    { method: "DELETE", headers: { "x-user-session": token } },
+  );
 }
 export function listApiDirectoryUsers(token: string) {
-  return request<{ users: ApiDirectoryUser[] }>('/admin/directory-users', { headers: { 'x-user-session': token } })
+  return request<{ users: ApiDirectoryUser[] }>("/admin/directory-users", {
+    headers: { "x-user-session": token },
+  });
 }
-export function saveApiDirectoryUser(input: { name: string; email: string; phone?: string; org?: string; orgId?: string }, token: string) {
-  return request<{ user: ApiDirectoryUser }>('/admin/directory-users', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+export function saveApiDirectoryUser(
+  input: {
+    name: string;
+    email: string;
+    phone?: string;
+    org?: string;
+    orgId?: string;
+  },
+  token: string,
+) {
+  return request<{ user: ApiDirectoryUser }>("/admin/directory-users", {
+    method: "POST",
+    headers: { "x-user-session": token },
+    body: JSON.stringify(input),
+  });
 }
 export function listApiUsers(token: string) {
-  return request<{ users: Array<ApiClientUser & { verificationStatus: 'pending' | 'approved' | 'rejected'; registeredAt: string | null }> }>('/admin/users', { headers: { 'x-user-session': token } })
+  return request<{
+    users: Array<
+      ApiClientUser & {
+        verificationStatus: "pending" | "approved" | "rejected";
+        registeredAt: string | null;
+      }
+    >;
+  }>("/admin/users", { headers: { "x-user-session": token } });
 }
-export function updateApiUserVerification(user: Pick<User, 'name' | 'email'>, status: 'approved' | 'rejected', actorName: string, token: string) {
-  return request<{ updated: boolean; verificationStatus: 'approved' | 'rejected' }>('/admin/users/verification', { method: 'PATCH', headers: { 'x-user-session': token }, body: JSON.stringify({ ...user, status, actorName }) })
+export function updateApiUserVerification(
+  user: Pick<User, "name" | "email">,
+  status: "approved" | "rejected",
+  actorName: string,
+  token: string,
+) {
+  return request<{
+    updated: boolean;
+    verificationStatus: "approved" | "rejected";
+  }>("/admin/users/verification", {
+    method: "PATCH",
+    headers: { "x-user-session": token },
+    body: JSON.stringify({ ...user, status, actorName }),
+  });
 }
-export function saveApiStaff(input: { staffId?: string; name: string; email: string; phone?: string; password?: string; role: 'agent' | 'admin'; active: boolean; title?: string; deptId?: string; roleId?: string; deptName?: string; roleName?: string; departmentAccess?: string[] }, token: string) {
-  return request<{ saved: boolean; id: string }>('/admin/staff', { method: 'POST', headers: { 'x-user-session': token }, body: JSON.stringify(input) })
+export function saveApiStaff(
+  input: {
+    staffId?: string;
+    name: string;
+    email: string;
+    phone?: string;
+    password?: string;
+    role: "agent" | "admin";
+    active: boolean;
+    title?: string;
+    deptId?: string;
+    roleId?: string;
+    deptName?: string;
+    roleName?: string;
+    departmentAccess?: string[];
+  },
+  token: string,
+) {
+  return request<{ saved: boolean; id: string }>("/admin/staff", {
+    method: "POST",
+    headers: { "x-user-session": token },
+    body: JSON.stringify(input),
+  });
 }
 export type MirrorTicketResult = {
-  accessToken?: string
-  duplicate?: boolean
-  ticket?: { number?: string }
-  thankYouPage?: { id: string; name: string; body: string } | null
-}
+  accessToken?: string;
+  duplicate?: boolean;
+  ticket?: { number?: string };
+  thankYouPage?: { id: string; name: string; body: string } | null;
+};
 
-export async function mirrorTicket(ticket: Ticket, requester: User, firstMessage: string, db: Database, attachments: File[] = []) {
-  const assignee = db.users.find(u => u.id === ticket.assigneeId)
+export async function mirrorTicket(
+  ticket: Ticket,
+  requester: User,
+  firstMessage: string,
+  db: Database,
+  attachments: File[] = [],
+) {
+  const assignee = db.users.find((u) => u.id === ticket.assigneeId);
   // Let the API generate the number when the selected help topic has a custom
   // number format; the returned number replaces the local placeholder.
-  const payload = { id: ticket.id, subject: ticket.subject, priority: ticket.priority, source: ticket.source, employeeId: ticket.employeeId, branchId: ticket.branchId, assignee: assignee?.name || '', assigneeEmail: assignee?.email || '', department: db.departments.find(d => d.id === ticket.deptId)?.name, topic: db.topics.find(t => t.id === ticket.topicId)?.name, requesterName: requester.name, requesterEmail: requester.email, message: firstMessage, collaborators: ticket.collaborators || [], fromEmail: ticket.fromEmail, collaboratorNotice: ticket.collaboratorNotice }
-  let body: BodyInit = JSON.stringify(payload)
+  const payload = {
+    id: ticket.id,
+    subject: ticket.subject,
+    priority: ticket.priority,
+    source: ticket.source,
+    employeeId: ticket.employeeId,
+    branchId: ticket.branchId,
+    assignee: assignee?.name || "",
+    assigneeEmail: assignee?.email || "",
+    department: db.departments.find((d) => d.id === ticket.deptId)?.name,
+    topic: db.topics.find((t) => t.id === ticket.topicId)?.name,
+    requesterName: requester.name,
+    requesterEmail: requester.email,
+    message: firstMessage,
+    collaborators: ticket.collaborators || [],
+    fromEmail: ticket.fromEmail,
+    collaboratorNotice: ticket.collaboratorNotice,
+  };
+  let body: BodyInit = JSON.stringify(payload);
   if (attachments.length) {
-    const form = new FormData()
-    form.set('ticket', JSON.stringify(payload))
-    for (const file of attachments) form.append('files', file, file.name)
-    body = form
+    const form = new FormData();
+    form.set("ticket", JSON.stringify(payload));
+    for (const file of attachments) form.append("files", file, file.name);
+    body = form;
   }
-  const result = await request<MirrorTicketResult>('/tickets', { method: 'POST', headers: currentSessionHeaders(), body })
-  const finalNumber = result.ticket?.number || ticket.number
-  if (result.accessToken) localStorage.setItem('osticket-api-access-' + finalNumber, result.accessToken)
-  return result
+  const result = await request<MirrorTicketResult>("/tickets", {
+    method: "POST",
+    headers: currentSessionHeaders(),
+    body,
+  });
+  const finalNumber = result.ticket?.number || ticket.number;
+  if (result.accessToken)
+    localStorage.setItem(
+      "osticket-api-access-" + finalNumber,
+      result.accessToken,
+    );
+  return result;
 }
-export function mirrorReply(input: { ticket: Ticket; owner: User; author: User; body: string; initialMessage: string; db: Database; internal?: boolean; status?: Ticket['status']; recipients?: string[]; fromEmail?: string; collaboratorResponse?: boolean; files?: File[] }) {
-  const { ticket, owner, author, body, initialMessage, db } = input
+export function mirrorReply(input: {
+  ticket: Ticket;
+  owner: User;
+  author: User;
+  body: string;
+  initialMessage: string;
+  db: Database;
+  internal?: boolean;
+  status?: Ticket["status"];
+  recipients?: string[];
+  fromEmail?: string;
+  collaboratorResponse?: boolean;
+  files?: File[];
+}) {
+  const { ticket, owner, author, body, initialMessage, db } = input;
   const sessionToken = (() => {
-    try { return (JSON.parse(localStorage.getItem('osticket-react-session') || '{}') as { accessToken?: string }).accessToken } catch { return undefined }
-  })()
-  const sendReply = () => {
-    const payload = { authorName: author.name, authorEmail: author.email, requesterEmail: author.role === 'client' ? author.email : undefined, message: body, internal: input.internal, status: input.status, recipients: input.recipients, fromEmail: input.fromEmail, collaboratorResponse: input.collaboratorResponse }
-    let requestBody: BodyInit = JSON.stringify(payload)
-    const headers = new Headers()
-    const accessToken = author.role === 'client' ? localStorage.getItem('osticket-api-access-' + ticket.number) : null
-    if (accessToken) headers.set('x-ticket-access', accessToken)
-    if (sessionToken && author.role !== 'client') headers.set('x-user-session', sessionToken)
-    if (input.files?.length) {
-      const form = new FormData()
-      form.set('reply', JSON.stringify(payload))
-      for (const file of input.files) form.append('files', file, file.name)
-      requestBody = form
+    try {
+      return (
+        JSON.parse(localStorage.getItem("osticket-react-session") || "{}") as {
+          accessToken?: string;
+        }
+      ).accessToken;
+    } catch {
+      return undefined;
     }
-    return request<{ message?: ApiPersistedMessage; ticket?: Record<string, unknown> }>('/tickets/' + encodeURIComponent(ticket.number) + '/replies', { method: 'POST', headers, body: requestBody })
-  }
+  })();
+  const sendReply = () => {
+    const payload = {
+      authorName: author.name,
+      authorEmail: author.email,
+      requesterEmail: author.role === "client" ? author.email : undefined,
+      message: body,
+      internal: input.internal,
+      status: input.status,
+      recipients: input.recipients,
+      fromEmail: input.fromEmail,
+      collaboratorResponse: input.collaboratorResponse,
+    };
+    let requestBody: BodyInit = JSON.stringify(payload);
+    const headers = new Headers();
+    const accessToken =
+      author.role === "client"
+        ? localStorage.getItem("osticket-api-access-" + ticket.number)
+        : null;
+    if (accessToken) headers.set("x-ticket-access", accessToken);
+    if (sessionToken && author.role !== "client")
+      headers.set("x-user-session", sessionToken);
+    if (input.files?.length) {
+      const form = new FormData();
+      form.set("reply", JSON.stringify(payload));
+      for (const file of input.files) form.append("files", file, file.name);
+      requestBody = form;
+    }
+    return request<{
+      message?: ApiPersistedMessage;
+      ticket?: Record<string, unknown>;
+    }>("/tickets/" + encodeURIComponent(ticket.number) + "/replies", {
+      method: "POST",
+      headers,
+      body: requestBody,
+    });
+  };
   const run = async () => {
     try {
-      return await sendReply()
+      return await sendReply();
     } catch (error) {
       // Only recreate the server-side ticket when it is genuinely missing. Auth
       // failures should surface to the caller instead of creating a second ticket.
-      if (!(error instanceof ApiRequestError) || error.status !== 404) throw error
-      const created = await request<{ accessToken?: string }>('/tickets', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify({ id: ticket.id, number: ticket.number, subject: ticket.subject, priority: ticket.priority, employeeId: ticket.employeeId, branchId: ticket.branchId, department: db.departments.find(d => d.id === ticket.deptId)?.name, topic: db.topics.find(t => t.id === ticket.topicId)?.name, requesterName: owner.name, requesterEmail: owner.email, message: initialMessage || '(Ticket imported from the existing help desk.)', collaborators: ticket.collaborators || [], fromEmail: ticket.fromEmail }) })
-      if (created.accessToken) localStorage.setItem('osticket-api-access-' + ticket.number, created.accessToken)
-      return sendReply()
+      if (!(error instanceof ApiRequestError) || error.status !== 404)
+        throw error;
+      const created = await request<{ accessToken?: string }>("/tickets", {
+        method: "POST",
+        headers: currentSessionHeaders(),
+        body: JSON.stringify({
+          id: ticket.id,
+          number: ticket.number,
+          subject: ticket.subject,
+          priority: ticket.priority,
+          employeeId: ticket.employeeId,
+          branchId: ticket.branchId,
+          department: db.departments.find((d) => d.id === ticket.deptId)?.name,
+          topic: db.topics.find((t) => t.id === ticket.topicId)?.name,
+          requesterName: owner.name,
+          requesterEmail: owner.email,
+          message:
+            initialMessage || "(Ticket imported from the existing help desk.)",
+          collaborators: ticket.collaborators || [],
+          fromEmail: ticket.fromEmail,
+        }),
+      });
+      if (created.accessToken)
+        localStorage.setItem(
+          "osticket-api-access-" + ticket.number,
+          created.accessToken,
+        );
+      return sendReply();
     }
-  }
-  return run()
+  };
+  return run();
 }
 
 export async function apiLookupTicket(number: string, accessToken: string) {
-  return request<{ ticket: Record<string, unknown>; messages: Array<Record<string, unknown>> }>('/tickets/' + encodeURIComponent(number) + '?accessToken=' + encodeURIComponent(accessToken))
+  return request<{
+    ticket: Record<string, unknown>;
+    messages: Array<Record<string, unknown>>;
+  }>(
+    "/tickets/" +
+      encodeURIComponent(number) +
+      "?accessToken=" +
+      encodeURIComponent(accessToken),
+  );
 }
 export async function apiLookupTicketByEmail(number: string, email: string) {
-  return request<{ ticket: ApiPersistedTicket; messages: ApiPersistedMessage[] }>('/tickets/' + encodeURIComponent(number) + '?email=' + encodeURIComponent(email))
+  return request<{
+    ticket: ApiPersistedTicket;
+    messages: ApiPersistedMessage[];
+  }>(
+    "/tickets/" +
+      encodeURIComponent(number) +
+      "?email=" +
+      encodeURIComponent(email),
+  );
 }
 
-export async function downloadApiTicketAttachment(number: string, attachmentId: string, fileName: string, email?: string) {
-  const headers = new Headers(currentSessionHeaders())
-  const accessToken = localStorage.getItem('osticket-api-access-' + number)
-  if (accessToken) headers.set('x-ticket-access', accessToken)
-  if (email) headers.set('x-ticket-email', email)
-  const response = await fetch('/api/v1/tickets/' + encodeURIComponent(number) + '/attachments/' + encodeURIComponent(attachmentId), { headers })
+export async function downloadApiTicketAttachment(
+  number: string,
+  attachmentId: string,
+  fileName: string,
+  email?: string,
+) {
+  const headers = new Headers(currentSessionHeaders());
+  const accessToken = localStorage.getItem("osticket-api-access-" + number);
+  if (accessToken) headers.set("x-ticket-access", accessToken);
+  if (email) headers.set("x-ticket-email", email);
+  const response = await fetch(
+    "/api/v1/tickets/" +
+      encodeURIComponent(number) +
+      "/attachments/" +
+      encodeURIComponent(attachmentId),
+    { headers },
+  );
   if (!response.ok) {
-    const data = await response.json().catch(() => ({}))
-    throw new ApiRequestError(data.error || 'Could not download attachment.', response.status)
+    const data = await response.json().catch(() => ({}));
+    throw new ApiRequestError(
+      data.error || "Could not download attachment.",
+      response.status,
+    );
   }
-  const url = URL.createObjectURL(await response.blob())
-  const link = document.createElement('a')
-  link.href = url
-  link.download = fileName
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export interface DashboardTimeframe {
-  start: string
-  stop: string
-  period: string
-  displayRange: string
-  startDateInput: string
+  start: string;
+  stop: string;
+  period: string;
+  displayRange: string;
+  startDateInput: string;
 }
 
 export interface DashboardWorkload {
-  open: number
-  pending: number
-  overdue: number
-  unassigned: number
+  open: number;
+  pending: number;
+  overdue: number;
+  unassigned: number;
 }
 
 export interface DashboardPlotData {
-  times: string[]
-  timestamps: number[]
-  events: string[]
-  plots: Record<string, number[]>
-  totals: Record<string, number>
+  times: string[];
+  timestamps: number[];
+  events: string[];
+  plots: Record<string, number[]>;
+  totals: Record<string, number>;
 }
 
 export interface DashboardTabularReport {
-  columns: string[]
-  data: Array<Array<string | number>>
+  columns: string[];
+  data: Array<Array<string | number>>;
 }
 
 export interface DashboardOverview {
-  timeframe: DashboardTimeframe
-  workload: DashboardWorkload
-  plots: DashboardPlotData
+  timeframe: DashboardTimeframe;
+  workload: DashboardWorkload;
+  plots: DashboardPlotData;
   tables: {
-    dept: DashboardTabularReport
-    topic: DashboardTabularReport
-    staff: DashboardTabularReport
-  }
+    dept: DashboardTabularReport;
+    topic: DashboardTabularReport;
+    staff: DashboardTabularReport;
+  };
 }
 
-export function getDashboardOverview(start?: string, period?: string, token?: string) {
-  const params = new URLSearchParams()
-  if (start) params.set('start', start)
-  if (period) params.set('period', period)
-  const q = params.toString() ? '?' + params.toString() : ''
-  return request<DashboardOverview>('/dashboard/overview' + q, {
-    headers: token ? { 'x-user-session': token } : currentSessionHeaders(),
-  })
-}
-
-export async function downloadDashboardExport(
-  group: 'dept' | 'topic' | 'staff',
+export function getDashboardOverview(
   start?: string,
   period?: string,
   token?: string,
 ) {
-  const params = new URLSearchParams({ group })
-  if (start) params.set('start', start)
-  if (period) params.set('period', period)
-  const headers = new Headers(token ? { 'x-user-session': token } : currentSessionHeaders())
-  const response = await fetch('/api/v1/dashboard/export?' + params.toString(), { headers })
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}))
-    throw new ApiRequestError(data.error || 'Export failed.', response.status)
-  }
-  const disposition = response.headers.get('content-disposition')
-  let filename = `stats-${group}.csv`
-  if (disposition) {
-    const match = disposition.match(/filename="?([^"]+)"?/)
-    if (match?.[1]) filename = match[1]
-  }
-  const blob = await response.blob()
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  const params = new URLSearchParams();
+  if (start) params.set("start", start);
+  if (period) params.set("period", period);
+  const q = params.toString() ? "?" + params.toString() : "";
+  return request<DashboardOverview>("/dashboard/overview" + q, {
+    headers: token ? { "x-user-session": token } : currentSessionHeaders(),
+  });
 }
 
+export async function downloadDashboardExport(
+  group: "dept" | "topic" | "staff",
+  start?: string,
+  period?: string,
+  token?: string,
+) {
+  const params = new URLSearchParams({ group });
+  if (start) params.set("start", start);
+  if (period) params.set("period", period);
+  const headers = new Headers(
+    token ? { "x-user-session": token } : currentSessionHeaders(),
+  );
+  const response = await fetch(
+    "/api/v1/dashboard/export?" + params.toString(),
+    { headers },
+  );
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new ApiRequestError(data.error || "Export failed.", response.status);
+  }
+  const disposition = response.headers.get("content-disposition");
+  let filename = `stats-${group}.csv`;
+  if (disposition) {
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    if (match?.[1]) filename = match[1];
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 // --- Agent Management -------------------------------------------------------
 
 export interface ApiDeptAccess {
-  deptId: string
-  deptName: string
-  roleId: string
-  roleName: string
-  alerts: boolean
+  deptId: string;
+  deptName: string;
+  roleId: string;
+  roleName: string;
+  alerts: boolean;
 }
 
 export interface ApiTeamMembership {
-  teamId: string
-  teamName: string
-  alerts: boolean
+  teamId: string;
+  teamName: string;
+  alerts: boolean;
 }
 
 export interface ApiAgent {
-  id: string
-  staffId: string
-  username: string
-  firstname: string
-  lastname: string
-  name: string
-  email: string
-  phone: string
-  phoneExt: string
-  mobile: string
-  isadmin: boolean
-  isactive: boolean
-  isvisible: boolean
-  onvacation: boolean
-  assignedOnly: boolean
-  changePasswd: boolean
-  notes: string
-  deptId: string
-  deptName: string
-  roleId: string
-  roleName: string
-  title: string
-  usePrimaryRoleOnAssignment: boolean
-  created: string
-  lastlogin: string | null
-  deptAccess: ApiDeptAccess[]
-  teams: ApiTeamMembership[]
+  id: string;
+  staffId: string;
+  username: string;
+  firstname: string;
+  lastname: string;
+  name: string;
+  email: string;
+  phone: string;
+  phoneExt: string;
+  mobile: string;
+  isadmin: boolean;
+  isactive: boolean;
+  isvisible: boolean;
+  onvacation: boolean;
+  assignedOnly: boolean;
+  changePasswd: boolean;
+  notes: string;
+  deptId: string;
+  deptName: string;
+  roleId: string;
+  roleName: string;
+  title: string;
+  usePrimaryRoleOnAssignment: boolean;
+  created: string;
+  lastlogin: string | null;
+  deptAccess: ApiDeptAccess[];
+  teams: ApiTeamMembership[];
   // Compat
-  role: 'agent' | 'admin'
-  active: boolean
+  role: "agent" | "admin";
+  active: boolean;
 }
 
 export interface ApiAgentOptions {
-  departments: Array<{ id: string; name: string }>
-  roles: Array<{ id: string; name: string }>
-  teams: Array<{ id: string; name: string; active: boolean }>
+  departments: Array<{ id: string; name: string }>;
+  roles: Array<{ id: string; name: string }>;
+  teams: Array<{ id: string; name: string; active: boolean }>;
 }
 
 export function listApiAgents(token: string) {
-  return request<{ agents: ApiAgent[] }>('/admin/agents', { headers: { 'x-user-session': token } })
+  return request<{ agents: ApiAgent[] }>("/admin/agents", {
+    headers: { "x-user-session": token },
+  });
 }
 
 export function getApiAgentOptions(token: string) {
-  return request<ApiAgentOptions>('/admin/agents/options', { headers: { 'x-user-session': token } })
+  return request<ApiAgentOptions>("/admin/agents/options", {
+    headers: { "x-user-session": token },
+  });
 }
 
 export function getApiAgent(id: string, token: string) {
-  return request<{ agent: ApiAgent }>('/admin/agents/' + id, { headers: { 'x-user-session': token } })
+  return request<{ agent: ApiAgent }>("/admin/agents/" + id, {
+    headers: { "x-user-session": token },
+  });
 }
 
 export function createApiAgent(
-  data: Partial<ApiAgent> & { password?: string; deptAccess?: ApiDeptAccess[]; teams?: ApiTeamMembership[] },
+  data: Partial<ApiAgent> & {
+    password?: string;
+    deptAccess?: ApiDeptAccess[];
+    teams?: ApiTeamMembership[];
+  },
   token: string,
 ) {
-  return request<{ saved: boolean; id: string }>('/admin/agents', {
-    method: 'POST',
-    headers: { 'x-user-session': token },
+  return request<{ saved: boolean; id: string }>("/admin/agents", {
+    method: "POST",
+    headers: { "x-user-session": token },
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export function updateApiAgent(
   id: string,
-  data: Partial<ApiAgent> & { password?: string; deptAccess?: ApiDeptAccess[]; teams?: ApiTeamMembership[] },
+  data: Partial<ApiAgent> & {
+    password?: string;
+    deptAccess?: ApiDeptAccess[];
+    teams?: ApiTeamMembership[];
+  },
   token: string,
 ) {
-  return request<{ saved: boolean; id: string }>('/admin/agents/' + id, {
-    method: 'PUT',
-    headers: { 'x-user-session': token },
+  return request<{ saved: boolean; id: string }>("/admin/agents/" + id, {
+    method: "PUT",
+    headers: { "x-user-session": token },
     body: JSON.stringify(data),
-  })
+  });
 }
 
 export function deleteApiAgent(id: string, token: string) {
-  return request<{ deleted: boolean }>('/admin/agents/' + id, {
-    method: 'DELETE',
-    headers: { 'x-user-session': token },
-  })
+  return request<{ deleted: boolean }>("/admin/agents/" + id, {
+    method: "DELETE",
+    headers: { "x-user-session": token },
+  });
 }
 
 export function massAgentAction(
@@ -884,305 +1910,444 @@ export function massAgentAction(
   options: { deptId?: string; roleId?: string } | undefined,
   token: string,
 ) {
-  return request<{ updated?: number; deleted?: number }>('/admin/agents/mass-action', {
-    method: 'POST',
-    headers: { 'x-user-session': token },
-    body: JSON.stringify({ action, ids, options }),
-  })
+  return request<{ updated?: number; deleted?: number }>(
+    "/admin/agents/mass-action",
+    {
+      method: "POST",
+      headers: { "x-user-session": token },
+      body: JSON.stringify({ action, ids, options }),
+    },
+  );
 }
 
-export function setApiAgentPassword(id: string, password: string, forceChange: boolean, token: string) {
-  return request<{ updated: boolean }>('/admin/agents/' + id + '/set-password', {
-    method: 'POST',
-    headers: { 'x-user-session': token },
-    body: JSON.stringify({ password, forceChange }),
-  })
+export function setApiAgentPassword(
+  id: string,
+  password: string,
+  forceChange: boolean,
+  token: string,
+) {
+  return request<{ updated: boolean }>(
+    "/admin/agents/" + id + "/set-password",
+    {
+      method: "POST",
+      headers: { "x-user-session": token },
+      body: JSON.stringify({ password, forceChange }),
+    },
+  );
 }
 
 // --- Role Management -------------------------------------------------------
 
 export interface ApiRolePermission {
-  key: string
-  title: string
-  description: string
+  key: string;
+  title: string;
+  description: string;
 }
 
 export interface ApiRolePermissionGroup {
-  id: string
-  label: string
-  permissions: ApiRolePermission[]
+  id: string;
+  label: string;
+  permissions: ApiRolePermission[];
 }
 
 export interface ApiRole {
-  id: string
-  name: string
-  notes: string
-  enabled: boolean
-  flags: number
-  permissions: string[]
-  permissionCount: number
-  primaryAgentCount: number
-  deptAccessCount: number
-  assignedAgents: string[]
-  assignedDepartments: string[]
-  canDelete: boolean
-  created: string
-  updated: string
+  id: string;
+  name: string;
+  notes: string;
+  enabled: boolean;
+  flags: number;
+  permissions: string[];
+  permissionCount: number;
+  primaryAgentCount: number;
+  deptAccessCount: number;
+  assignedAgents: string[];
+  assignedDepartments: string[];
+  canDelete: boolean;
+  created: string;
+  updated: string;
 }
 
 export interface ApiRolesResponse {
-  roles: ApiRole[]
-  permissionGroups: ApiRolePermissionGroup[]
+  roles: ApiRole[];
+  permissionGroups: ApiRolePermissionGroup[];
 }
 
 export interface ApiRoleInput {
-  name: string
-  notes?: string
-  enabled?: boolean
-  permissions: string[]
+  name: string;
+  notes?: string;
+  enabled?: boolean;
+  permissions: string[];
 }
 
 export function listApiRoles(token: string) {
-  return request<ApiRolesResponse>('/admin/roles', { headers: { 'x-user-session': token } })
+  return request<ApiRolesResponse>("/admin/roles", {
+    headers: { "x-user-session": token },
+  });
 }
 
 export function getApiRole(id: string, token: string) {
-  return request<{ role: ApiRole; permissionGroups: ApiRolePermissionGroup[] }>('/admin/roles/' + id, {
-    headers: { 'x-user-session': token },
-  })
+  return request<{ role: ApiRole; permissionGroups: ApiRolePermissionGroup[] }>(
+    "/admin/roles/" + id,
+    {
+      headers: { "x-user-session": token },
+    },
+  );
 }
 
 export function createApiRole(data: ApiRoleInput, token: string) {
-  return request<{ saved: boolean; id: string; role: ApiRole }>('/admin/roles', {
-    method: 'POST',
-    headers: { 'x-user-session': token },
-    body: JSON.stringify(data),
-  })
+  return request<{ saved: boolean; id: string; role: ApiRole }>(
+    "/admin/roles",
+    {
+      method: "POST",
+      headers: { "x-user-session": token },
+      body: JSON.stringify(data),
+    },
+  );
 }
 
 export function updateApiRole(id: string, data: ApiRoleInput, token: string) {
-  return request<{ saved: boolean; id: string; role: ApiRole }>('/admin/roles/' + id, {
-    method: 'PUT',
-    headers: { 'x-user-session': token },
-    body: JSON.stringify(data),
-  })
+  return request<{ saved: boolean; id: string; role: ApiRole }>(
+    "/admin/roles/" + id,
+    {
+      method: "PUT",
+      headers: { "x-user-session": token },
+      body: JSON.stringify(data),
+    },
+  );
 }
 
 export function deleteApiRole(id: string, token: string) {
-  return request<{ deleted: boolean }>('/admin/roles/' + id, {
-    method: 'DELETE',
-    headers: { 'x-user-session': token },
-  })
+  return request<{ deleted: boolean }>("/admin/roles/" + id, {
+    method: "DELETE",
+    headers: { "x-user-session": token },
+  });
 }
 
-export function massApiRoleAction(action: 'enable' | 'disable' | 'delete', ids: string[], token: string) {
-  return request<{ updated?: number; deleted?: number; skipped?: number }>('/admin/roles/mass-action', {
-    method: 'POST',
-    headers: { 'x-user-session': token },
-    body: JSON.stringify({ action, ids }),
-  })
+export function massApiRoleAction(
+  action: "enable" | "disable" | "delete",
+  ids: string[],
+  token: string,
+) {
+  return request<{ updated?: number; deleted?: number; skipped?: number }>(
+    "/admin/roles/mass-action",
+    {
+      method: "POST",
+      headers: { "x-user-session": token },
+      body: JSON.stringify({ action, ids }),
+    },
+  );
 }
 
 // --- Team Management -------------------------------------------------------
 
 export interface ApiTeamMember {
-  staffId: string
-  name: string
-  username: string
-  email: string
-  departmentId: string
-  departmentName: string
-  active: boolean
-  onvacation: boolean
-  alerts: boolean
+  staffId: string;
+  name: string;
+  username: string;
+  email: string;
+  departmentId: string;
+  departmentName: string;
+  active: boolean;
+  onvacation: boolean;
+  alerts: boolean;
 }
 
 export interface ApiTeam {
-  id: string
-  name: string
-  notes: string
-  enabled: boolean
-  active: boolean
-  disableAlerts: boolean
-  alertsEnabled: boolean
-  flags: number
-  leadId: string
-  leadName: string
-  memberCount: number
-  members: ApiTeamMember[]
-  alertMemberCount: number
-  ticketCount: number
-  taskCount: number
-  helpTopicCount: number
-  helpTopicNames: string[]
-  filterActionCount: number
-  usageCount: number
-  created: string
-  updated: string
+  id: string;
+  name: string;
+  notes: string;
+  enabled: boolean;
+  active: boolean;
+  disableAlerts: boolean;
+  alertsEnabled: boolean;
+  flags: number;
+  leadId: string;
+  leadName: string;
+  memberCount: number;
+  members: ApiTeamMember[];
+  alertMemberCount: number;
+  ticketCount: number;
+  taskCount: number;
+  helpTopicCount: number;
+  helpTopicNames: string[];
+  filterActionCount: number;
+  usageCount: number;
+  created: string;
+  updated: string;
 }
 
 export interface ApiTeamStaffOption {
-  id: string
-  staffId: string
-  name: string
-  username: string
-  email: string
-  departmentId: string
-  departmentName: string
-  active: boolean
-  onvacation: boolean
+  id: string;
+  staffId: string;
+  name: string;
+  username: string;
+  email: string;
+  departmentId: string;
+  departmentName: string;
+  active: boolean;
+  onvacation: boolean;
 }
 
 export interface ApiTeamsResponse {
-  teams: ApiTeam[]
-  staff: ApiTeamStaffOption[]
+  teams: ApiTeam[];
+  staff: ApiTeamStaffOption[];
 }
 
 export interface ApiTeamMemberInput {
-  staffId: string
-  alerts: boolean
+  staffId: string;
+  alerts: boolean;
 }
 
 export interface ApiTeamInput {
-  name: string
-  notes?: string
-  enabled?: boolean
-  disableAlerts?: boolean
-  leadId?: string
-  members: ApiTeamMemberInput[]
+  name: string;
+  notes?: string;
+  enabled?: boolean;
+  disableAlerts?: boolean;
+  leadId?: string;
+  members: ApiTeamMemberInput[];
 }
 
 export function listApiTeams(token: string) {
-  return request<ApiTeamsResponse>('/admin/teams', { headers: { 'x-user-session': token } })
+  return request<ApiTeamsResponse>("/admin/teams", {
+    headers: { "x-user-session": token },
+  });
 }
 
 export function getApiTeam(id: string, token: string) {
-  return request<{ team: ApiTeam; staff: ApiTeamStaffOption[] }>('/admin/teams/' + id, {
-    headers: { 'x-user-session': token },
-  })
+  return request<{ team: ApiTeam; staff: ApiTeamStaffOption[] }>(
+    "/admin/teams/" + id,
+    {
+      headers: { "x-user-session": token },
+    },
+  );
 }
 
 export function createApiTeam(data: ApiTeamInput, token: string) {
-  return request<{ saved: boolean; id: string; team: ApiTeam }>('/admin/teams', {
-    method: 'POST',
-    headers: { 'x-user-session': token },
-    body: JSON.stringify(data),
-  })
+  return request<{ saved: boolean; id: string; team: ApiTeam }>(
+    "/admin/teams",
+    {
+      method: "POST",
+      headers: { "x-user-session": token },
+      body: JSON.stringify(data),
+    },
+  );
 }
 
 export function updateApiTeam(id: string, data: ApiTeamInput, token: string) {
-  return request<{ saved: boolean; id: string; team: ApiTeam }>('/admin/teams/' + id, {
-    method: 'PUT',
-    headers: { 'x-user-session': token },
-    body: JSON.stringify(data),
-  })
+  return request<{ saved: boolean; id: string; team: ApiTeam }>(
+    "/admin/teams/" + id,
+    {
+      method: "PUT",
+      headers: { "x-user-session": token },
+      body: JSON.stringify(data),
+    },
+  );
 }
 
 export function deleteApiTeam(id: string, token: string) {
-  return request<{ deleted: boolean }>('/admin/teams/' + id, {
-    method: 'DELETE',
-    headers: { 'x-user-session': token },
-  })
+  return request<{ deleted: boolean }>("/admin/teams/" + id, {
+    method: "DELETE",
+    headers: { "x-user-session": token },
+  });
 }
 
-export function massApiTeamAction(action: 'enable' | 'disable' | 'delete', ids: string[], token: string) {
-  return request<{ updated?: number; deleted?: number; skipped?: number }>('/admin/teams/mass-action', {
-    method: 'POST',
-    headers: { 'x-user-session': token },
-    body: JSON.stringify({ action, ids }),
-  })
+export function massApiTeamAction(
+  action: "enable" | "disable" | "delete",
+  ids: string[],
+  token: string,
+) {
+  return request<{ updated?: number; deleted?: number; skipped?: number }>(
+    "/admin/teams/mass-action",
+    {
+      method: "POST",
+      headers: { "x-user-session": token },
+      body: JSON.stringify({ action, ids }),
+    },
+  );
 }
 
 export interface ApiCompanyField {
-  id: string
-  name: string
-  label: string
-  type: string
-  hint: string
-  sort: number
-  configuration: Record<string, unknown>
-  value: string
+  id: string;
+  name: string;
+  label: string;
+  type: string;
+  hint: string;
+  sort: number;
+  configuration: Record<string, unknown>;
+  value: string;
 }
 
 export interface ApiCompanyPage {
-  id: string
-  name: string
-  type: string
-  active: boolean
-  body: string
+  id: string;
+  name: string;
+  type: string;
+  active: boolean;
+  body: string;
 }
 
 export interface ApiCompanyImage {
-  id: string
-  name: string
-  type: string
-  size: number
-  created: string
-  url: string
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  created: string;
+  url: string;
 }
 
 export interface ApiCompanySelection {
-  landingPageId: string
-  offlinePageId: string
-  thankYouPageId: string
-  clientLogoId: string
-  staffLogoId: string
-  staffBackdropId: string
+  landingPageId: string;
+  offlinePageId: string;
+  thankYouPageId: string;
+  clientLogoId: string;
+  staffLogoId: string;
+  staffBackdropId: string;
 }
 
 export interface ApiCompanySettings {
-  form: { id: string; title: string; instructions: string; notes: string }
-  entryId: string
-  fields: ApiCompanyField[]
-  pages: ApiCompanyPage[]
-  selected: ApiCompanySelection
-  logos: ApiCompanyImage[]
-  backdrops: ApiCompanyImage[]
+  form: { id: string; title: string; instructions: string; notes: string };
+  entryId: string;
+  fields: ApiCompanyField[];
+  pages: ApiCompanyPage[];
+  selected: ApiCompanySelection;
+  logos: ApiCompanyImage[];
+  backdrops: ApiCompanyImage[];
 }
 
 export interface ApiCompanySaveInput extends ApiCompanySelection {
-  values: Record<string, string>
-  deleteLogoIds?: string[]
-  deleteBackdropIds?: string[]
+  values: Record<string, string>;
+  deleteLogoIds?: string[];
+  deleteBackdropIds?: string[];
 }
 
 export function getApiCompanySettings() {
-  return request<ApiCompanySettings>('/admin/company', { headers: currentSessionHeaders() })
+  return request<ApiCompanySettings>("/admin/company", {
+    headers: currentSessionHeaders(),
+  });
 }
 
 export function saveApiCompanySettings(input: ApiCompanySaveInput) {
-  return request<{ saved: boolean }>('/admin/company', {
-    method: 'PUT',
+  return request<{ saved: boolean }>("/admin/company", {
+    method: "PUT",
     headers: currentSessionHeaders(),
     body: JSON.stringify(input),
-  })
+  });
 }
 
-export function uploadApiCompanyImage(kind: 'logo' | 'backdrop', file: File) {
-  const body = new FormData()
-  body.append('kind', kind)
-  body.append('file', file)
-  return request<{ image: ApiCompanyImage }>('/admin/company/upload', {
-    method: 'POST',
+export function uploadApiCompanyImage(kind: "logo" | "backdrop", file: File) {
+  const body = new FormData();
+  body.append("kind", kind);
+  body.append("file", file);
+  return request<{ image: ApiCompanyImage }>("/admin/company/upload", {
+    method: "POST",
     headers: currentSessionHeaders(),
     body,
-  }).then((result) => result.image)
+  }).then((result) => result.image);
 }
 
 export function companyAssetUrl(id: string) {
-  if (!id || id === '0') return ''
-  if (id.startsWith('data:') || id.startsWith('http://') || id.startsWith('https://') || id.startsWith('/')) {
-    return id
+  if (!id || id === "0") return "";
+  if (
+    id.startsWith("data:") ||
+    id.startsWith("http://") ||
+    id.startsWith("https://") ||
+    id.startsWith("/")
+  ) {
+    return id;
   }
-  return '/api/v1/company/files/' + encodeURIComponent(id)
+  return "/api/v1/company/files/" + encodeURIComponent(id);
 }
 
 export interface ApiPublicBranding {
-  clientLogoId: string
-  staffLogoId: string
-  staffBackdropId: string
+  clientLogoId: string;
+  staffLogoId: string;
+  staffBackdropId: string;
 }
 
 export function getApiPublicBranding() {
-  return request<ApiPublicBranding>('/company/branding')
+  return request<ApiPublicBranding>("/company/branding");
+}
+
+export interface ApiWizardTopic {
+  id: string;
+  name: string;
+  deptId: string;
+  departmentName: string;
+  priority: string;
+  slaId: string;
+  hint: string;
+  active: boolean;
+}
+
+export interface ApiWizardCategory {
+  id: string;
+  name: string;
+  description: string;
+  articleCount: number;
+}
+
+export interface ApiWizardFaq {
+  id: string;
+  categoryId: string;
+  question: string;
+  answer: string;
+  keywords: string;
+  updatedAt?: string;
+}
+
+export interface ApiWizardMeta {
+  topics: ApiWizardTopic[];
+  categories: ApiWizardCategory[];
+  featuredFaqs: ApiWizardFaq[];
+  branches: Array<{ id: string; name: string }>;
+  settings: {
+    helpdeskName: string;
+    companyName: string;
+    landingPageMessage: string;
+    allowGuestTickets: boolean;
+  };
+}
+
+export interface ApiWizardTicketStatusResult {
+  found: boolean;
+  message?: string;
+  ticket?: {
+    id: string;
+    number: string;
+    subject: string;
+    priority: string;
+    status: string;
+    statusState: string;
+    department: string;
+    requesterName: string;
+    requesterEmail: string;
+    createdAt: string;
+    updatedAt: string;
+    lastActivity: string;
+    messageCount: number;
+    lastMessageSnippet: string;
+    isClosed: boolean;
+  };
+}
+
+export function getApiWizardMeta() {
+  return request<ApiWizardMeta>("/wizard/meta");
+}
+
+export function getApiWizardFaqs(params: {
+  query?: string;
+  categoryId?: string;
+  topicId?: string;
+}) {
+  const query = new URLSearchParams();
+  if (params.query) query.set("query", params.query);
+  if (params.categoryId) query.set("categoryId", params.categoryId);
+  if (params.topicId) query.set("topicId", params.topicId);
+  return request<ApiWizardFaq[]>("/wizard/faqs?" + query.toString());
+}
+
+export function checkApiTicketStatus(number: string, email: string) {
+  return request<ApiWizardTicketStatusResult>("/wizard/check-status", {
+    method: "POST",
+    body: JSON.stringify({ number, email }),
+  });
 }

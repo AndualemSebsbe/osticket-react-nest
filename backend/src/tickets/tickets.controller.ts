@@ -54,7 +54,35 @@ export class TicketsController {
     const account = await this.staffAccount(token);
     return this.advancedSearch.saveSettings(body || {}, account.staffId);
   }
-  @Post('tickets') @UseInterceptors(AnyFilesInterceptor({limits:{files:5,fileSize:8*1024*1024}})) async create(@Body() body:any,@UploadedFiles() files:any[],@Req() req:any) { if(!this.security.rateLimit(req.ip,'ticket-create',12)) throw new UnauthorizedException('Too many ticket requests. Try again later.'); const data=typeof body.ticket==='string'?JSON.parse(body.ticket):body; const session=this.security.readSession(req.headers['x-user-session']); if(session){ const staff=await this.auth.validateStaff(session.email); const client=await this.auth.validateClient(session.email); const valid=this.auth.sessionAccount(staff,session,'staff')||this.auth.sessionAccount(client,session,'client')&&client!.user.email.toLowerCase()===String(data.requesterEmail||'').toLowerCase(); if(!valid) throw new UnauthorizedException('This account session is expired or does not match the requester.'); if(!staff){ data.assigneeEmail=''; data.collaborators=[]; data.fromEmail=''; } } return this.tickets.create(data,req.ip,(files||[]).map(file=>({originalname:file.originalname,mimetype:file.mimetype,buffer:file.buffer,size:file.size}))); }
+  @Post('tickets') @UseInterceptors(AnyFilesInterceptor({limits:{files:5,fileSize:8*1024*1024}})) async create(@Body() body:any,@UploadedFiles() files:any[],@Req() req:any) {
+    if(!this.security.rateLimit(req.ip,'ticket-create',12)) throw new UnauthorizedException('Too many ticket requests. Try again later.');
+    const data=typeof body.ticket==='string'?JSON.parse(body.ticket):body;
+    const sessionToken = req.headers['x-user-session'];
+    const session = this.security.readSession(sessionToken);
+    if (!session) {
+      throw new UnauthorizedException('Sign in required. Only registered clients or staff can open tickets.');
+    }
+    const staff = await this.auth.validateStaff(session.email);
+    const client = await this.auth.validateClient(session.email);
+    const isStaff = this.auth.sessionAccount(staff, session, 'staff');
+    const isClient = this.auth.sessionAccount(client, session, 'client');
+    if (!isStaff && !isClient) {
+      throw new UnauthorizedException('Only registered clients in ost_user_account or staff in ost_staff can open tickets. Please sign in.');
+    }
+    if (isStaff) {
+      data.requesterEmail = data.requesterEmail || staff!.user.email;
+      data.email = data.email || data.requesterEmail;
+      data.name = data.name || staff!.user.name;
+    } else {
+      data.requesterEmail = client!.user.email;
+      data.email = client!.user.email;
+      data.name = data.name || client!.user.name;
+      data.assigneeEmail = '';
+      data.collaborators = [];
+      data.fromEmail = '';
+    }
+    return this.tickets.create(data,req.ip,(files||[]).map(file=>({originalname:file.originalname,mimetype:file.mimetype,buffer:file.buffer,size:file.size})));
+  }
   @Get('tickets/:number') async get(@Param('number') number:string, @Query('accessToken') token:string, @Query('email') email:string) {
     const result=await this.tickets.get(number);
     const tokenOk=token && result.view.accessHash && result.view.accessHash=== (await import('node:crypto')).createHash('sha256').update(token).digest('hex');
