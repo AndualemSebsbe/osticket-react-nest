@@ -2,10 +2,11 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { btnGhost, btnPrimary, Card, Field, inputClass, PageHeader } from '../../components/ui'
 import { CollaboratorModal } from '../../components/CollaboratorModal'
+import { RichTextEditor } from '../../components/RichTextEditor'
 import { useAuth } from '../../context/AuthContext'
 import { useAgents } from '../../hooks/useAgents'
 import { useDb } from '../../hooks/useDb'
-import { listApiBranches } from '../../lib/api'
+import { listApiBranches, listApiPublicHelpTopics, type ApiHelpTopicFormField } from '../../lib/api'
 import { createTicket } from '../../lib/store'
 import type { Priority, Source } from '../../types'
 
@@ -20,6 +21,10 @@ export function StaffOpenTicketPage() {
   const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([])
   const [showCollaborators, setShowCollaborators] = useState(false)
   const [collaborators, setCollaborators] = useState<Array<{ name: string; email: string; active: boolean }>>([])
+  const [ticketDetailsFields, setTicketDetailsFields] = useState<ApiHelpTopicFormField[]>([])
+  const [subject, setSubject] = useState('')
+  const [body, setBody] = useState('')
+
   const topic = useMemo(() => db.topics.find((t) => t.id === topicId), [db.topics, topicId])
   const clients = db.users.filter((u) => u.role === 'client')
 
@@ -27,8 +32,26 @@ export function StaffOpenTicketPage() {
     let active = true
     void listApiBranches().then(({ branches: persisted }) => { if (active) setBranches(persisted) })
       .catch((err: unknown) => { if (active) setError(err instanceof Error ? err.message : 'Could not load branches.') })
+    void listApiPublicHelpTopics().then((res) => {
+      if (!active) return
+      if (res.ticketDetailsForm?.fields) {
+        setTicketDetailsFields(res.ticketDetailsForm.fields)
+      }
+    }).catch(() => {})
     return () => { active = false }
   }, [])
+
+  const subjectField = useMemo(() => ticketDetailsFields.find((f) => f.name === 'subject'), [ticketDetailsFields])
+  const issueDetailsField = useMemo(
+    () => ticketDetailsFields.find((f) => f.name === 'issue_details' || f.name === 'message'),
+    [ticketDetailsFields]
+  )
+
+  const subjectPlaceholder = (subjectField?.configuration?.placeholder as string) || 'Brief summary of the issue...'
+  const bodyPlaceholder =
+    (issueDetailsField?.configuration?.placeholder as string) ||
+    'Please provide full details, error messages, and steps to reproduce ...'
+  const isBodyHtml = issueDetailsField?.configuration?.html !== false
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -45,8 +68,8 @@ export function StaffOpenTicketPage() {
         branchId: String(form.get('branchId') || ''),
         branchName: branches.find((branch) => branch.id === String(form.get('branchId') || ''))?.name || '',
         topicId: String(form.get('topicId')),
-        subject: String(form.get('subject')),
-        body: String(form.get('body')),
+        subject: subject.trim() || String(form.get('subject') || ''),
+        body: body.trim() || String(form.get('body') || ''),
         priority: String(form.get('priority')) as Priority,
         source: String(form.get('source')) as Source,
         assigneeId: String(form.get('assigneeId')) || undefined,
@@ -69,61 +92,63 @@ export function StaffOpenTicketPage() {
       {error ? <p className="mb-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
       <Card>
         <form onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2">
-          <Field label="Existing user">
-            <select name="userId" className={inputClass} defaultValue="">
-              <option value="">New / guest contact</option>
+          <Field label="User">
+            <select name="userId" required className={inputClass} defaultValue="">
+              <option value="" disabled>Select client</option>
               {clients.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name} ({c.email})
+                  {c.name} &lt;{c.email}&gt;
                 </option>
               ))}
             </select>
           </Field>
           <Field label="Source">
-            <select name="source" className={inputClass} defaultValue="phone">
-              <option value="phone">Phone</option>
-              <option value="email">Email</option>
-              <option value="web">Web</option>
+            <select name="source" className={inputClass} defaultValue="Phone">
+              {['Phone', 'Email', 'Other'].map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
             </select>
           </Field>
-          <Field label="Name">
-            <input name="name" className={inputClass} placeholder="Required if new user" />
+          <Field label="Contact name (if overriding client)">
+            <input name="name" className={inputClass} />
           </Field>
-          <Field label="Email">
-            <input name="email" type="email" className={inputClass} placeholder="Required if new user" />
+          <Field label="Contact email">
+            <input name="email" type="email" className={inputClass} />
           </Field>
-          <Field label="Phone" className="sm:col-span-2">
+          <Field label="Phone">
             <input name="phone" className={inputClass} />
           </Field>
-          <Field label="Employee ID">
-            <input name="employeeId" maxLength={64} className={inputClass} />
-          </Field>
-          <Field label="Branch">
+          <Field label="Branch (office)">
             <select name="branchId" className={inputClass} defaultValue="">
-              <option value="">— Select a branch —</option>
-              {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+              <option value="">(No branch)</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
             </select>
           </Field>
-          <Field label="Collaborators" className="sm:col-span-2">
-            <button type="button" className={btnGhost} onClick={() => setShowCollaborators(true)}>👥 {collaborators.length} selected · Manage collaborators</button>
+          <Field label="Employee ID">
+            <input name="employeeId" className={inputClass} />
           </Field>
-          <Field label="From email">
-            <select name="fromEmail" className={inputClass} defaultValue={db.settings.defaultFromEmail}>
-              <option value={db.settings.defaultFromEmail}>{db.settings.defaultFromEmail} (default)</option>
-              {db.emails.filter((mail) => mail.active && mail.email !== db.settings.defaultFromEmail).map((mail) => <option key={mail.id} value={mail.email}>{mail.name} &lt;{mail.email}&gt;</option>)}
-            </select>
-          </Field>
-          <Field label="Ticket notice">
+          <div className="flex items-end sm:col-span-2">
+            <button type="button" className={btnGhost} onClick={() => setShowCollaborators(true)}>
+              Manage collaborators ({collaborators.filter((c) => c.active).length})
+            </button>
+          </div>
+          <Field label="Collaborator notice" className="sm:col-span-2">
             <select name="collaboratorNotice" className={inputClass} defaultValue="all">
-              <option value="all">Email requester and collaborators</option>
-              <option value="user">Email requester only</option>
-              <option value="none">Do not send an email notice</option>
+              <option value="all">Send notices to all collaborators</option>
+              <option value="user">Only notify ticket owner</option>
+              <option value="none">No email notices</option>
             </select>
           </Field>
           <Field label="Help topic">
-            <select required name="topicId" value={topicId} onChange={(e) => setTopicId(e.target.value)} className={inputClass}>
-              <option value="">— Select —</option>
-              {db.topics.filter((t) => t.active !== false).map((t) => (
+            <select name="topicId" required className={inputClass} value={topicId} onChange={(e) => setTopicId(e.target.value)}>
+              <option value="" disabled>Select topic</option>
+              {db.topics.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
                 </option>
@@ -150,14 +175,46 @@ export function StaffOpenTicketPage() {
               ))}
             </select>
           </Field>
-          <Field label="Subject" className="sm:col-span-2">
-            <input name="subject" required className={inputClass} />
+          <Field label={subjectField?.label || "Subject"} className="sm:col-span-2">
+            <input
+              name="subject"
+              required
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder={subjectPlaceholder}
+              className={inputClass}
+            />
           </Field>
-          <Field label="Issue details" className="sm:col-span-2">
-            <textarea name="body" required rows={6} className={inputClass} />
+          <Field label={issueDetailsField?.label || "Issue details"} className="sm:col-span-2">
+            {isBodyHtml ? (
+              <div className="space-y-1">
+                <RichTextEditor
+                  value={body}
+                  onChange={setBody}
+                  placeholder={bodyPlaceholder}
+                />
+                <input type="hidden" name="body" value={body} />
+              </div>
+            ) : (
+              <textarea
+                name="body"
+                required
+                rows={6}
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder={bodyPlaceholder}
+                className={inputClass}
+              />
+            )}
           </Field>
           <Field label="Attach files (up to 5; 8 MB each)" className="sm:col-span-2">
-            <input name="attachments" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.csv,.doc,.docx,.xls,.xlsx,.zip" className={inputClass} />
+            <input
+              name="attachments"
+              type="file"
+              multiple
+              accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.csv,.doc,.docx,.xls,.xlsx,.zip"
+              className={inputClass}
+            />
           </Field>
           <div className="flex flex-wrap gap-2 sm:col-span-2">
             <button className={btnPrimary} disabled={saving}>{saving ? 'Saving…' : 'Create ticket'}</button>

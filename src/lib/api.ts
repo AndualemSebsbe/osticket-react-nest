@@ -406,7 +406,11 @@ export interface ApiHelpTopicInput {
   forms?: Array<{ formId: string; disabledFieldIds: string[] }>
 }
 export function listApiPublicHelpTopics() {
-  return request<{ topics: ApiPublicHelpTopic[]; departments: Array<{ id: string; name: string }> }>('/help-topics')
+  return request<{
+    topics: ApiPublicHelpTopic[]
+    departments: Array<{ id: string; name: string }>
+    ticketDetailsForm?: ApiHelpTopicFormLink
+  }>('/help-topics')
 }
 export interface ApiBranch { id: string; name: string; active?: boolean }
 export function listApiBranches() {
@@ -1367,6 +1371,18 @@ export interface ApiWizardMeta {
   categories: ApiWizardCategory[]
   featuredFaqs: ApiWizardFaq[]
   branches: Array<{ id: string; name: string }>
+  ticketDetailsForm?: {
+    id: string
+    title: string
+    fields: Array<{
+      id: string
+      name: string
+      label: string
+      type: string
+      hint?: string
+      configuration?: Record<string, unknown>
+    }>
+  }
   settings: {
     helpdeskName: string
     companyName: string

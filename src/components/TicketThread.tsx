@@ -68,7 +68,14 @@ export function TicketThread({
             </time>
           </div>
           {m.recipients?.length ? <div className="mb-2"><button type="button" className="text-xs text-brand-700 underline" onClick={() => setRecipientMessage(recipientMessage === m.id ? null : m.id)}>View email recipients</button>{recipientMessage === m.id ? <p className="mt-1 break-all text-xs text-ink-500">To: {m.recipients.join(', ')}</p> : null}</div> : null}
-          <p className="whitespace-pre-wrap text-sm leading-6">{m.body}</p>
+          {/<[a-z][\s\S]*>/i.test(m.body) ? (
+            <div
+              className="prose dark:prose-invert max-w-none text-sm leading-6 break-words"
+              dangerouslySetInnerHTML={{ __html: m.body }}
+            />
+          ) : (
+            <p className="whitespace-pre-wrap text-sm leading-6">{m.body}</p>
+          )}
           {m.attachments?.length ? (
             <ul className="mt-3 flex flex-wrap gap-2">
               {m.attachments.map((name, index) => {

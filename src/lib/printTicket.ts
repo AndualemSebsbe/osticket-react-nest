@@ -29,7 +29,7 @@ ${messages
     (m) => `<article class="msg${m.internal ? ' internal' : ''}">
 <h3>${escapeHtml(m.authorName)} <span style="font-weight:normal;color:#666">(${m.kind}${m.internal ? ', internal' : ''})</span></h3>
 <time>${formatDate(m.createdAt)}</time>
-<div>${escapeHtml(m.body).replace(/\n/g, '<br>')}</div>
+<div>${/<[a-z][\s\S]*>/i.test(m.body) ? m.body : escapeHtml(m.body).replace(/\n/g, '<br>')}</div>
 ${m.attachments?.length ? `<p><small>Attachments: ${m.attachments.map(escapeHtml).join(', ')}</small></p>` : ''}
 </article>`,
   )

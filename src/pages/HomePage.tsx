@@ -11,7 +11,9 @@ import {
   type ApiWizardCategory,
   type ApiWizardFaq,
   type ApiWizardTicketStatusResult,
+  type ApiWizardMeta,
 } from "../lib/api";
+import { RichTextEditor } from "../components/RichTextEditor";
 import { createTicket, hydrateSingleApiTicket, upsertRecord } from "../lib/store";
 import { relativeTime } from "../lib/format";
 import { inputClass } from "../components/ui";
@@ -37,6 +39,7 @@ export function HomePage() {
   const [dbCategories, setDbCategories] = useState<ApiWizardCategory[]>([]);
   const [dbFeaturedFaqs, setDbFeaturedFaqs] = useState<ApiWizardFaq[]>([]);
   const [dbBranches, setDbBranches] = useState<Array<{ id: string; name: string }>>([]);
+  const [ticketDetailsForm, setTicketDetailsForm] = useState<ApiWizardMeta["ticketDetailsForm"]>(undefined);
   const [dbSettings, setDbSettings] = useState<{
     helpdeskName: string;
     companyName: string;
@@ -103,6 +106,9 @@ export function HomePage() {
         setDbCategories(meta.categories);
         setDbFeaturedFaqs(meta.featuredFaqs);
         setDbBranches(meta.branches);
+        if (meta.ticketDetailsForm) {
+          setTicketDetailsForm(meta.ticketDetailsForm);
+        }
         if (meta.settings) {
           setDbSettings(meta.settings);
         }
@@ -178,6 +184,21 @@ export function HomePage() {
   const selectedTopic = useMemo(() => {
     return dbTopics.find((t) => t.id === ticketTopicId);
   }, [dbTopics, ticketTopicId]);
+
+  // Ticket details form field configurations (placeholders & HTML rich text)
+  const subjectFieldConfig = useMemo(() => {
+    return ticketDetailsForm?.fields.find((f) => f.name === "subject" || f.type === "text");
+  }, [ticketDetailsForm]);
+
+  const bodyFieldConfig = useMemo(() => {
+    return ticketDetailsForm?.fields.find(
+      (f) => f.name === "issue_details" || f.name === "message" || f.type === "memo" || f.type === "thread"
+    );
+  }, [ticketDetailsForm]);
+
+  const subjectPlaceholder = (subjectFieldConfig?.configuration?.placeholder as string) || "e.g. Cannot access portal after password reset";
+  const bodyPlaceholder = (bodyFieldConfig?.configuration?.placeholder as string) || "Explain the problem, steps to reproduce, or any error messages received...";
+  const isBodyHtml = Boolean(bodyFieldConfig?.configuration?.html);
 
   // Handler: Select Wizard Pathway
   function choosePath(path: WizardPath) {
@@ -1192,7 +1213,7 @@ export function HomePage() {
                         type="text"
                         value={ticketSubject}
                         onChange={(e) => setTicketSubject(e.target.value)}
-                        placeholder="e.g. Cannot access portal after password reset"
+                        placeholder={subjectPlaceholder}
                         className={inputClass}
                       />
                     </div>
@@ -1227,14 +1248,22 @@ export function HomePage() {
                       <label className="block text-xs font-bold uppercase tracking-wider text-ink-600 mb-1">
                         Detailed Description *
                       </label>
-                      <textarea
-                        required
-                        rows={5}
-                        value={ticketBody}
-                        onChange={(e) => setTicketBody(e.target.value)}
-                        placeholder="Explain the problem, steps to reproduce, or any error messages received..."
-                        className={inputClass + " leading-relaxed"}
-                      />
+                      {isBodyHtml ? (
+                        <RichTextEditor
+                          value={ticketBody}
+                          onChange={setTicketBody}
+                          placeholder={bodyPlaceholder}
+                        />
+                      ) : (
+                        <textarea
+                          required
+                          rows={5}
+                          value={ticketBody}
+                          onChange={(e) => setTicketBody(e.target.value)}
+                          placeholder={bodyPlaceholder}
+                          className={inputClass + " leading-relaxed"}
+                        />
+                      )}
                     </div>
 
                     {/* File Attachment Dropzone */}
@@ -1350,8 +1379,15 @@ export function HomePage() {
 
                     <div className="p-4 grid grid-cols-3 gap-2">
                       <span className="text-xs font-semibold text-ink-600 uppercase">Description</span>
-                      <div className="col-span-2 text-xs text-ink-800 whitespace-pre-line leading-relaxed max-h-40 overflow-y-auto">
-                        {ticketBody}
+                      <div className="col-span-2 text-xs text-ink-800 leading-relaxed max-h-40 overflow-y-auto">
+                        {/<[a-z][\s\S]*>/i.test(ticketBody) ? (
+                          <div
+                            className="prose dark:prose-invert max-w-none text-xs"
+                            dangerouslySetInnerHTML={{ __html: ticketBody }}
+                          />
+                        ) : (
+                          <div className="whitespace-pre-line">{ticketBody}</div>
+                        )}
                       </div>
                     </div>
 
