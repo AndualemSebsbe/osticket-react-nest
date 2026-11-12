@@ -570,7 +570,7 @@ export class HelpTopicsService {
   }
 
   async publicList() {
-    const [topics, departments, priorities, slas, links, forms, fields] = await Promise.all([
+    const [topics, departments, priorities, slas, links, forms, fields, lists, listItems] = await Promise.all([
       this.prisma.helpTopic.findMany({ orderBy: [{ sort: 'asc' }, { topic: 'asc' }] }),
       this.prisma.department.findMany({ where: { ispublic: 1 }, orderBy: { name: 'asc' } }),
       this.prisma.ticketPriority.findMany({ orderBy: { priority_urgency: 'asc' } }),
@@ -578,6 +578,8 @@ export class HelpTopicsService {
       this.prisma.helpTopicForm.findMany({ orderBy: [{ sort: 'asc' }, { id: 'asc' }] }),
       this.prisma.form.findMany(),
       this.prisma.formField.findMany({ orderBy: [{ sort: 'asc' }, { id: 'asc' }] }),
+      this.prisma.list.findMany({ orderBy: { name: 'asc' } }),
+      this.prisma.listItems.findMany({ where: { status: 1n }, orderBy: [{ list_id: 'asc' }, { sort: 'asc' }] }),
     ]);
     // Ensure legacy zero-flag rows are active *before* filtering the public list.
     if (topics.length && topics.every(topic => asNumber(topic.flags) === 0)) {
@@ -619,6 +621,15 @@ export class HelpTopicsService {
     const departmentById = new Map(departments.map(row => [asString(row.id), row.name]));
     const formById = new Map(forms.map(row => [asString(row.id), row]));
 
+    // Build list items map for select/dropdown fields
+    const listItemsByListId = new Map<string, Array<{ id: string; value: string; sort: number }>>();
+    for (const item of listItems) {
+      const lid = asString(item.list_id);
+      const arr = listItemsByListId.get(lid) || [];
+      arr.push({ id: asString(item.id), value: item.value, sort: item.sort });
+      listItemsByListId.set(lid, arr);
+    }
+
     const publicTopics = topics
       .filter(topic => Boolean(topic.ispublic))
       .filter(topic => statusFromFlags(topic.flags) === 'active' && ancestorsActive(topic))
@@ -637,14 +648,31 @@ export class HelpTopicsService {
               type: form?.type || '',
               disabledFieldIds,
               fields: fields
-                .filter(field => field.form_id === link.form_id)
-                .map(field => ({
-                  id: asString(field.id),
-                  label: field.label || '',
-                  name: field.name || '',
-                  type: field.type || 'text',
-                  disabled: disabledFieldIds.includes(asString(field.id)),
-                })),
+                .filter(field => field.form_id === link.form_id && !disabledFieldIds.includes(asString(field.id)))
+                .map(field => {
+                  const fl = asNumber(field.flags);
+                  // FLAG_CLIENT_VIEW = 0x00100; only expose fields visible to clients
+                  const clientVisible = Boolean(fl & 0x00100) || fl === 0;
+                  if (!clientVisible) return null;
+                  let configObj: Record<string, unknown> = {};
+                  try { if (field.configuration) configObj = JSON.parse(field.configuration); } catch { /* ignore */ }
+                  const listId = asString(configObj.list_id || configObj.typeahead || '');
+                  const listOptions = listId ? (listItemsByListId.get(listId) || []) : [];
+                  return {
+                    id: asString(field.id),
+                    label: field.label || '',
+                    name: field.name || '',
+                    type: field.type || 'text',
+                    hint: field.hint || '',
+                    flags: fl,
+                    required: Boolean(fl & 0x00400), // FLAG_CLIENT_REQUIRED
+                    configuration: configObj,
+                    listId,
+                    listOptions,
+                    disabled: false,
+                  };
+                })
+                .filter(Boolean),
             };
           });
         return {

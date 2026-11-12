@@ -448,6 +448,7 @@ export async function createTicket(input: {
   fromEmail?: string
   collaboratorNotice?: 'all' | 'user' | 'none'
   attachments?: File[]
+  formValues?: Record<string, Record<string, string>>
 }) {
   const attachments = input.attachments ?? []
   if (attachments.length > 5) throw new Error('You can attach up to 5 files.')
@@ -533,7 +534,7 @@ export async function createTicket(input: {
   emit()
   let thankYouPage: { id: string; name: string; body: string } | null = null
   try {
-    const mirrored = await mirrorTicket(ticket, user, input.body, db, input.attachments)
+    const mirrored = await mirrorTicket(ticket, user, input.body, db, input.attachments, input.formValues)
     thankYouPage = mirrored.thankYouPage ?? null
     const serverNumber = mirrored.ticket?.number
     if (serverNumber && serverNumber !== ticket.number) {

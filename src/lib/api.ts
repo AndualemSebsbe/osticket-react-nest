@@ -287,10 +287,15 @@ export interface ApiHelpTopicFormField {
   label: string
   name: string
   type: string
-  sort: number
-  flags: string
-  enabled: boolean
+  sort?: number
+  flags?: string | number
+  enabled?: boolean
   disabled?: boolean
+  hint?: string
+  required?: boolean
+  configuration?: Record<string, unknown>
+  listId?: string
+  listOptions?: Array<{ id: string; value: string; sort: number }>
 }
 export interface ApiHelpTopicFormOption {
   id: string
@@ -771,11 +776,11 @@ export type MirrorTicketResult = {
   thankYouPage?: { id: string; name: string; body: string } | null
 }
 
-export async function mirrorTicket(ticket: Ticket, requester: User, firstMessage: string, db: Database, attachments: File[] = []) {
+export async function mirrorTicket(ticket: Ticket, requester: User, firstMessage: string, db: Database, attachments: File[] = [], formValues?: Record<string, Record<string, string>>) {
   const assignee = db.users.find(u => u.id === ticket.assigneeId)
   // Let the API generate the number when the selected help topic has a custom
   // number format; the returned number replaces the local placeholder.
-  const payload = { id: ticket.id, subject: ticket.subject, priority: ticket.priority, source: ticket.source, employeeId: ticket.employeeId, branchId: ticket.branchId, assignee: assignee?.name || '', assigneeEmail: assignee?.email || '', department: db.departments.find(d => d.id === ticket.deptId)?.name, topic: db.topics.find(t => t.id === ticket.topicId)?.name, requesterName: requester.name, requesterEmail: requester.email, message: firstMessage, collaborators: ticket.collaborators || [], fromEmail: ticket.fromEmail, collaboratorNotice: ticket.collaboratorNotice }
+  const payload = { id: ticket.id, subject: ticket.subject, priority: ticket.priority, source: ticket.source, employeeId: ticket.employeeId, branchId: ticket.branchId, assignee: assignee?.name || '', assigneeEmail: assignee?.email || '', department: db.departments.find(d => d.id === ticket.deptId)?.name, topic: db.topics.find(t => t.id === ticket.topicId)?.name, topicId: ticket.topicId, requesterName: requester.name, requesterEmail: requester.email, message: firstMessage, collaborators: ticket.collaborators || [], fromEmail: ticket.fromEmail, collaboratorNotice: ticket.collaboratorNotice, formValues: formValues || {} }
   let body: BodyInit = JSON.stringify(payload)
   if (attachments.length) {
     const form = new FormData()
