@@ -1691,4 +1691,132 @@ export class AdvancedSearchService {
     await this.saveAgentSettings(staffId, queueId, settings);
     return { saved: true, settings };
   }
+
+  // ─── Personal Queues ──────────────────────────────────────────────────────
+
+  private personalQueueView(queue: any, bundle: SearchBundle, staffId: number) {
+    const config = parseObject(queue.config);
+    const linkedColumns = bundle.queueColumnLinks
+      .filter((link) => toStr(link.queue_id) === toStr(queue.id))
+      .sort((a, b) => Number(a.sort) - Number(b.sort))
+      .map((link) => {
+        const column = bundle.queueColumns.find((item) => toStr(item.id) === toStr(link.column_id));
+        return column
+          ? { path: toStr(column.name), label: toStr(column.heading || column.name), width: column.width ? Number(column.width) : undefined }
+          : null;
+      })
+      .filter(Boolean);
+    const configuredColumns = Array.isArray(config.columns) && config.columns.length ? config.columns : linkedColumns;
+    const sortLinks = bundle.queueSortLinks.filter((link) => toStr(link.queue_id) === toStr(queue.id));
+    const linkedSort = sortLinks.length
+      ? bundle.queueSorts.find((item) => toStr(item.id) === toStr(sortLinks[0].sort_id))
+      : null;
+    const sortRecord: { field: string; direction: 'asc' | 'desc' } | null =
+      config.sort && typeof config.sort === 'object'
+        ? config.sort
+        : linkedSort
+          ? { field: toStr(linkedSort.field), direction: 'desc' }
+          : null;
+    return {
+      id: toStr(queue.id),
+      title: toStr(queue.title || 'Untitled'),
+      parentId: toStr(queue.parent_id || 0),
+      flags: Number(queue.flags || 0),
+      sort: Number(queue.sort || 0),
+      staffId: toStr(queue.staff_id || 0),
+      criteria: Array.isArray(config.criteria) ? config.criteria : [],
+      columns: configuredColumns,
+      sortBy: sortRecord,
+      notes: toStr(config.notes || ''),
+      createdAt: queue.created?.toISOString?.() || queue.created,
+      updatedAt: queue.updated?.toISOString?.() || queue.updated,
+    };
+  }
+
+  async listPersonalQueues(staffId: number) {
+    const bundle = await this.loadBundle('');
+    return bundle.queues
+      .filter((queue) => Number(queue.staff_id || 0) === staffId)
+      .sort((a, b) => Number(a.sort) - Number(b.sort) || toStr(a.title).localeCompare(toStr(b.title)))
+      .map((queue) => this.personalQueueView(queue, bundle, staffId));
+  }
+
+  async createPersonalQueue(input: any, staffId: number) {
+    const title = toStr(input?.title || input?.name).trim().slice(0, 60);
+    if (!title) throw new BadRequestException('Queue title is required.');
+    const criteria = Array.isArray(input.criteria) ? input.criteria : [];
+    const columns = this.normalizeColumnInput(input.columns);
+    const sortField = input.sortBy && typeof input.sortBy === 'object' ? input.sortBy : null;
+    const notes = toStr(input.notes || '').slice(0, 500);
+    const config = { criteria, columns, sort: sortField, pageSize: Number(input.pageSize || 25), notes };
+    const queue = await this.prisma.$transaction(async (tx) => {
+      const maxSort = await tx.queue.aggregate({ _max: { sort: true }, where: { staff_id: BigInt(staffId) } });
+      const created = await tx.queue.create({
+        data: {
+          parent_id: BigInt(toStr(input?.parentId || 0)),
+          staff_id: BigInt(staffId),
+          flags: 1n,
+          sort: (maxSort._max.sort || 0n) + 1n,
+          title,
+          config: JSON.stringify(config),
+          filter: null,
+          root: 'Ticket',
+          path: '/',
+          created: new Date(),
+          updated: new Date(),
+        },
+      });
+      await this.syncSavedSearchRelations(tx, created.id, config);
+      return created;
+    });
+    const bundle = await this.loadBundle('');
+    return this.personalQueueView(queue, bundle, staffId);
+  }
+
+  async updatePersonalQueue(id: string, input: any, staffId: number) {
+    const existing = await this.prisma.queue.findUnique({ where: { id: BigInt(id) } });
+    if (!existing) throw new NotFoundException('Personal queue not found.');
+    if (Number(existing.staff_id || 0) !== staffId) throw new ForbiddenException('Only the owner can edit this queue.');
+    const title = toStr(input?.title || input?.name || existing.title).trim().slice(0, 60);
+    if (!title) throw new BadRequestException('Queue title is required.');
+    const prevConfig = parseObject(existing.config);
+    const criteria = Array.isArray(input.criteria) ? input.criteria : prevConfig.criteria || [];
+    const columns = Array.isArray(input.columns) ? this.normalizeColumnInput(input.columns) : (Array.isArray(prevConfig.columns) ? prevConfig.columns : []);
+    const sortField = input.sortBy !== undefined
+      ? (input.sortBy && typeof input.sortBy === 'object' ? input.sortBy : null)
+      : (prevConfig.sort || null);
+    const notes = toStr(input.notes !== undefined ? input.notes : (prevConfig.notes || '')).slice(0, 500);
+    const pageSize = Number(input.pageSize || prevConfig.pageSize || 25);
+    const config = { criteria, columns, sort: sortField, pageSize, notes };
+    const queue = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.queue.update({
+        where: { id: existing.id },
+        data: {
+          parent_id: BigInt(toStr(input?.parentId ?? existing.parent_id ?? 0)),
+          title,
+          config: JSON.stringify(config),
+          sort: input.sort !== undefined ? BigInt(Number(input.sort)) : existing.sort,
+          updated: new Date(),
+        },
+      });
+      await this.syncSavedSearchRelations(tx, updated.id, config);
+      return updated;
+    });
+    const bundle = await this.loadBundle('');
+    return this.personalQueueView(queue, bundle, staffId);
+  }
+
+  async deletePersonalQueue(id: string, staffId: number) {
+    const existing = await this.prisma.queue.findUnique({ where: { id: BigInt(id) } });
+    if (!existing) throw new NotFoundException('Personal queue not found.');
+    if (Number(existing.staff_id || 0) !== staffId) throw new ForbiddenException('Only the owner can delete this queue.');
+    await this.prisma.$transaction(async (tx) => {
+      await tx.queueColumns.deleteMany({ where: { queue_id: existing.id } });
+      await tx.queueSorts.deleteMany({ where: { queue_id: existing.id } });
+      await tx.queueExport.deleteMany({ where: { queue_id: existing.id } });
+      await tx.queueConfig.deleteMany({ where: { queue_id: existing.id } });
+      await tx.queue.delete({ where: { id: existing.id } });
+    });
+    return { deleted: true, id };
+  }
 }

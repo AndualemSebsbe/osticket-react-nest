@@ -116,9 +116,12 @@ export class TicketsService {
     return Promise.all(rows.map(async t => { const v=await this.view(t); const {accessHash,...safe}=v; return safe; }));
   }
 
-  async queueDefinitions() {
+  async queueDefinitions(staffId = 0) {
+    const queueWhere = staffId > 0
+      ? { OR: [{ staff_id: 0n }, { staff_id: BigInt(staffId) }] }
+      : { staff_id: 0n };
     const [queues, columns, sorts, links, sortLinks, saved] = await Promise.all([
-      this.prisma.queue.findMany({ orderBy: [{ sort: 'asc' }, { title: 'asc' }] }),
+      this.prisma.queue.findMany({ where: queueWhere, orderBy: [{ sort: 'asc' }, { title: 'asc' }] }),
       this.prisma.queueColumn.findMany({ orderBy: [{ sort: 'asc' }, { id: 'asc' }] }),
       this.prisma.queueSort.findMany({ orderBy: [{ sort: 'asc' }, { id: 'asc' }] }),
       this.prisma.queueColumns.findMany({ orderBy: [{ queue_id: 'asc' }, { sort: 'asc' }] }),
