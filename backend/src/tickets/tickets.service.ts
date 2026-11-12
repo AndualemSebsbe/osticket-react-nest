@@ -433,6 +433,16 @@ export class TicketsService {
     const ticket = await this.prisma.$transaction(async tx => {
       const t = await tx.ticket.create({ data: { number, user_id: userId, user_email_id: address.id, status_id: status.id, dept_id: effectiveDept?.id || 0n, topic_id: helpTopic?.topic_id || 0n, staff_id: staffId, team_id: teamId, sla_id: slaId, source: data.source === 'email' ? 'EMAIL' : data.source === 'phone' ? 'PHONE' : 'WEB', ip_address: ip, created: timestamp, updated: timestamp } });
       await tx.ticketCdata.create({ data: { ticket_id: t.ticket_id, subject, priority, employee_id: String(data.employeeId || ''), branch_id: bi(data.branchId) } });
+      if (data.phone) {
+        const cleanPhone = this.security.clean(String(data.phone), 64);
+        if (cleanPhone) {
+          await tx.userCdata.upsert({
+            where: { user_id: userId },
+            create: { user_id: userId, name, email, phone: cleanPhone },
+            update: { phone: cleanPhone }
+          }).catch(() => {});
+        }
+      }
       const th = await tx.thread.create({ data: { object_id: t.ticket_id, object_type: 'T', extra: JSON.stringify({ accessHash: createHash('sha256').update(accessToken).digest('hex'), fromEmail: this.security.clean(data.fromEmail,254), collaboratorNotice: ['all','user','none'].includes(data.collaboratorNotice)?data.collaboratorNotice:'all' }), created: timestamp } });
       const entry = await tx.threadEntry.create({ data: { thread_id: th.id, user_id: userId, type: 'M', poster: name, title: subject, body: message, ip_address: ip, created: timestamp, updated: timestamp } });
       await tx.threadEvent.create({
@@ -470,6 +480,28 @@ export class TicketsService {
       await this.saveAttachments(tx, entry.id, uploads, timestamp);
       const collaborators=Array.isArray(data.collaborators)?data.collaborators:[];
       for(const person of collaborators){ const collaboratorEmail=this.security.email(person?.email); if(!this.security.validEmail(collaboratorEmail)||collaboratorEmail===email||person?.active===false) continue; const collaboratorId=await this.ensureUser(this.security.clean(person?.name,128)||collaboratorEmail,collaboratorEmail); await tx.threadCollaborator.create({data:{thread_id:Number(th.id),user_id:Number(collaboratorId),flags:1,created:timestamp,updated:timestamp}}); }
+      // Save custom form field values to ost_form_entry + ost_form_entry_values
+      const formValues: Record<string, Record<string, string>> = (data.formValues && typeof data.formValues === 'object') ? data.formValues : {};
+      if (helpTopic && Object.keys(formValues).length > 0) {
+        const topicFormLinks = await tx.helpTopicForm.findMany({ where: { topic_id: helpTopic.topic_id }, orderBy: [{ sort: 'asc' }, { id: 'asc' }] });
+        for (const link of topicFormLinks) {
+          const formIdStr = String(link.form_id);
+          const values = formValues[formIdStr];
+          if (!values || typeof values !== 'object') continue;
+          const formFields = await tx.formField.findMany({ where: { form_id: link.form_id }, orderBy: [{ sort: 'asc' }, { id: 'asc' }] });
+          const hasValues = formFields.some(field => values[String(field.id)] !== undefined && String(values[String(field.id)]).trim() !== '');
+          if (!hasValues) continue;
+          const formEntry = await tx.formEntry.create({ data: { form_id: link.form_id, object_id: t.ticket_id, object_type: 'T', sort: link.sort || 1n, created: timestamp, updated: timestamp } });
+          for (const field of formFields) {
+            const fieldId = String(field.id);
+            const val = values[fieldId];
+            if (val === undefined || val === null) continue;
+            const cleaned = this.security.clean(String(val), 2000);
+            if (!cleaned) continue;
+            await tx.formEntryValues.upsert({ where: { entry_id_field_id: { entry_id: formEntry.id, field_id: field.id } }, create: { entry_id: formEntry.id, field_id: field.id, value: cleaned }, update: { value: cleaned } });
+          }
+        }
+      }
       return t;
     });
     const view = await this.view(ticket);
