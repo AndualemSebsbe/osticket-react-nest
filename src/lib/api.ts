@@ -208,6 +208,45 @@ export function updateApiSavedSearch(id: string, input: ApiSavedSearchInput) { r
 export function deleteApiSavedSearch(id: string) { return request<{ deleted: boolean }>('/tickets/search/saved/' + encodeURIComponent(id), { method: 'DELETE', headers: currentSessionHeaders() }) }
 export function saveApiSearchSettings(settings: Record<string, unknown>, queueId = '0') { return request<{ saved: boolean; settings: Record<string, unknown> }>('/tickets/search/settings', { method: 'PUT', headers: currentSessionHeaders(), body: JSON.stringify({ queueId, settings }) }) }
 
+export interface ApiPersonalQueue {
+  id: string
+  title: string
+  parentId: string
+  flags: number
+  sort: number
+  staffId: string
+  criteria: ApiSearchCriterion[]
+  columns: ApiSearchColumn[]
+  sortBy: ApiSearchSort | null
+  notes: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ApiPersonalQueueInput {
+  title: string
+  parentId?: string
+  criteria?: ApiSearchCriterion[]
+  columns?: ApiSearchColumn[]
+  sortBy?: ApiSearchSort | null
+  pageSize?: number
+  notes?: string
+  sort?: number
+}
+
+export function listApiPersonalQueues() {
+  return request<{ queues: ApiPersonalQueue[] }>('/tickets/queues/personal', { headers: currentSessionHeaders() }).then((result) => result.queues)
+}
+export function createApiPersonalQueue(input: ApiPersonalQueueInput) {
+  return request<{ queue: ApiPersonalQueue }>('/tickets/queues/personal', { method: 'POST', headers: currentSessionHeaders(), body: JSON.stringify(input) }).then((result) => result.queue)
+}
+export function updateApiPersonalQueue(id: string, input: ApiPersonalQueueInput) {
+  return request<{ queue: ApiPersonalQueue }>('/tickets/queues/personal/' + encodeURIComponent(id), { method: 'PUT', headers: currentSessionHeaders(), body: JSON.stringify(input) }).then((result) => result.queue)
+}
+export function deleteApiPersonalQueue(id: string) {
+  return request<{ deleted: boolean; id: string }>('/tickets/queues/personal/' + encodeURIComponent(id), { method: 'DELETE', headers: currentSessionHeaders() })
+}
+
 export function listApiAccountTickets(token: string) {
   return request<{ tickets: ApiPersistedTicket[]; messages: ApiPersistedMessage[] }>('/users/tickets', { headers: { 'x-user-session': token } })
 }

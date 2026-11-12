@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { Bookmark } from 'lucide-react'
 import { PriorityBadge, StatusBadge } from '../../components/Badges'
 import { btnGhost, btnPrimary, inputClass, PageHeader } from '../../components/ui'
+import { PersonalQueueModal } from '../../components/PersonalQueueModal'
 import { useAuth } from '../../context/AuthContext'
+import { useDialogs } from '../../context/DialogContext'
 import { useAgents } from '../../hooks/useAgents'
 import { useDb } from '../../hooks/useDb'
 import { ticketQueues } from '../../layouts/staffNav'
 import {
+  deleteApiPersonalQueue,
   getApiAdvancedSearchOptions,
   listApiQueueTickets,
   listApiQueues,
@@ -21,7 +25,7 @@ import { formatDate } from '../../lib/format'
 import { bulkTickets } from '../../lib/store'
 import type { Priority, TicketStatus } from '../../types'
 
-type QueueTab = { id: string; title: string; sort: number }
+type QueueTab = { id: string; title: string; sort: number; isPersonal?: boolean; staffId?: string; parentId?: string }
 
 const PAGE_SIZES = [10, 25, 50, 100, 200]
 const QUEUE_FLAG_DISABLED = 0x0004
@@ -74,7 +78,11 @@ export function StaffQueuePage() {
 
   const db = useDb()
   const { user } = useAuth()
+  const { confirm } = useDialogs()
   const agents = useAgents()
+
+  const [personalModalOpen, setPersonalModalOpen] = useState(false)
+  const [editingPersonalQueueId, setEditingPersonalQueueId] = useState<string | null>(null)
 
   const [search, setSearch] = useState(qParam)
   const [catalog, setCatalog] = useState<QueueTab[]>(() => ticketQueues.map((queue, index) => ({ id: queue.id, title: queue.label, sort: index + 1 })))
@@ -100,10 +108,17 @@ export function StaffQueuePage() {
             const owner = queue.staffId || '0'
             return owner === '0' || owner === String(user?.id || '')
           })
-          .map((queue) => ({ id: queue.id, title: queue.title, sort: Number(queue.sort) || 0 }))
+          .map((queue) => ({
+            id: queue.id,
+            title: queue.title,
+            sort: Number(queue.sort) || 0,
+            isPersonal: Boolean(queue.staffId && queue.staffId !== '0' && queue.staffId === String(user?.id || '')),
+            staffId: queue.staffId,
+            parentId: queue.parentId,
+          }))
         const appQueues = queuesResult.value.customQueues
           .filter((queue) => queue.enabled)
-          .map((queue) => ({ id: queue.id, title: queue.title, sort: Number(queue.sort) || 0 }))
+          .map((queue) => ({ id: queue.id, title: queue.title, sort: Number(queue.sort) || 0, isPersonal: false }))
         const seen = new Set<string>()
         const merged = [...serverQueues, ...appQueues].filter((queue) => {
           if (seen.has(queue.id)) return false
@@ -116,7 +131,7 @@ export function StaffQueuePage() {
       if (optionsResult.status === 'fulfilled') setOptions(optionsResult.value)
     })
     return () => { active = false }
-  }, [user?.id])
+  }, [user?.id, refreshKey])
 
   useEffect(() => {
     setSearch(qParam)
@@ -214,6 +229,22 @@ export function StaffQueuePage() {
     }
   }
 
+  async function deleteCurrentQueue(id: string, queueTitle: string) {
+    if (!(await confirm({
+      title: 'Delete Personal Queue',
+      description: `Delete personal queue "${queueTitle}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+    }))) return
+    try {
+      await deleteApiPersonalQueue(id)
+      setRefreshKey((k) => k + 1)
+      patch('queue', 'open')
+      setNotice('Personal queue deleted.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete personal queue.')
+    }
+  }
+
   function exportCsv() {
     if (!result) return
     setExporting(true)
@@ -297,6 +328,16 @@ export function StaffQueuePage() {
             <button type="button" className={btnGhost} onClick={exportCsv} disabled={!result || result.tickets.length === 0 || exporting}>
               {exporting ? 'Exporting…' : 'Export CSV'}
             </button>
+            <button
+              type="button"
+              className={btnGhost}
+              onClick={() => {
+                setEditingPersonalQueueId(null)
+                setPersonalModalOpen(true)
+              }}
+            >
+              Personal queues
+            </button>
             {user?.role === 'admin' ? <Link to="/scp/admin/queues" className={btnGhost}>Manage queues</Link> : null}
           </>
         }
@@ -308,9 +349,14 @@ export function StaffQueuePage() {
             key={queue.id}
             type="button"
             onClick={() => patch('queue', queue.id)}
-            className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${queueId === queue.id ? 'bg-brand-600 text-white' : 'bg-surface ring-1 ring-line'}`}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-sm flex items-center gap-1.5 ${
+              queueId === queue.id ? 'bg-brand-600 text-white' : 'bg-surface ring-1 ring-line'
+            }`}
           >
-            {queue.title}
+            {queue.isPersonal ? (
+              <Bookmark className={`h-3 w-3 ${queueId === queue.id ? 'text-white' : 'text-brand-600'}`} />
+            ) : null}
+            <span>{queue.title}</span>
           </button>
         ))}
       </div>
@@ -381,14 +427,45 @@ export function StaffQueuePage() {
 
       <div className="mt-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-ink-800">{activeQueue?.title ?? queueId}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-ink-800">{activeQueue?.title ?? queueId}</h2>
+            {activeQueue?.isPersonal ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 ring-1 ring-brand-200">
+                <Bookmark className="h-3 w-3" />
+                Personal Queue
+              </span>
+            ) : null}
+          </div>
           <p className="text-sm text-ink-600">
             {loading && !result ? 'Loading tickets…' : result ? `${result.total.toLocaleString()} ticket${result.total === 1 ? '' : 's'}` : 'No queue loaded'}
             {result && result.total > 0 ? ` · page ${result.page} of ${Math.max(1, result.pages)}` : ''}
             {result?.keyword ? ` · keyword “${result.keyword}”` : ''}
           </p>
         </div>
-        {loading && result ? <span className="text-sm text-ink-500">Refreshing…</span> : null}
+        <div className="flex items-center gap-2">
+          {activeQueue?.isPersonal ? (
+            <>
+              <button
+                type="button"
+                className={btnGhost + ' text-xs px-2.5 py-1.5'}
+                onClick={() => {
+                  setEditingPersonalQueueId(activeQueue.id)
+                  setPersonalModalOpen(true)
+                }}
+              >
+                Edit queue
+              </button>
+              <button
+                type="button"
+                className={btnGhost + ' text-xs text-rose-600 hover:text-rose-700 px-2.5 py-1.5'}
+                onClick={() => void deleteCurrentQueue(activeQueue.id, activeQueue.title)}
+              >
+                Delete
+              </button>
+            </>
+          ) : null}
+          {loading && result ? <span className="text-sm text-ink-500">Refreshing…</span> : null}
+        </div>
       </div>
 
       <ul className="mt-4 grid gap-3 lg:hidden">
@@ -482,6 +559,29 @@ export function StaffQueuePage() {
           </button>
         </div>
       ) : null}
+
+      <PersonalQueueModal
+        open={personalModalOpen}
+        onOpenChange={(isOpen) => {
+          setPersonalModalOpen(isOpen)
+          if (!isOpen) setEditingPersonalQueueId(null)
+        }}
+        initialQueueId={editingPersonalQueueId}
+        parentQueueOptions={catalog.filter((q) => !q.isPersonal)}
+        onSaved={(newQueueId) => {
+          setRefreshKey((k) => k + 1)
+          patch('queue', newQueueId)
+        }}
+        onDeleted={(deletedId) => {
+          setRefreshKey((k) => k + 1)
+          if (queueId === deletedId) {
+            patch('queue', 'open')
+          }
+        }}
+        onSelectQueue={(selectedQueueId) => {
+          patch('queue', selectedQueueId)
+        }}
+      />
     </div>
   )
 }
