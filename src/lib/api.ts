@@ -836,6 +836,10 @@ export async function apiLookupTicketByEmail(number: string, email: string) {
   return request<{ ticket: ApiPersistedTicket; messages: ApiPersistedMessage[] }>('/tickets/' + encodeURIComponent(number) + '?email=' + encodeURIComponent(email))
 }
 
+export async function apiCheckMyTicketStatus(ticketNumber: string) {
+  return request<{ ticket: ApiPersistedTicket & { messages: ApiPersistedMessage[] }; messages: ApiPersistedMessage[] }>('/users/tickets/status?number=' + encodeURIComponent(ticketNumber))
+}
+
 export async function downloadApiTicketAttachment(number: string, attachmentId: string, fileName: string, email?: string) {
   const headers = new Headers(currentSessionHeaders())
   const accessToken = localStorage.getItem('ctms-api-access-' + number)

@@ -15,6 +15,13 @@ export class TicketsController {
     if (!this.auth.sessionAccount(account, session, 'staff')) throw new UnauthorizedException('Active staff session required.');
     return account!;
   }
+  @Get('users/tickets/status') async clientTicketStatus(@Query('number') number: string, @Headers('x-user-session') token: string) {
+    const session = await this.security.readSession(token);
+    const account = session ? await this.auth.validateClient(session.email) : null;
+    if (!this.auth.sessionAccount(account, session, 'client')) throw new UnauthorizedException('Sign in to check ticket status.');
+    if (!number?.trim()) throw new UnauthorizedException('Ticket number is required.');
+    return this.tickets.getForClient(number.trim(), String(account!.user.id));
+  }
   @Get('users/tickets') async userTickets(@Headers('x-user-session') token:string) { const session=await this.security.readSession(token); const account=session?await this.auth.validateClient(session.email):null; if(!this.auth.sessionAccount(account,session,'client')) throw new UnauthorizedException('Session expired.'); const tickets=await this.tickets.listForClient(account!.user.email,account!.user.id); return { tickets, messages:tickets.flatMap((ticket:any)=>(ticket.messages||[]).map((message:any)=>({...message,ticketNumber:ticket.number}))) }; }
   @Get('tickets') async list(@Headers('x-user-session') token:string) { const session=await this.security.readSession(token); const account=session?await this.auth.validateStaff(session.email):null; if(!this.auth.sessionAccount(account,session,'staff')) throw new UnauthorizedException('Active staff session required.'); return this.tickets.listApi().then(tickets=>({tickets})); }
   @Get('tickets/queues') async queues(@Headers('x-user-session') token:string) { const session=await this.security.readSession(token); const account=session?await this.auth.validateStaff(session.email):null; if(!this.auth.sessionAccount(account,session,'staff')) throw new UnauthorizedException('Active staff session required.'); return this.tickets.queueDefinitions(); }

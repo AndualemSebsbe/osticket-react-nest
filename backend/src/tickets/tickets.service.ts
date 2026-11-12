@@ -189,6 +189,34 @@ export class TicketsService {
     return Promise.all(rows.map(async t => { const v=await this.view(t); const {accessHash,requesterEmail,...safe}=v; return safe; }));
   }
 
+  async getForClient(ticketNumber: string, userId: string) {
+    const { row, view } = await this.get(ticketNumber);
+    // Verify the authenticated client owns or collaborates on this ticket
+    const userEmails = await this.prisma.userEmail.findMany({ where: { user_id: bi(userId) } });
+    const emailAddresses = userEmails.map(e => e.address.toLowerCase());
+    const isRequester = emailAddresses.includes(view.requesterEmail.toLowerCase());
+    let isCollaborator = false;
+    if (!isRequester) {
+      const thread = await this.prisma.thread.findUnique({
+        where: { object_id_object_type: { object_id: row.ticket_id, object_type: 'T' } },
+      });
+      if (thread) {
+        const collaborators = await this.prisma.threadCollaborator.findMany({
+          where: { thread_id: Number(thread.id), user_id: Number(userId) },
+        });
+        isCollaborator = collaborators.length > 0;
+      }
+    }
+    if (!isRequester && !isCollaborator) {
+      throw new UnauthorizedException('You do not have access to this ticket.');
+    }
+    const { accessHash, requesterEmail, ...safe } = view;
+    return {
+      ticket: safe,
+      messages: safe.messages.filter(m => !m.internal).map(m => ({ ...m, ticketNumber: safe.number })),
+    };
+  }
+
   async getAttachment(number:string, attachmentId:string, includeInternal = false) {
     const {row}=await this.get(number); const thread=await this.threadFor(row.ticket_id); const entries=await this.prisma.threadEntry.findMany({where:{thread_id:thread.id,...(includeInternal?{}:{type:{not:'N'}})},select:{id:true}}); const scope={object_id:{in:entries.map(e=>e.id)},type:'H' as const}; const attachment=attachmentId.startsWith('name:')?await this.prisma.attachment.findFirst({where:{...scope,name:attachmentId.slice(5)}}):await this.prisma.attachment.findFirst({where:{...scope,id:bi(attachmentId)}}); if(!attachment) throw new NotFoundException('Attachment not found.'); const file=await this.prisma.file.findUnique({where:{id:attachment.file_id}}); if(!file) throw new NotFoundException('Attachment not found.'); const chunks=await this.prisma.fileChunk.findMany({where:{file_id:file.id},orderBy:{chunk_id:'asc'}}); return {name:attachment.name||file.name,type:file.type||'application/octet-stream',data:Buffer.concat(chunks.map(chunk=>Buffer.from(chunk.filedata)))};
   }
