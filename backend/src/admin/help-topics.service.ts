@@ -630,6 +630,44 @@ export class HelpTopicsService {
       listItemsByListId.set(lid, arr);
     }
 
+    // Default Ticket Details form (type T or title Ticket Details)
+    const ticketDetailsFormRecord = forms.find(f => f.type === 'T' || f.title?.toLowerCase() === 'ticket details');
+    let defaultTicketDetailsForm: any = null;
+    if (ticketDetailsFormRecord) {
+      defaultTicketDetailsForm = {
+        formId: asString(ticketDetailsFormRecord.id),
+        title: ticketDetailsFormRecord.title || 'Ticket Details',
+        instructions: ticketDetailsFormRecord.instructions || '',
+        type: ticketDetailsFormRecord.type || 'T',
+        disabledFieldIds: [],
+        fields: fields
+          .filter(field => field.form_id === ticketDetailsFormRecord.id)
+          .map(field => {
+            const fl = asNumber(field.flags);
+            const clientVisible = Boolean(fl & 0x00100) || fl === 0;
+            if (!clientVisible) return null;
+            let configObj: Record<string, unknown> = {};
+            try { if (field.configuration) configObj = JSON.parse(field.configuration); } catch { /* ignore */ }
+            const listId = asString(configObj.list_id || configObj.typeahead || '');
+            const listOptions = listId ? (listItemsByListId.get(listId) || []) : [];
+            return {
+              id: asString(field.id),
+              label: field.label || '',
+              name: field.name || '',
+              type: field.type || 'text',
+              hint: field.hint || '',
+              flags: fl,
+              required: Boolean(fl & 0x00400),
+              configuration: configObj,
+              listId,
+              listOptions,
+              disabled: false,
+            };
+          })
+          .filter(Boolean),
+      };
+    }
+
     const publicTopics = topics
       .filter(topic => Boolean(topic.ispublic))
       .filter(topic => statusFromFlags(topic.flags) === 'active' && ancestorsActive(topic))
@@ -675,6 +713,15 @@ export class HelpTopicsService {
                 .filter(Boolean),
             };
           });
+
+        // Ensure Ticket Details form is present as the base form for every ticket
+        if (defaultTicketDetailsForm && !topicForms.some(f => f.formId === defaultTicketDetailsForm.formId)) {
+          topicForms.unshift({
+            ...defaultTicketDetailsForm,
+            fields: defaultTicketDetailsForm.fields.map((f: any) => ({ ...f })),
+          });
+        }
+
         return {
           id: asString(topic.topic_id),
           name: resolveName(topic),
@@ -701,6 +748,7 @@ export class HelpTopicsService {
       departments: departments
         .filter(row => !(asNumber(row.flags) & 8))
         .map(row => ({ id: asString(row.id), name: row.name })),
+      ticketDetailsForm: defaultTicketDetailsForm,
     };
   }
 }

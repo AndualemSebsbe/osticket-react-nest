@@ -1,10 +1,16 @@
 import { FormEvent, useEffect, useMemo, useState, DragEvent } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { listApiPublicHelpTopics, type ApiPublicHelpTopic } from "../lib/api";
+import {
+  listApiPublicHelpTopics,
+  type ApiPublicHelpTopic,
+  type ApiHelpTopicFormLink,
+  type ApiHelpTopicFormField,
+} from "../lib/api";
 import { createTicket, upsertRecord } from "../lib/store";
 import type { Priority } from "../types";
 import { inputClass, btnPrimary, btnGhost } from "../components/ui";
+import { RichTextEditor } from "../components/RichTextEditor";
 import {
   AlertCircle,
   CheckCircle2,
@@ -37,6 +43,7 @@ export function OpenTicketPage() {
   const navigate = useNavigate();
 
   const [topics, setTopics] = useState<ApiPublicHelpTopic[]>([]);
+  const [ticketDetailsForm, setTicketDetailsForm] = useState<ApiHelpTopicFormLink | null>(null);
   const [topicId, setTopicId] = useState("");
   const [priority, setPriority] = useState<Priority>("normal");
   const [phone, setPhone] = useState(user?.phone || "");
@@ -57,15 +64,18 @@ export function OpenTicketPage() {
     }
   }, [user?.phone]);
 
-  // Load public help topics
+  // Load public help topics and ticket details form
   useEffect(() => {
     let active = true;
     setLoadingTopics(true);
     listApiPublicHelpTopics()
-      .then(({ topics: loadedTopics, departments }) => {
+      .then(({ topics: loadedTopics, departments, ticketDetailsForm: loadedTicketDetailsForm }) => {
         if (!active) return;
         const validTopics = loadedTopics.filter((t) => t.active !== false);
         setTopics(validTopics);
+        if (loadedTicketDetailsForm) {
+          setTicketDetailsForm(loadedTicketDetailsForm);
+        }
         for (const item of validTopics) {
           upsertRecord("topics", {
             id: item.id,
@@ -93,6 +103,46 @@ export function OpenTicketPage() {
 
   const selectedTopic = useMemo(() => topics.find((t) => t.id === topicId), [topics, topicId]);
 
+  // Helper to extract placeholder from ost_form_field configuration JSON
+  const getFieldPlaceholder = (field: ApiHelpTopicFormField): string => {
+    const cfg = field.configuration as Record<string, unknown> | undefined;
+    if (typeof cfg?.placeholder === "string" && cfg.placeholder.trim()) {
+      return cfg.placeholder.trim();
+    }
+    return field.hint || "";
+  };
+
+  // Helper to check if field allows HTML / rich text toolbar
+  const isFieldHtml = (field: ApiHelpTopicFormField): boolean => {
+    const cfg = field.configuration as Record<string, unknown> | undefined;
+    return Boolean(cfg?.html === true || cfg?.html === "true" || cfg?.html === "1" || cfg?.html === 1);
+  };
+
+  // Look up subject and issue details fields from either topic forms or ticketDetailsForm
+  const subjectField = useMemo(() => {
+    for (const form of selectedTopic?.forms || []) {
+      const found = form.fields?.find((f) => f.name === "subject");
+      if (found) return found;
+    }
+    return ticketDetailsForm?.fields?.find((f) => f.name === "subject") || null;
+  }, [selectedTopic, ticketDetailsForm]);
+
+  const issueDetailsField = useMemo(() => {
+    for (const form of selectedTopic?.forms || []) {
+      const found = form.fields?.find((f) => f.name === "issue_details" || f.name === "message");
+      if (found) return found;
+    }
+    return ticketDetailsForm?.fields?.find((f) => f.name === "issue_details" || f.name === "message") || null;
+  }, [selectedTopic, ticketDetailsForm]);
+
+  const hasTicketDetailsInForms = useMemo(() => {
+    return Boolean(
+      selectedTopic?.forms?.some((form) =>
+        form.fields?.some((f) => f.name === "subject" || f.name === "issue_details" || f.name === "message")
+      )
+    );
+  }, [selectedTopic]);
+
   // When help topic changes, update default priority if topic defines one, and reset custom values
   const handleTopicChange = (newTopicId: string) => {
     setTopicId(newTopicId);
@@ -107,14 +157,20 @@ export function OpenTicketPage() {
       for (const form of found.forms) {
         initialValues[form.formId] = {};
         for (const field of form.fields || []) {
-          initialValues[form.formId][field.id] = "";
+          if (field.name === "subject" && subject) {
+            initialValues[form.formId][field.id] = subject;
+          } else if ((field.name === "issue_details" || field.name === "message") && body) {
+            initialValues[form.formId][field.id] = body;
+          } else {
+            initialValues[form.formId][field.id] = "";
+          }
         }
       }
     }
     setCustomValues(initialValues);
   };
 
-  const handleCustomFieldChange = (formId: string, fieldId: string, value: string) => {
+  const handleCustomFieldChange = (formId: string, fieldId: string, value: string, fieldName?: string) => {
     setCustomValues((prev) => ({
       ...prev,
       [formId]: {
@@ -122,11 +178,32 @@ export function OpenTicketPage() {
         [fieldId]: value,
       },
     }));
+
+    if (fieldName === "subject") {
+      setSubject(value);
+    } else if (fieldName === "issue_details" || fieldName === "message") {
+      setBody(value);
+    }
+
     // Clear error for this field if filled
     if (formErrors[`${formId}_${fieldId}`]) {
       setFormErrors((prev) => {
         const next = { ...prev };
         delete next[`${formId}_${fieldId}`];
+        return next;
+      });
+    }
+    if (fieldName === "subject" && formErrors.subject) {
+      setFormErrors((prev) => {
+        const next = { ...prev };
+        delete next.subject;
+        return next;
+      });
+    }
+    if ((fieldName === "issue_details" || fieldName === "message") && formErrors.body) {
+      setFormErrors((prev) => {
+        const next = { ...prev };
+        delete next.body;
         return next;
       });
     }
@@ -209,11 +286,35 @@ export function OpenTicketPage() {
       errors.topicId = "Please select a help topic.";
     }
 
-    if (!subject.trim()) {
+    let finalSubject = subject.trim();
+    let finalBody = body.trim();
+
+    // Check custom values if subject or body were entered in dynamic form fields
+    if (!finalSubject && selectedTopic?.forms) {
+      for (const form of selectedTopic.forms) {
+        const sf = form.fields?.find((f) => f.name === "subject");
+        if (sf && customValues[form.formId]?.[sf.id]) {
+          finalSubject = customValues[form.formId][sf.id].trim();
+          break;
+        }
+      }
+    }
+
+    if (!finalBody && selectedTopic?.forms) {
+      for (const form of selectedTopic.forms) {
+        const bf = form.fields?.find((f) => f.name === "issue_details" || f.name === "message");
+        if (bf && customValues[form.formId]?.[bf.id]) {
+          finalBody = customValues[form.formId][bf.id].trim();
+          break;
+        }
+      }
+    }
+
+    if (!finalSubject) {
       errors.subject = "Please enter an issue summary.";
     }
 
-    if (!body.trim()) {
+    if (!finalBody) {
       errors.body = "Please provide details regarding your issue.";
     }
 
@@ -223,7 +324,13 @@ export function OpenTicketPage() {
         for (const field of form.fields || []) {
           if (field.required && !field.disabled) {
             const val = customValues[form.formId]?.[field.id]?.trim() || "";
-            if (!val) {
+            // Special check: if field is subject or issue_details, check finalSubject/finalBody as fallback
+            const isFilled =
+              Boolean(val) ||
+              (field.name === "subject" && Boolean(finalSubject)) ||
+              ((field.name === "issue_details" || field.name === "message") && Boolean(finalBody));
+
+            if (!isFilled) {
               errors[`${form.formId}_${field.id}`] = `${field.label || field.name || "This field"} is required.`;
             }
           }
@@ -247,8 +354,8 @@ export function OpenTicketPage() {
         employeeId: user.employeeId || "",
         branchId: user.branchId || "",
         topicId,
-        subject: subject.trim(),
-        body: body.trim(),
+        subject: finalSubject,
+        body: finalBody,
         priority,
         attachments,
         formValues: customValues,
@@ -319,24 +426,31 @@ export function OpenTicketPage() {
             <ArrowLeft className="h-4 w-4" /> Home
           </Link>
           <span>/</span>
-          <span className="text-ink-800 dark:text-slate-200 font-medium">Open a Ticket</span>
+          <span className="text-ink-800 dark:text-slate-200 font-medium">Open Ticket</span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-bold text-ink-800 dark:text-white">Open a New Ticket</h1>
         <p className="text-sm text-ink-600 dark:text-slate-400">
-          Please fill out the form below to submit a support request. Required fields are marked with an asterisk (<span className="text-rose-500 font-bold">*</span>).
+          Please fill out the form below with as much detail as possible to help us address your issue promptly.
         </p>
       </div>
 
-      {/* Global Error Banner */}
+      {/* Error Alert */}
       {error && (
-        <div className="mb-6 flex items-start gap-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 p-4 text-sm text-rose-800 dark:text-rose-300 shadow-sm">
-          <AlertCircle className="h-5 w-5 shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" />
+        <div className="mb-6 flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-200">
+          <AlertCircle className="h-5 w-5 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
           <div className="flex-1 font-medium">{error}</div>
+          <button
+            type="button"
+            onClick={() => setError("")}
+            className="text-rose-600 dark:text-rose-400 hover:text-rose-800"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
       <form onSubmit={onSubmit} className="space-y-6">
-        {/* User / Requester Card */}
+        {/* User Information */}
         <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm space-y-4">
           <div className="flex items-center gap-2 border-b border-line pb-3">
             <User className="h-5 w-5 text-brand-600 dark:text-brand-400" />
@@ -460,7 +574,7 @@ export function OpenTicketPage() {
           </div>
         </div>
 
-        {/* Dynamic Custom Forms associated with Help Topic */}
+        {/* Dynamic Forms associated with Help Topic (includes Ticket Details and Custom Forms) */}
         {selectedTopic?.forms && selectedTopic.forms.length > 0 && (
           <div className="space-y-4">
             {selectedTopic.forms.map((form) => {
@@ -470,9 +584,12 @@ export function OpenTicketPage() {
               return (
                 <div key={form.formId} className="rounded-2xl border border-line bg-surface p-5 shadow-sm space-y-4">
                   <div className="border-b border-line pb-2.5">
-                    <h3 className="text-base font-semibold text-ink-800 dark:text-slate-100">
-                      {form.title || "Additional Information"}
-                    </h3>
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+                      <h3 className="text-base font-semibold text-ink-800 dark:text-slate-100">
+                        {form.title || "Additional Information"}
+                      </h3>
+                    </div>
                     {form.instructions && (
                       <p className="mt-1 text-xs text-ink-600 dark:text-slate-400 leading-relaxed">
                         {form.instructions}
@@ -483,9 +600,10 @@ export function OpenTicketPage() {
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     {activeFields.map((field) => {
                       const fieldKey = `${form.formId}_${field.id}`;
-                      const fieldError = formErrors[fieldKey];
-                      const currentValue = customValues[form.formId]?.[field.id] || "";
-                      const isFullWidth = field.type === "memo" || field.type === "textarea";
+                      const fieldError = formErrors[fieldKey] || (field.name === "subject" ? formErrors.subject : field.name === "issue_details" || field.name === "message" ? formErrors.body : undefined);
+                      const currentValue = customValues[form.formId]?.[field.id] || (field.name === "subject" ? subject : field.name === "issue_details" || field.name === "message" ? body : "");
+                      const isFullWidth = field.type === "memo" || field.type === "textarea" || isFieldHtml(field);
+                      const placeholderText = getFieldPlaceholder(field);
 
                       return (
                         <div key={field.id} className={isFullWidth ? "sm:col-span-2" : ""}>
@@ -494,22 +612,31 @@ export function OpenTicketPage() {
                             {field.required && <span className="text-rose-500 font-bold ml-1">*</span>}
                           </label>
 
-                          {/* Render based on field type */}
+                          {/* Render based on field type and configuration */}
                           {field.type === "memo" || field.type === "textarea" ? (
-                            <textarea
-                              rows={3}
-                              value={currentValue}
-                              onChange={(e) => handleCustomFieldChange(form.formId, field.id, e.target.value)}
-                              className={`${inputClass} ${fieldError ? "border-rose-500 ring-1 ring-rose-500" : ""}`}
-                              placeholder={field.hint || ""}
-                            />
+                            isFieldHtml(field) ? (
+                              <RichTextEditor
+                                value={currentValue}
+                                onChange={(val) => handleCustomFieldChange(form.formId, field.id, val, field.name)}
+                                placeholder={placeholderText || "Please provide full details, error messages, and steps to reproduce ..."}
+                                className={fieldError ? "border-rose-500 ring-1 ring-rose-500" : ""}
+                              />
+                            ) : (
+                              <textarea
+                                rows={4}
+                                value={currentValue}
+                                onChange={(e) => handleCustomFieldChange(form.formId, field.id, e.target.value, field.name)}
+                                className={`${inputClass} ${fieldError ? "border-rose-500 ring-1 ring-rose-500" : ""}`}
+                                placeholder={placeholderText}
+                              />
+                            )
                           ) : field.type === "bool" || field.type === "checkbox" ? (
                             <label className="flex items-center gap-2 cursor-pointer mt-2">
                               <input
                                 type="checkbox"
                                 checked={currentValue === "1" || currentValue === "true"}
                                 onChange={(e) =>
-                                  handleCustomFieldChange(form.formId, field.id, e.target.checked ? "1" : "0")
+                                  handleCustomFieldChange(form.formId, field.id, e.target.checked ? "1" : "0", field.name)
                                 }
                                 className="h-4 w-4 rounded border-line text-brand-600 focus:ring-brand-500"
                               />
@@ -523,7 +650,7 @@ export function OpenTicketPage() {
                             Boolean(field.listOptions && field.listOptions.length > 0) ? (
                             <select
                               value={currentValue}
-                              onChange={(e) => handleCustomFieldChange(form.formId, field.id, e.target.value)}
+                              onChange={(e) => handleCustomFieldChange(form.formId, field.id, e.target.value, field.name)}
                               className={`${inputClass} ${fieldError ? "border-rose-500 ring-1 ring-rose-500" : ""}`}
                             >
                               <option value="">— Select an option —</option>
@@ -550,24 +677,24 @@ export function OpenTicketPage() {
                             <input
                               type="number"
                               value={currentValue}
-                              onChange={(e) => handleCustomFieldChange(form.formId, field.id, e.target.value)}
+                              onChange={(e) => handleCustomFieldChange(form.formId, field.id, e.target.value, field.name)}
                               className={`${inputClass} ${fieldError ? "border-rose-500 ring-1 ring-rose-500" : ""}`}
-                              placeholder={field.hint || ""}
+                              placeholder={placeholderText}
                             />
                           ) : field.type === "date" || field.type === "datetime" ? (
                             <input
                               type="date"
                               value={currentValue}
-                              onChange={(e) => handleCustomFieldChange(form.formId, field.id, e.target.value)}
+                              onChange={(e) => handleCustomFieldChange(form.formId, field.id, e.target.value, field.name)}
                               className={`${inputClass} ${fieldError ? "border-rose-500 ring-1 ring-rose-500" : ""}`}
                             />
                           ) : (
                             <input
                               type="text"
                               value={currentValue}
-                              onChange={(e) => handleCustomFieldChange(form.formId, field.id, e.target.value)}
+                              onChange={(e) => handleCustomFieldChange(form.formId, field.id, e.target.value, field.name)}
                               className={`${inputClass} ${fieldError ? "border-rose-500 ring-1 ring-rose-500" : ""}`}
-                              placeholder={field.hint || ""}
+                              placeholder={placeholderText}
                             />
                           )}
 
@@ -587,9 +714,62 @@ export function OpenTicketPage() {
           </div>
         )}
 
-        {/* Issue Details Card */}
+        {/* Issue Details Card (rendered when not already included in custom forms) */}
+        {!hasTicketDetailsInForms && (
+          <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm space-y-4">
+            <div className="flex items-center gap-2 border-b border-line pb-3">
+              <FileText className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+              <h2 className="text-base font-semibold text-ink-800 dark:text-slate-100">
+                {ticketDetailsForm?.title || "Ticket Details"}
+              </h2>
+            </div>
 
-          
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-ink-800 dark:text-slate-200 mb-1">
+                  {subjectField?.label || "Issue Summary"} <span className="text-rose-500 font-bold">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder={subjectField ? getFieldPlaceholder(subjectField) : "e.g. Cannot access portal after password reset"}
+                  className={`${inputClass} ${formErrors.subject ? "border-rose-500 ring-1 ring-rose-500" : ""}`}
+                />
+                {formErrors.subject && (
+                  <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{formErrors.subject}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-ink-800 dark:text-slate-200 mb-1">
+                  {issueDetailsField?.label || "Issue Details"} <span className="text-rose-500 font-bold">*</span>
+                </label>
+                {issueDetailsField && isFieldHtml(issueDetailsField) ? (
+                  <RichTextEditor
+                    value={body}
+                    onChange={setBody}
+                    placeholder={getFieldPlaceholder(issueDetailsField)}
+                    className={formErrors.body ? "border-rose-500 ring-1 ring-rose-500" : ""}
+                  />
+                ) : (
+                  <textarea
+                    rows={5}
+                    required
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                    placeholder={issueDetailsField ? getFieldPlaceholder(issueDetailsField) : "Please provide full details, error messages, and steps to reproduce ..."}
+                    className={`${inputClass} ${formErrors.body ? "border-rose-500 ring-1 ring-rose-500" : ""}`}
+                  />
+                )}
+                {formErrors.body && (
+                  <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{formErrors.body}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Attachments Card */}
         <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm space-y-4">

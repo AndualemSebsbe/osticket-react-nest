@@ -18,7 +18,7 @@ export class WizardService {
    * - System / Portal config settings
    */
   async getWizardMeta() {
-    const [rawTopics, departments, priorities, rawCategories, faqs, branches, configRows] = await Promise.all([
+    const [rawTopics, departments, priorities, rawCategories, faqs, branches, configRows, ticketForm, formFields] = await Promise.all([
       this.prisma.helpTopic.findMany({
         where: { ispublic: 1 },
         orderBy: [{ sort: 'asc' }, { topic: 'asc' }],
@@ -46,6 +46,12 @@ export class WizardService {
         where: {
           namespace: { in: ['react_app_state', 'core'] },
         },
+      }),
+      this.prisma.form.findFirst({
+        where: { OR: [{ type: 'T' }, { title: 'Ticket Details' }] },
+      }),
+      this.prisma.formField.findMany({
+        orderBy: [{ sort: 'asc' }, { id: 'asc' }],
       }),
     ]);
 
@@ -108,11 +114,38 @@ export class WizardService {
       }
     }
 
+    let ticketDetailsForm: any = null;
+    if (ticketForm) {
+      ticketDetailsForm = {
+        id: asString(ticketForm.id),
+        title: ticketForm.title,
+        fields: formFields
+          .filter((f) => f.form_id === ticketForm.id)
+          .map((fld) => {
+            let config: any = {};
+            try {
+              if (fld.configuration) config = JSON.parse(fld.configuration);
+            } catch {
+              config = {};
+            }
+            return {
+              id: asString(fld.id),
+              name: fld.name,
+              label: fld.label,
+              type: fld.type,
+              hint: fld.hint || '',
+              configuration: config,
+            };
+          }),
+      };
+    }
+
     return {
       topics,
       categories,
       featuredFaqs,
       branches: formattedBranches,
+      ticketDetailsForm,
       settings: {
         helpdeskName: settings.helpdeskName || settings.helpdesk_title || 'Helpdesk Support',
         companyName: settings.companyName || settings.helpdesk_title || 'Support Center',
