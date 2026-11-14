@@ -479,10 +479,14 @@ export function StaffSearchPage() {
 
             {tab === 'criteria' ? (
               <form onSubmit={onSubmit} className="mt-4 space-y-4">
-                <Field label="Keywords">
-                  <input value={q} onChange={(event) => setQ(event.target.value)} className={inputClass} placeholder="Ticket number, subject, requester, organization, message body, or custom field value" />
+                <Field label={quickFilterField ? `${quickFilterField.label} quick filter` : 'Keywords'}>
+                  <input value={q} onChange={(event) => setQ(event.target.value)} className={inputClass} placeholder={quickFilterField ? `Search only ${quickFilterField.label.toLocaleLowerCase()}…` : 'Ticket number, subject, requester, organization, message body, or custom field value'} />
                 </Field>
-                <p className="text-xs text-ink-500">All words must match somewhere in the ticket, requester, custom fields, thread, or search index.</p>
+                <p className="text-xs text-ink-500">
+                  {quickFilterField
+                    ? `Only the ${quickFilterField.label} field is searched while this quick filter is active. Clear the quick filter to search every ticket field.`
+                    : 'All words must match somewhere in the ticket, requester, custom fields, thread, or search index.'}
+                </p>
 
                 <div className="space-y-3">
                   {criteria.map((criterion, index) => {
@@ -613,10 +617,29 @@ export function StaffSearchPage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {quickFilterField ? (
-                    <select className={inputClass + ' w-auto'} value={quickFilterValue} onChange={(event) => { const value = event.target.value; setQuickFilterValue(value); void runSearch(1, { quickFilter: quickFilter, quickFilterValue: value || undefined }) }}>
-                      <option value="">All {quickFilterField.label.toLocaleLowerCase()}</option>
-                      {quickFilterField.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                    </select>
+                    (quickFilterField.options || []).length ? (
+                      <select className={inputClass + ' w-auto'} value={quickFilterValue} onChange={(event) => { const value = event.target.value; setQuickFilterValue(value); void runSearch(1, { quickFilter: quickFilter, quickFilterValue: value || undefined }) }}>
+                        <option value="">All {quickFilterField.label.toLocaleLowerCase()}</option>
+                        {quickFilterField.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type={quickFilterField.type === 'number' ? 'number' : 'text'}
+                          className={inputClass + ' sm:w-44'}
+                          value={quickFilterValue}
+                          placeholder={`Filter by ${quickFilterField.label.toLocaleLowerCase()}`}
+                          aria-label={`Filter by ${quickFilterField.label}`}
+                          onChange={(event) => setQuickFilterValue(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter') return
+                            event.preventDefault()
+                            void runSearch(1, { quickFilter, quickFilterValue: quickFilterValue || undefined })
+                          }}
+                        />
+                        <button type="button" className={btnGhost} onClick={() => void runSearch(1, { quickFilter, quickFilterValue: quickFilterValue || undefined })}>Apply</button>
+                      </div>
+                    )
                   ) : null}
                   <button type="button" className={btnGhost} onClick={() => void exportCsv()}>Export CSV</button>
                 </div>
@@ -648,7 +671,16 @@ export function StaffSearchPage() {
                   </tbody>
                 </table>
               </div>
-              {results.tickets.length === 0 ? <p className="mt-4 text-sm text-ink-600">No tickets matched these criteria.</p> : null}
+              {results.tickets.length === 0 ? (
+                <div className="mt-4">
+                  <p className="text-sm font-medium text-ink-700">No results found.</p>
+                  <p className="mt-1 text-xs text-ink-500">
+                    {quickFilterField
+                      ? `No ticket matches “${results.keyword || quickFilterValue || '—'}” in its ${quickFilterField.label} field. Try a different ${quickFilterField.label.toLocaleLowerCase()} or remove the quick filter.`
+                      : 'Try a different keyword or remove some criteria.'}
+                  </p>
+                </div>
+              ) : null}
               {results.pages > 1 ? (
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <button type="button" className={btnGhost} disabled={results.page <= 1 || loading} onClick={() => void runSearch(results.page - 1)}>Previous</button>

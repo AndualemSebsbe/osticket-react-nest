@@ -307,6 +307,7 @@ export interface ApiAdvancedSearchOptions {
   quickFilters: Array<{
     path: string;
     label: string;
+    type: ApiSearchFieldType;
     options: ApiSearchFieldOption[];
   }>;
   statuses: Array<{ id: string; name: string; state: string }>;

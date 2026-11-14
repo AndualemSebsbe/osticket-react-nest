@@ -114,7 +114,7 @@ const OPERATORS_BY_TYPE: Record<SearchFieldType, string[]> = {
 };
 
 const DEFAULT_COLUMNS = ['number', 'subject', 'status', 'priority', 'department', 'assignee', 'updated'];
-const QUICK_FILTERS = ['status', 'priority', 'assignee', 'department', 'topic'];
+const QUICK_FILTERS = ['status', 'priority', 'assignee', 'department', 'number'];
 
 function toStr(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -747,8 +747,13 @@ export class AdvancedSearchService {
         if (bundle.fieldByPath.has(field)) criteria.push({ field, operator: 'equals', value });
       }
     }
-    if (isSet(input?.quickFilter) && isSet(input?.quickFilterValue) && bundle.fieldByPath.has(toStr(input.quickFilter))) {
-      criteria.push({ field: toStr(input.quickFilter), operator: 'equals', value: input.quickFilterValue });
+    if (isSet(input?.quickFilter) && isSet(input?.quickFilterValue)) {
+      const quickFilterPath = toStr(input.quickFilter);
+      const quickFilterDefinition = bundle.fieldByPath.get(quickFilterPath);
+      if (quickFilterDefinition) {
+        const operator = quickFilterDefinition.type === 'text' || quickFilterDefinition.type === 'number' ? 'contains' : 'equals';
+        criteria.push({ field: quickFilterPath, operator, value: input.quickFilterValue });
+      }
     }
 
     return criteria;
@@ -951,7 +956,7 @@ export class AdvancedSearchService {
       sorts: fields.map((field) => ({ path: field.path, label: field.label, type: field.type, group: field.group })),
       quickFilters: QUICK_FILTERS.map((path) => {
         const field = bundle.fieldByPath.get(path);
-        return field ? { path, label: field.label, options: field.options || [] } : null;
+        return field ? { path, label: field.label, type: field.type, options: field.options || [] } : null;
       }).filter(Boolean),
       statuses: unique(bundle.statuses.map((row) => toStr(row.state || row.name).toLocaleLowerCase())).map((state) => {
         const row = bundle.statuses.find((status) => toStr(status.state || status.name).toLocaleLowerCase() === state);
@@ -996,11 +1001,22 @@ export class AdvancedSearchService {
     const terms = keyword.split(/\s+/).map(toLower).filter(Boolean);
     const criteria = this.normalizeCriteria(effectiveInput, bundle);
     const sort = this.normalizeSort(effectiveInput.sort, bundle);
+    // When a quick filter is active, keywords must be checked against that field
+    // only (e.g. Status), instead of every ticket field.
+    const quickFilterField = isSet(effectiveInput.quickFilter) ? toStr(effectiveInput.quickFilter) : '';
+    const quickFilterDefinition = quickFilterField ? bundle.fieldByPath.get(quickFilterField) : undefined;
 
     let records = bundle.tickets.map((row) => this.buildRecord(row, bundle, keyword, staffId));
     if (terms.length) {
-      records = records.filter((record) => terms.every((term) => record.searchText.includes(term)));
-      if (keyword && records.some((record) => !record.snippet)) {
+      if (quickFilterDefinition) {
+        records = records.filter((record) => {
+          const candidates = this.fieldCandidates(record.fields.get(quickFilterDefinition.path));
+          return terms.every((term) => candidates.some((candidate) => candidate.includes(term)));
+        });
+      } else {
+        records = records.filter((record) => terms.every((term) => record.searchText.includes(term)));
+      }
+      if (!quickFilterDefinition && keyword && records.some((record) => !record.snippet)) {
         // Snippet generation is based on the first matching thread entry. The content may be in the search index.
         for (const record of records) {
           if (record.snippet) continue;
